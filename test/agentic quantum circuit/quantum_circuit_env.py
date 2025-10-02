@@ -123,17 +123,36 @@ class QuantumCircuitEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+
+        # Create a new engine for the new episode
+        self.eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
         
         # Reset the step counter
         self.current_step = 0
         
-        # Prepare the initial state: a squeezed vacuum state |0, r0>
-        prog = sf.Program(1)
+        # Prepare the initial circuit
+        prog = sf.Program(2)
         with prog.context as q:
-            Sgate(self.initial_squeezing) | q[0]
-        
+            # Initialize mode 1 with a squeezed vacuum state
+            Sgate(self.initial_squeezing) | q[1]
+
+            # Apply variable beam splitter (VBS1). 
+            # initially perfect transmitive. no entanglement
+            BSgate(0, 0) | (q[0], q[1])
+
+            # Photon-number-resolving measurement (PNR)
+            # does basically nothing
+            MeasureFock() | q[0]
+
+            # Fully reflective mirror  
+            # the mode q[1] is now q[0]
+            BSgate(np.pi/2, 0) | (q[0], q[1]) 
+
+            # the final result is q[1] becomes q[0]
+            # the squeezed mode only went into the loop      
+
         initial_state = self.eng.run(prog).state
-        self.current_dm = initial_state.dm()
+        self.current_dm = initial_state.reduced_dm(modes=[0])
         
         # Convert the initial DM to an observation
         observation = self._dm_to_observation(self.current_dm)
@@ -150,31 +169,31 @@ class QuantumCircuitEnv(gym.Env):
         # 2. Build the Strawberry Fields program for one step
         prog = sf.Program(2)
         with prog.context as q:
-            # Load the previous step's state into mode 1
-            Load(self.current_dm) | q[1]
+            # Initialize mode 1 with a squeezed vacuum state
+            Sgate(squeezing_r, 0) | q[1]
 
-            # Prepare the new input squeezed state on mode 0
-            Sgate(squeezing_r, 0) | q[0]
-
-            # Apply the variable beam splitter (VBS1)
+            # Apply variable beam splitter (VBS1).
             BSgate(theta_1, 0) | (q[0], q[1])
 
-            # Photon-number-resolving measurement (PNR) on mode 0
+            # Photon-number-resolving measurement (PNR)
             MeasureFock() | q[0]
+
+            # Fully reflective mirror  
+            # the mode q[1] is now q[0]
+            BSgate(np.pi/2, 0) | (q[0], q[1])        
         
         # 3. Run the simulation
         result = self.eng.run(prog)
-        self.eng.reset() # Reset engine for the next run
 
-        # The new state is the state of mode 1 after the interaction
-        self.current_dm = result.state.dm([1]) # Get partial trace for mode 1
+        # The new state is the state of mode 0 after the interaction
+        self.current_dm = result.state.reduced_dm(modes=[0]) # Get partial trace for mode 0
 
         # 4. Convert the new state to an observation for the agent
         observation = self._dm_to_observation(self.current_dm)
 
         # 5. Calculate the reward
         fidelities = [uhlmann_jozsa_fidelity(self.current_dm, target) for target in self.target_dms]
-        max_fidelity = np.max(fidelities) if fidelities else 0.0
+        max_fidelity = np.max(fidelities) if len(fidelities) > 0 else 0.0
         reward = max_fidelity ** self.reward_power
 
         # 6. Check for termination/truncation
