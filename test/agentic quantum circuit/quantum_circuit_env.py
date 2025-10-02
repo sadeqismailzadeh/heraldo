@@ -58,13 +58,14 @@ class QuantumCircuitEnv(gym.Env):
             low=-1.0, high=1.0, shape=(obs_size,), dtype=np.float32
         )
 
-        # ACTION SPACE: A vector [squeezing_r, BS angle].
+        # ACTION SPACE: A vector [squeezing_r, BS angle, squeezing_phase].
         # Squeezing 'r' is between 0 and 2.
         # BS angle is between 0 (perfectly transparent) and pi/2 (perfect mirror).
+        # Squeezing phase is between -pi and pi.
         self.action_space = spaces.Box(
-            low=np.array([0.0, 0.0]), 
-            high=np.array([2.0, np.pi/2]),
-            shape=(2,), 
+            low=np.array([0.0, 0.0, -np.pi]),
+            high=np.array([2.0, np.pi/2,  np.pi]),
+            shape=(3,),
             dtype=np.float32
         )
         
@@ -164,13 +165,14 @@ class QuantumCircuitEnv(gym.Env):
 
         # 1. Unpack and clip the agent's action
         squeezing_r = action[0]
-        theta_1 = action[1] 
+        theta_1 = action[1]
+        squeezing_phase = action[2]
 
         # 2. Build the Strawberry Fields program for one step
         prog = sf.Program(2)
         with prog.context as q:
             # Initialize mode 1 with a squeezed vacuum state
-            Sgate(squeezing_r, 0) | q[1]
+            Sgate(squeezing_r, squeezing_phase) | q[1]
 
             # Apply variable beam splitter (VBS1).
             BSgate(theta_1, 0) | (q[0], q[1])
