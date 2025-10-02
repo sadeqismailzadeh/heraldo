@@ -1,18 +1,18 @@
 # Import the PPO algorithm and our custom environment
 from stable_baselines3 import PPO
-from simple_navigation_env import SimpleNavigationEnv
+from random_navigation_env import RandomNavigationEnv
 import os
 # temporary fix. it may cause crashes or silently produce incorrect results
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE" 
 
 # --- 1. Create the Environment ---
 # We create the same environment again, this time to test the agent.
-env = SimpleNavigationEnv()
+env = RandomNavigationEnv()
 
 # --- 2. Load the Trained Model ---
 # Instead of creating a new model, we load the one we saved after training.
 try:
-    model = PPO.load("ppo_simple_navigation", env=env)
+    model = PPO.load("ppo_random_navigation", env=env)
 except FileNotFoundError:
     print("Error: Trained model 'ppo_simple_navigation.zip' not found.")
     print("Please run train.py first to train and save the model.")

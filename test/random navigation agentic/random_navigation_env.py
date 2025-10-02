@@ -3,11 +3,11 @@ from gymnasium import spaces
 import numpy as np
 import matplotlib.pyplot as plt
 
-class SimpleNavigationEnv(gym.Env):
+class RandomNavigationEnv(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 30}
 
     def __init__(self, max_steps=100):
-        super(SimpleNavigationEnv, self).__init__()
+        super(RandomNavigationEnv, self).__init__()
         self.max_steps = max_steps
         self.world_bounds = 10.0
 

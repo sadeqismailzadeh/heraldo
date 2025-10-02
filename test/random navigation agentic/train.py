@@ -1,10 +1,10 @@
 # Import the PPO algorithm from stable-baselines3 and our custom environment
 from stable_baselines3 import PPO
-from simple_navigation_env import SimpleNavigationEnv
+from random_navigation_env import RandomNavigationEnv
 
 # --- 1. Create the Environment ---
 # Instantiate the environment we just defined. The agent will be trained in this "world".
-env = SimpleNavigationEnv()
+env = RandomNavigationEnv()
 
 # --- 2. Instantiate the PPO Agent ---
 # We create an instance of the PPO algorithm.
