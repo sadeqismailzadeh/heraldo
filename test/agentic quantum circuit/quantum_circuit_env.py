@@ -5,7 +5,7 @@ from scipy.linalg import sqrtm
 
 # Import Strawberry Fields
 import strawberryfields as sf
-from strawberryfields.ops import Sgate, BSgate, MeasureFock, Load, Catstate, Rgate
+from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
 # --- Helper Function for Fidelity (from your code) ---
 def uhlmann_jozsa_fidelity(rho, sigma):
@@ -188,7 +188,8 @@ class QuantumCircuitEnv(gym.Env):
         result = self.eng.run(prog)
 
         # The new state is the state of mode 0 after the interaction
-        self.current_dm = result.state.reduced_dm(modes=[0]) # Get partial trace for mode 0
+        self.current_state = result.state
+        self.current_dm = self.current_state.reduced_dm(modes=[0]) # Get partial trace for mode 0
 
         # 4. Convert the new state to an observation for the agent
         observation = self._dm_to_observation(self.current_dm)
@@ -200,12 +201,14 @@ class QuantumCircuitEnv(gym.Env):
 
         # 6. Check for termination/truncation
         # The episode ends when the maximum number of steps is reached
+
+        # Give a large bonus reward if a high fidelity is achieved
         terminated = False
-        truncated = self.current_step >= self.max_steps
-        
-        # Optional: Add bonus reward if a high fidelity is achieved
         if max_fidelity > 0.95:
-             reward += 1.0 # Give a small bonus for getting close
+             terminated = True
+             reward += 10.0 
+
+        truncated = self.current_step >= self.max_steps
 
         
         # The 'info' dictionary is the standard place for diagnostic information.

@@ -11,11 +11,16 @@ from stable_baselines3 import PPO
 # Import our custom quantum environment and the fidelity function
 from quantum_circuit_env import QuantumCircuitEnv, uhlmann_jozsa_fidelity
 
+import os
+# temporary fix. it may cause crashes or silently produce incorrect results
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE" 
+
+
 # --- 1. Setup the Environment and Model ---
 
 # IMPORTANT: The parameters here (especially cutoff_dim) MUST match
 # the parameters used during training.
-CUTOFF_DIM = 15 # The same cutoff_dim used in train_quantum.py
+CUTOFF_DIM = 20 # The same cutoff_dim used in train_quantum.py
 env = QuantumCircuitEnv(cutoff_dim=CUTOFF_DIM)
 
 # Load the trained model
@@ -73,15 +78,9 @@ for episode in range(num_episodes):
 
     # --- 4. Visualize the Final State ---
     
-    # We need an SF State object to generate the Wigner function.
-    # We can create one by loading our final density matrix.
-    eng = sf.Engine("fock", backend_options={"cutoff_dim": CUTOFF_DIM})
-    prog = sf.Program(1)
-    with prog.context as q:
-        Load(final_dm) | q[0]
-    final_state = eng.run(prog).state
     
     # Generate the Wigner function plot
+    final_state = env.current_state
     xvec = np.linspace(-6, 6, 200)
     W = final_state.wigner(mode=0, xvec=xvec, pvec=xvec)
     
