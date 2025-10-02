@@ -1,0 +1,3 @@
+*.zip
+**/ppo_navigation_tensorboard/
+**/__pycache__/
