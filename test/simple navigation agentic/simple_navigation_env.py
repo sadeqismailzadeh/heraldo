@@ -111,7 +111,7 @@ class SimpleNavigationEnv(gym.Env):
 
         # 3. CHECK FOR 'terminated': Has the episode ended because the goal was reached?
         terminated = False
-        if distance_to_target < 0.5:
+        if distance_to_target < 0.1:
             terminated = True
             reward += 10.0 # Give a large bonus for successfully reaching the goal.
 

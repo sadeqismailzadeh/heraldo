@@ -14,7 +14,7 @@ env = RandomNavigationEnv()
 try:
     model = PPO.load("ppo_random_navigation", env=env)
 except FileNotFoundError:
-    print("Error: Trained model 'ppo_simple_navigation.zip' not found.")
+    print("Error: Trained model 'ppo_random_navigation.zip' not found.")
     print("Please run train.py first to train and save the model.")
     exit()
 
