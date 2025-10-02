@@ -1,6 +1,9 @@
 # Import the PPO algorithm and our custom environment
 from stable_baselines3 import PPO
 from simple_navigation_env import SimpleNavigationEnv
+import os
+# temporary fix. it may cause crashes or silently produce incorrect results
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE" 
 
 # --- 1. Create the Environment ---
 # We create the same environment again, this time to test the agent.
