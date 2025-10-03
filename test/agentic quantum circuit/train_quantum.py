@@ -11,7 +11,7 @@ from quantum_circuit_env import QuantumCircuitEnv
 # --- 1. Create the Environment ---
 # Using a smaller cutoff_dim for faster training. Increase for higher accuracy.
 # The paper mentions 10-step episodes.
-env = QuantumCircuitEnv(cutoff_dim=20, max_steps=20)
+env = QuantumCircuitEnv(cutoff_dim=25, max_steps=20)
 
 # Optional but recommended: Check if the custom environment follows the gymnasium API
 # check_env(env) 
