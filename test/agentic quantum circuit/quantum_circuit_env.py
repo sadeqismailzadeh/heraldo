@@ -20,31 +20,56 @@ from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
 
 # --- Helper Function for Fidelity (from your code) ---
-def uhlmann_jozsa_fidelity(rho, sigma):
-    """Calculates the Uhlmann-Jozsa fidelity between two density matrices."""
+def fidelity(rho, sigma):
+    """
+    Calculates the Uhlmann-Jozsa fidelity with enhanced numerical robustness.
+
+    This implementation explicitly uses eigendecomposition and includes steps to
+    handle common floating-point precision issues.
+    """
+    # --- 1. Input Validation and Conditioning ---
+    rho = np.asarray(rho, dtype=np.complex128)
+    sigma = np.asarray(sigma, dtype=np.complex128)
     
-    # Ensure inputs are numpy arrays
-    rho = np.array(rho)
-    sigma = np.array(sigma)
+    if rho.shape != sigma.shape or rho.ndim != 2 or rho.shape[0] != rho.shape[1]:
+        raise ValueError("Input density matrices must be square and have the same shape.")
+
+    # Enforce Hermiticity on inputs to remove numerical noise
+    rho = 0.5 * (rho + rho.T.conj())
+    sigma = 0.5 * (sigma + sigma.T.conj())
+
+    # --- 2. Calculate sqrt(rho) Robustly ---
+    # eigh is best for Hermitian matrices
+    e_vals_rho, e_vecs_rho = np.linalg.eigh(rho)
     
-    # Calculate the square root of rho
-    # sqrtm is the matrix square root, not element-wise
-    rho_sqrt = sqrtm(rho)
+    # Clip small negative eigenvalues to 0 due to numerical instability
+    e_vals_rho_clipped = np.maximum(e_vals_rho.real, 0)
     
-    # Calculate the product inside the trace
-    product = rho_sqrt @ sigma @ rho_sqrt
+    # Calculate square root of eigenvalues
+    sqrt_e_vals_rho = np.sqrt(e_vals_rho_clipped)
     
-    # Calculate the square root of the product
-    sqrt_product = sqrtm(product)
+    # Reconstruct sqrt(rho) = U * sqrt(D) * U_dagger
+    rho_sqrt = e_vecs_rho @ np.diag(sqrt_e_vals_rho) @ e_vecs_rho.T.conj()
     
-    # The trace of the result is the "trace distance" part
-    # We take the real part to handle potential small imaginary numerical errors
-    trace = np.trace(sqrt_product).real
+    # --- 3. Calculate the product matrix K and ensure it's Hermitian ---
+    K = rho_sqrt @ sigma @ rho_sqrt
+    K = 0.5 * (K + K.T.conj()) # Enforce Hermiticity on the result
+
+    # --- 4. Calculate Tr(sqrt(K)) Robustly ---
+    # We only need the eigenvalues of K. Use eigvalsh for efficiency.
+    e_vals_K = np.linalg.eigvalsh(K)
     
-    # Fidelity is the square of this trace
-    fidelity = trace**2
+    # Clip again before the final square root
+    e_vals_K_clipped = np.maximum(e_vals_K.real, 0)
     
-    return fidelity
+    # The trace of sqrt(K) is the sum of the square roots of K's eigenvalues
+    trace_val = np.sum(np.sqrt(e_vals_K_clipped))
+    
+    # --- 5. Calculate and Clip Final Fidelity ---
+    fidelity = trace_val**2
+    
+    # Clip the final result to the valid [0, 1] range
+    return np.clip(fidelity, 0.0, 1.0)
 
 class QuantumCircuitEnv(gym.Env):
     """
@@ -216,7 +241,7 @@ class QuantumCircuitEnv(gym.Env):
 
         # 5. Calculate the reward
         # Enable debug mode to see potential numerical issues
-        fidelities = [uhlmann_jozsa_fidelity(sigma=self.current_dm, rho=target) for target in self.target_dms]
+        fidelities = [fidelity(sigma=self.current_dm, rho=target) for target in self.target_dms]
         max_fidelity = np.max(fidelities) if len(fidelities) > 0 else 0.0
         reward = max_fidelity ** self.reward_power
 
