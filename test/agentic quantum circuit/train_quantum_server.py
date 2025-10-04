@@ -9,12 +9,14 @@ from quantum_circuit_env import QuantumCircuitEnv
 
 env = QuantumCircuitEnv(cutoff_dim=25, max_steps=10)
 
+#TODO: -O for faster training
+
 # ==============================================================================
 # === 1. SETUP GOOGLE DRIVE AND PATHS ==========================================
 # ==============================================================================
 
 # Define the base directory where everything will be saved.
-log_dir = "/content/drive/My Drive/Colab_RL_Training/QuantumCircuit/"
+log_dir = "./Train/"
 os.makedirs(log_dir, exist_ok=True)
 
 # Define a prefix for your saved model files
@@ -76,11 +78,11 @@ else:
     # n_steps: The number of steps the agent takes in the environment before it updates
     # its policy network. A larger value provides more data for each update, which
     # can lead to more stable training.
-    n_steps=50000,
+    n_steps=5000,
 
     # batch_size: During the policy update, the collected data is split into
     # mini-batches of this size.
-    batch_size=5000,
+    batch_size=500,
 
     # n_epochs: The number of times the agent will iterate over the collected data
     # during each policy update.
@@ -96,7 +98,13 @@ else:
 
     # tensorboard_log: Specifies a directory to save training logs. These can be
     # viewed with a tool called TensorBoard for detailed graphs of the training process.
-    tensorboard_log=log_dir
+    tensorboard_log=log_dir,
+
+    device="cpu",
+
+    # for debug. 
+    #TODO: remove in actual training
+    seed=42 
     )
     print("New model created.")
 
@@ -126,10 +134,13 @@ print(f"\n--- Starting/Resuming training for {TOTAL_TIMESTEPS} total timesteps -
 # The `learn` call
 # `reset_num_timesteps=False` is CRUCIAL for resuming. It ensures the step
 # counter continues from the loaded model's progress.
+
+
 model.learn(
     total_timesteps=TOTAL_TIMESTEPS,
     callback=checkpoint_callback,
-    reset_num_timesteps=False # IMPORTANT FOR RESUMING
+    reset_num_timesteps=False, # IMPORTANT FOR RESUMING
+    progress_bar = True,
 )
 
 print("\n--- Training Finished! ---")
