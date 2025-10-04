@@ -1,173 +1,50 @@
+# 1. Import the module we need to patch
+import scipy.integrate
+
+# 2. Check if the patch is needed to avoid errors
+if not hasattr(scipy.integrate, 'simps'):
+    print("Monkey patching scipy.integrate: 'simps' not found. Pointing to 'simpson'.")
+    # 3. Create the 'simps' attribute and point it to the existing 'simpson' function.
+    scipy.integrate.simps = scipy.integrate.simpson
+else:
+    print("'simps' already exists in scipy.integrate. No patch needed.")
+
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from scipy.linalg import sqrtm
+from scipy.linalg import sqrtm 
 
 # Import Strawberry Fields
 import strawberryfields as sf
 from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
-# --- Helper Function for Fidelity (from your code) ---
-def uhlmann_jozsa_fidelity(rho, sigma, debug=False):
-    """Calculates the Uhlmann-Jozsa fidelity between two density matrices.
-    
-    Args:
-        rho: First density matrix
-        sigma: Second density matrix
-        debug: If True, prints debug information about potential errors
-    
-    Returns:
-        Fidelity value between 0 and 1
-    """
-    
-    def check_density_matrix_validity(dm, name="density matrix"):
-        """Check if a matrix is a valid density matrix."""
-        errors = []
-        warnings = []
-        
-        # Check if matrix is square
-        if dm.shape[0] != dm.shape[1]:
-            errors.append(f"{name} is not square: shape {dm.shape}")
-            return errors, warnings
-        
-        # Check hermiticity
-        hermiticity_error = np.max(np.abs(dm - dm.conj().T))
-        if hermiticity_error > 1e-10:
-            warnings.append(f"{name} hermiticity error: {hermiticity_error:.2e}")
-        
-        # Check trace
-        trace = np.trace(dm)
-        trace_error = abs(trace - 1.0)
-        if trace_error > 1e-6:
-            warnings.append(f"{name} trace = {trace:.6f} (should be 1.0, error: {trace_error:.2e})")
-        
-        # Check positive semi-definiteness
-        try:
-            eigenvalues = np.linalg.eigvalsh(dm)
-            min_eigenvalue = np.min(eigenvalues)
-            if min_eigenvalue < -1e-10:
-                errors.append(f"{name} has negative eigenvalue: {min_eigenvalue:.2e}")
-            elif min_eigenvalue < -1e-14:
-                warnings.append(f"{name} has slightly negative eigenvalue: {min_eigenvalue:.2e}")
-        except np.linalg.LinAlgError as e:
-            errors.append(f"{name} eigenvalue computation failed: {e}")
-        
-        return errors, warnings
-    
-    # Ensure inputs are valid
-    if rho is None or sigma is None:
-        if debug:
-            print("ERROR: One or both density matrices are None")
-        return 0.0
-    
 
-    if debug:
-        # Validate density matrices
-        rho = np.array(rho, dtype=np.complex128)
-        sigma = np.array(sigma, dtype=np.complex128)
-        rho_errors, rho_warnings = check_density_matrix_validity(rho, "rho (first argument)")
-        sigma_errors, sigma_warnings = check_density_matrix_validity(sigma, "sigma (second argument)")
-        print("\n=== Density Matrix Validation ===")
-        if rho_errors:
-            print("ERRORS in rho (first argument):")
-            for error in rho_errors:
-                print(f"  - {error}")
-        if rho_warnings:
-            print("WARNINGS in rho (first argument):")
-            for warning in rho_warnings:
-                print(f"  - {warning}")
-        
-        if sigma_errors:
-            print("ERRORS in sigma (second argument):")
-            for error in sigma_errors:
-                print(f"  - {error}")
-        if sigma_warnings:
-            print("WARNINGS in sigma (second argument):")
-            for warning in sigma_warnings:
-                print(f"  - {warning}")
-        
-        if not rho_errors and not sigma_errors and not rho_warnings and not sigma_warnings:
-            print("Both density matrices appear valid.")
+# --- Helper Function for Fidelity (from your code) ---
+def uhlmann_jozsa_fidelity(rho, sigma):
+    """Calculates the Uhlmann-Jozsa fidelity between two density matrices."""
     
-    # Handle potential numerical instability by ensuring matrices are hermitian
-    rho_hermitian = (rho + rho.conj().T) / 2
-    sigma_hermitian = (sigma + sigma.conj().T) / 2
+    # Ensure inputs are numpy arrays
+    rho = np.array(rho)
+    sigma = np.array(sigma)
     
-    try:
-        # Calculate sqrt(rho)
-        sqrt_rho = sqrtm(rho_hermitian)
-        # Check for numerical issues in sqrt_rho
-        if debug:
-            rho_hermitian_nan = np.isnan(rho_hermitian).any()
-            rho_hermitian_inf = np.isinf(rho_hermitian).any()
-            if rho_hermitian_nan or rho_hermitian_inf:
-                print(f"\nWARNING: sqrt(rho) contains NaN={rho_hermitian_nan}, Inf={rho_hermitian_inf}")
-            sqrt_rho_nan = np.isnan(sqrt_rho).any()
-            sqrt_rho_inf = np.isinf(sqrt_rho).any()
-            if sqrt_rho_nan or sqrt_rho_inf:
-                print(f"\nWARNING: sqrt(rho) contains NaN={sqrt_rho_nan}, Inf={sqrt_rho_inf}")
-        
-        # Calculate the product
-        product = sqrt_rho @ sigma_hermitian @ sqrt_rho
-        
-        # Enforce hermiticity of product
-        product_hermitian = (product + product.conj().T) / 2
-        
-        # Check eigenvalues of product before taking sqrt
-        if debug:
-            try:
-                product_eigenvalues = np.linalg.eigvalsh(product_hermitian)
-                min_prod_eigenvalue = np.min(product_eigenvalues)
-                if min_prod_eigenvalue < -1e-10:
-                    print(f"\nWARNING: Product matrix has negative eigenvalue: {min_prod_eigenvalue:.2e}")
-                    print("This will cause issues in sqrt computation.")
-            except np.linalg.LinAlgError:
-                print("\nWARNING: Could not compute eigenvalues of product matrix")
-        
-        # Calculate sqrt of product
-        sqrt_product = sqrtm(product_hermitian)
-        
-        # Check for numerical issues in sqrt_product
-        if debug:
-            sqrt_prod_nan = np.isnan(sqrt_product).any()
-            sqrt_prod_inf = np.isinf(sqrt_product).any()
-            if sqrt_prod_nan or sqrt_prod_inf:
-                print(f"\nWARNING: sqrt(product) contains NaN={sqrt_prod_nan}, Inf={sqrt_prod_inf}")
-        
-        # Calculate trace and fidelity
-        trace_value = np.trace(sqrt_product)
-        
-        if debug:
-            print(f"\nTrace of sqrt(product): {trace_value}")
-            if np.abs(trace_value.imag) > 1e-10:
-                print(f"WARNING: Trace has significant imaginary part: {trace_value.imag:.2e}")
-        
-        # Using np.abs() handles potential small imaginary parts from numerical noise
-        fidelity = (np.abs(trace_value))**2
-        
-        # Clamp fidelity to valid range [0, 1]
-        if fidelity > 1.0:
-            if debug and fidelity > 1.001:
-                print(f"\nWARNING: Fidelity {fidelity:.6f} exceeds 1.0, clamping to 1.0")
-            fidelity = 1.0
-        elif fidelity < 0.0:
-            if debug:
-                print(f"\nERROR: Fidelity {fidelity:.6f} is negative, setting to 0.0")
-            fidelity = 0.0
-        
-        if debug:
-            print(f"\nFinal fidelity: {fidelity:.6f}")
-            print("=" * 40)
-        
-        return fidelity
-        
-    except Exception as e:
-        print(f"\nERROR in fidelity calculation: {type(e).__name__}: {e}")
-        print("Returning fidelity = 0.0")
-        if debug:
-            import traceback
-            traceback.print_exc()
-        return 0.0
+    # Calculate the square root of rho
+    # sqrtm is the matrix square root, not element-wise
+    rho_sqrt = sqrtm(rho)
+    
+    # Calculate the product inside the trace
+    product = rho_sqrt @ sigma @ rho_sqrt
+    
+    # Calculate the square root of the product
+    sqrt_product = sqrtm(product)
+    
+    # The trace of the result is the "trace distance" part
+    # We take the real part to handle potential small imaginary numerical errors
+    trace = np.trace(sqrt_product).real
+    
+    # Fidelity is the square of this trace
+    fidelity = trace**2
+    
+    return fidelity
 
 class QuantumCircuitEnv(gym.Env):
     """
@@ -230,7 +107,7 @@ class QuantumCircuitEnv(gym.Env):
             Catstate(alpha, p=0) | q[0]
             Sgate(r) | q[0]
         targets.append(temp_eng.run(prog).state.dm())
-
+        
         # Target 2: rho_minus
         prog = sf.Program(1)
         with prog.context as q:
@@ -307,7 +184,7 @@ class QuantumCircuitEnv(gym.Env):
         self.current_step += 1
 
         # 1. Unpack and clip the agent's action
-        squeezing_r = action[0]
+        squeezing_r = np.clip(action[0], 0, 2)
         theta_1 = action[1]
         squeezing_phase = action[2]
 
@@ -339,7 +216,7 @@ class QuantumCircuitEnv(gym.Env):
 
         # 5. Calculate the reward
         # Enable debug mode to see potential numerical issues
-        fidelities = [uhlmann_jozsa_fidelity(sigma=self.current_dm, rho=target, debug=False) for target in self.target_dms]
+        fidelities = [uhlmann_jozsa_fidelity(sigma=self.current_dm, rho=target) for target in self.target_dms]
         max_fidelity = np.max(fidelities) if len(fidelities) > 0 else 0.0
         reward = max_fidelity ** self.reward_power
 
@@ -348,7 +225,7 @@ class QuantumCircuitEnv(gym.Env):
 
         # Give a large bonus reward if a high fidelity is achieved
         terminated = False
-        if max_fidelity > 0.95:
+        if max_fidelity > 0.9:
              terminated = True
              reward += 10.0 
 
