@@ -7,9 +7,11 @@ from stable_baselines3.common.callbacks import CheckpointCallback
 # Import our custom quantum environment
 from quantum_circuit_env import QuantumCircuitEnv
 
-env = QuantumCircuitEnv(cutoff_dim=25, max_steps=10)
+import warnings
+from scipy.linalg import LinAlgWarning
+warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 
-#TODO: -O for faster training
+env = QuantumCircuitEnv(cutoff_dim=25, max_steps=10)
 
 # ==============================================================================
 # === 1. SETUP GOOGLE DRIVE AND PATHS ==========================================
@@ -68,7 +70,9 @@ else:
     # verbose=1 prints out training progress (rewards, episode lengths, etc.) to the console.
     verbose=1,
 
-    # --- Key Hyperparameters ---
+    # ======================================================================
+    # === KEY HYPERPARAMETERS  =============================================
+    # ======================================================================
     # These values control the learning process. Tuning them can improve performance.
 
     # gamma: The discount factor. A value close to 1 (like 0.99) makes the agent "patient",
@@ -78,11 +82,11 @@ else:
     # n_steps: The number of steps the agent takes in the environment before it updates
     # its policy network. A larger value provides more data for each update, which
     # can lead to more stable training.
-    n_steps=5000,
+    n_steps=50000,
 
     # batch_size: During the policy update, the collected data is split into
     # mini-batches of this size.
-    batch_size=500,
+    batch_size=5000,
 
     # n_epochs: The number of times the agent will iterate over the collected data
     # during each policy update.
@@ -92,9 +96,39 @@ else:
     # during each update. A smaller value leads to slower but often more stable learning.
     learning_rate=0.001,
 
-    # This is a complex problem, so we need a larger network and more experience.
+
+    # ======================================================================
+    # === NOTE: The following parameters match the library's defaults but ==
+    # === are defined explicitly here for clarity and reproducibility.   ==
+    # ======================================================================
+
+    # clip_range: A PPO-specific parameter. It clips the policy update to
+    # prevent it from changing too drastically, which ensures training stability.
+    clip_range=0.2,
+
+    # max_grad_norm: Clips the gradients of the neural network to prevent
+    # "exploding gradients," a common issue that can destabilize training.
+    max_grad_norm=0.5,
+
+    # vf_coef: The weight of the value function loss in the total loss
+    # calculation. It balances learning the policy (what to do) versus
+    # learning the value function (how good a state is).
+    vf_coef=0.5,
+
+    # ent_coef: The entropy coefficient. This encourages exploration by adding a
+    # bonus for taking more random actions. A value of 0.0 means no bonus.
+    ent_coef=0.0,
+
+
+    # ======================================================================
+    # === OTHER CONFIGURATIONS =============================================
+    # ======================================================================
+
+    # policy_kwargs: A dictionary for passing extra arguments to the policy
+    # network, such as network architecture and the optimizer.
+    # net_arch: Defines the size of the neural networks for the policy (pi)
+    # and the value function (vf).
     policy_kwargs = dict(net_arch=dict(pi=[256, 128, 64], vf=[256, 128, 64])),
-    # pi = policy network, vf = value network
 
     # tensorboard_log: Specifies a directory to save training logs. These can be
     # viewed with a tool called TensorBoard for detailed graphs of the training process.
@@ -102,9 +136,8 @@ else:
 
     device="cpu",
 
-    # for debug. 
-    #TODO: remove in actual training
-    seed=42 
+    # for debug. remove in actual training
+    # seed=42 
     )
     print("New model created.")
 
