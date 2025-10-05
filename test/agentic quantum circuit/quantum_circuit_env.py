@@ -78,7 +78,7 @@ class QuantumCircuitEnv(gym.Env):
     """
     metadata = {"render_modes": [], "render_fps": 0}
 
-    def __init__(self, cutoff_dim=20, max_steps=10, reward_power=50):
+    def __init__(self, cutoff_dim=20, max_steps=10, reward_power=50, fidelity_threshold=0.9):
         super(QuantumCircuitEnv, self).__init__()
 
         # --- Environment Parameters ---
@@ -86,6 +86,10 @@ class QuantumCircuitEnv(gym.Env):
         self.max_steps = max_steps
         self.reward_power = reward_power
         self.initial_squeezing = 1.38 # r0 from the paper
+
+        ### MODIFIED: Store the curriculum difficulty parameter ###
+        # This is the fidelity the agent must achieve to "win" the episode.
+        self.fidelity_threshold = fidelity_threshold
 
         # --- Strawberry Fields Engine ---
         self.eng = None # Will be initialized in reset()
@@ -250,7 +254,7 @@ class QuantumCircuitEnv(gym.Env):
 
         # Give a large bonus reward if a high fidelity is achieved
         terminated = False
-        if max_fidelity > 0.9:
+        if max_fidelity > self.fidelity_threshold:
              terminated = True
              reward += 10.0 
 
