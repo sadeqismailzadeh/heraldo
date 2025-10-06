@@ -31,7 +31,13 @@ warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 # It's good practice to wrap the main execution logic in a function
 def main():
     # ==============================================================================
-    # === 1. DEFINE CURRICULUM & SETUP ENVIRONMENT =================================
+    # === 1. CONFIGURATION =========================================================
+    # ==============================================================================
+    # Set this to True to use curriculum learning, False to use checkpoint resume
+    USE_CURRICULUM = False  # Toggle this flag to switch between modes
+    
+    # ==============================================================================
+    # === 2. DEFINE CURRICULUM & SETUP ENVIRONMENT =================================
     # ==============================================================================
     # Define the stages: {mean_reward_threshold: new_fidelity_goal}
     # This requires tuning! Start with thresholds you think are achievable at each stage.
@@ -46,7 +52,8 @@ def main():
     }
 
     # The starting difficulty for the environment. Make it easy!
-    STARTING_FIDELITY_THRESHOLD = 0.6
+    # Use easier starting threshold when using curriculum, harder when not
+    STARTING_FIDELITY_THRESHOLD = 0.6 if USE_CURRICULUM else 0.95
 
     N_ENVS = 3 # Or os.cpu_count() - 1
 
@@ -77,7 +84,7 @@ def main():
 
 
     # ==============================================================================
-    # === 1. SETUP GOOGLE DRIVE AND PATHS ==========================================
+    # === 3. SETUP PATHS ===========================================================
     # ==============================================================================
 
     # Define the base directory where everything will be saved.
@@ -88,124 +95,51 @@ def main():
     model_prefix = "ppo_quantum_circuit"
 
 
-    # # ==============================================================================
-    # # === 2. AUTO-RESUME LOGIC =====================================================
-    # # ==============================================================================
-    # print("--- Checking for existing checkpoints... ---")
+    # ==============================================================================
+    # === 4. AUTO-RESUME LOGIC (when not using curriculum) ========================
+    # ==============================================================================
+    latest_checkpoint = None
+    
+    if not USE_CURRICULUM:
+        print("--- Checking for existing checkpoints... ---")
 
-    # # Find all checkpoint files in the log directory that match the prefix
-    # checkpoint_files = glob.glob(os.path.join(log_dir, f"{model_prefix}_*.zip"))
-    # latest_checkpoint = None
+        # Find all checkpoint files in the log directory that match the prefix
+        checkpoint_files = glob.glob(os.path.join(log_dir, f"{model_prefix}_*.zip"))
 
-    # if checkpoint_files:
-    #     # If checkpoints exist, find the one with the highest step number
-    #     # We extract the number from the filename (e.g., "ppo_..._120000_steps.zip")
-    #     try:
-    #         latest_checkpoint = max(
-    #             checkpoint_files,
-    #             key=lambda f: int(re.search(r'_(\d+)_steps.zip', f).group(1))
-    #         )
-    #         print(f"✅ Found latest checkpoint: {os.path.basename(latest_checkpoint)}")
-    #     except (ValueError, AttributeError):
-    #         print("⚠️ Could not determine the latest checkpoint. Starting fresh.")
-    #         # This can happen if filenames are not in the expected format
-
-    # # Create or load the model
-    # if latest_checkpoint:
-    #     print("\n--- RESUMING TRAINING ---")
-    #     # Load the model from the latest checkpoint
-    #     # The environment (`env`) must be defined before this cell is run
-    #     model = PPO.load(latest_checkpoint, env=env)
-    #     print("Model loaded. Continuing from where it left off.")
-    # else:
-    #     print("\n--- STARTING NEW TRAINING ---")
-    #     # If no checkpoint was found, create a new PPO model
-    #     # The environment (`env`) must be defined before this cell is run
-    #     model = PPO(
-    #     # "MlpPolicy": This tells SB3 to use a standard neural network (Multi-Layer Perceptron)
-    #     # as the agent's "brain". This is the right choice for vector-based states like ours.
-    #     # If we had image-based states, we would use "CnnPolicy".
-    #     "MlpPolicy",
-
-    #     # The environment the agent will interact with and learn from.
-    #     env,
-
-    #     # verbose=1 prints out training progress (rewards, episode lengths, etc.) to the console.
-    #     verbose=1,
-
-    #     # ======================================================================
-    #     # === KEY HYPERPARAMETERS  =============================================
-    #     # ======================================================================
-    #     # These values control the learning process. Tuning them can improve performance.
-
-    #     # gamma: The discount factor. A value close to 1 (like 0.99) makes the agent "patient",
-    #     # caring about long-term rewards. A value close to 0 would make it "short-sighted".
-    #     gamma=0.999,
-
-    #     # n_steps: The number of steps the agent takes in the environment before it updates
-    #     # its policy network. A larger value provides more data for each update, which
-    #     # can lead to more stable training.
-    #     n_steps=8192,
-
-    #     # batch_size: During the policy update, the collected data is split into
-    #     # mini-batches of this size.
-    #     batch_size=64,
-
-    #     # n_epochs: The number of times the agent will iterate over the collected data
-    #     # during each policy update.
-    #     n_epochs=14,
-
-    #     # learning_rate: Controls how much the neural network's weights are adjusted
-    #     # during each update. A smaller value leads to slower but often more stable learning.
-    #     learning_rate=0.001,
+        if checkpoint_files:
+            # If checkpoints exist, find the one with the highest step number
+            # We extract the number from the filename (e.g., "ppo_..._120000_steps.zip")
+            try:
+                # Exclude the final model from checkpoint resume
+                checkpoint_files = [f for f in checkpoint_files if "_final.zip" not in f]
+                if checkpoint_files:
+                    latest_checkpoint = max(
+                        checkpoint_files,
+                        key=lambda f: int(re.search(r'_(\d+)_steps.zip', f).group(1))
+                    )
+                    print(f"✅ Found latest checkpoint: {os.path.basename(latest_checkpoint)}")
+            except (ValueError, AttributeError):
+                print("⚠️ Could not determine the latest checkpoint. Starting fresh.")
+                # This can happen if filenames are not in the expected format
 
 
-    #     # ======================================================================
-    #     # === NOTE: The following parameters match the library's defaults but ==
-    #     # === are defined explicitly here for clarity and reproducibility.   ==
-    #     # ======================================================================
-
-    #     # clip_range: A PPO-specific parameter. It clips the policy update to
-    #     # prevent it from changing too drastically, which ensures training stability.
-    #     clip_range=0.2,
-
-    #     # max_grad_norm: Clips the gradients of the neural network to prevent
-    #     # "exploding gradients," a common issue that can destabilize training.
-    #     max_grad_norm=0.5,
-
-    #     # vf_coef: The weight of the value function loss in the total loss
-    #     # calculation. It balances learning the policy (what to do) versus
-    #     # learning the value function (how good a state is).
-    #     vf_coef=0.5,
-
-    #     # ent_coef: The entropy coefficient. This encourages exploration by adding a
-    #     # bonus for taking more random actions. A value of 0.0 means no bonus.
-    #     ent_coef=0.0,
-
-
-    #     # ======================================================================
-    #     # === OTHER CONFIGURATIONS =============================================
-    #     # ======================================================================
-
-    #     # policy_kwargs: A dictionary for passing extra arguments to the policy
-    #     # network, such as network architecture and the optimizer.
-    #     # net_arch: Defines the size of the neural networks for the policy (pi)
-    #     # and the value function (vf).
-    #     policy_kwargs = dict(net_arch=dict(pi=[256, 128, 64], vf=[256, 128, 64])),
-
-    #     # tensorboard_log: Specifies a directory to save training logs. These can be
-    #     # viewed with a tool called TensorBoard for detailed graphs of the training process.
-    #     tensorboard_log=log_dir,
-
-    #     device="cuda",
-
-    #     # for debug. remove in actual training
-    #     # seed=42 
-    #     )
-    #     print("New model created.")
-
-
-    model = PPO(
+    # ==============================================================================
+    # === 5. CREATE OR LOAD MODEL ==================================================
+    # ==============================================================================
+    
+    # Create or load the model
+    if latest_checkpoint and not USE_CURRICULUM:
+        print("\n--- RESUMING TRAINING ---")
+        # Load the model from the latest checkpoint
+        model = PPO.load(latest_checkpoint, env=env)
+        print("Model loaded. Continuing from where it left off.")
+    else:
+        if USE_CURRICULUM:
+            print("\n--- STARTING NEW TRAINING WITH CURRICULUM ---")
+        else:
+            print("\n--- STARTING NEW TRAINING ---")
+        # If no checkpoint was found, create a new PPO model
+        model = PPO(
         # "MlpPolicy": This tells SB3 to use a standard neural network (Multi-Layer Perceptron)
         # as the agent's "brain". This is the right choice for vector-based states like ours.
         # If we had image-based states, we would use "CnnPolicy".
@@ -262,10 +196,11 @@ def main():
         # for debug. remove in actual training
         # seed=42 
         )
+        print("New model created.")
 
 
     # ==============================================================================
-    # === 3. DEFINE THE CHECKPOINT CALLBACK ========================================
+    # === 6. DEFINE CALLBACKS ======================================================
     # ==============================================================================
     # This callback will save the model every `save_freq` steps.
     # A frequency of 10,000 to 20,000 steps is a good starting point.
@@ -277,15 +212,21 @@ def main():
     save_vecnormalize=True
     )
 
-    # Callback for curriculum learning (verbose=2 for detailed debugging)
-    curriculum_callback = CurriculumCallback(curriculum_stages=CURRICULUM_STAGES, verbose=2)
-
-    # Combine both callbacks into a list
-    callback_list = CallbackList([checkpoint_callback, curriculum_callback])
+    # Conditionally set up callbacks based on USE_CURRICULUM flag
+    if USE_CURRICULUM:
+        # Callback for curriculum learning (verbose=2 for detailed debugging)
+        curriculum_callback = CurriculumCallback(curriculum_stages=CURRICULUM_STAGES, verbose=2)
+        # Combine both callbacks into a list
+        callback_list = CallbackList([checkpoint_callback, curriculum_callback])
+        print("Using curriculum learning with checkpoint saving.")
+    else:
+        # Use only checkpoint callback for regular training with resume capability
+        callback_list = checkpoint_callback
+        print("Using checkpoint-based training (no curriculum learning).")
 
 
     # ==============================================================================
-    # === 4. TRAIN THE AGENT =======================================================
+    # === 7. TRAIN THE AGENT =======================================================
     # ==============================================================================
     # Set the total number of timesteps for the entire training run
     TOTAL_TIMESTEPS = 800_000
@@ -300,7 +241,7 @@ def main():
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
         callback=callback_list,
-        reset_num_timesteps=False, # IMPORTANT FOR RESUMING
+        reset_num_timesteps=(False if latest_checkpoint else True), # IMPORTANT FOR RESUMING
         progress_bar = True,
     )
 
@@ -308,7 +249,7 @@ def main():
 
 
     # ==============================================================================
-    # === 5. SAVE THE FINAL MODEL ==================================================
+    # === 8. SAVE THE FINAL MODEL ==================================================
     # ==============================================================================
     final_model_path = os.path.join(log_dir, f"{model_prefix}_final.zip")
     model.save(final_model_path)
