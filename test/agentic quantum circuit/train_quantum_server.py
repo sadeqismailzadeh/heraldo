@@ -1,4 +1,7 @@
 import os
+import platform
+import multiprocessing as mp
+
 # ==============================================================================
 # === CRITICAL: CONTROL NUMPY THREADING FOR MULTIPROCESSING ====================
 # ==============================================================================
@@ -16,6 +19,7 @@ import glob
 import re
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList 
+from stable_baselines3.common.vec_env import SubprocVecEnv
 # NEW: Import for creating parallel environments
 from stable_baselines3.common.env_util import make_vec_env
 
@@ -33,6 +37,28 @@ def main():
     # ==============================================================================
     # === 1. CONFIGURATION =========================================================
     # ==============================================================================
+    
+    # Detect the operating system for platform-specific configurations
+    system_platform = platform.system()  # 'Windows', 'Linux'
+    print(f"--- Detected platform: {system_platform} ---")
+    
+    # Configure multiprocessing start method based on platform
+    # Windows REQUIRES 'spawn' (only option available)
+    # Linux can use 'fork' (faster, more memory efficient) or 'spawn' (safer, more isolated)
+    if system_platform == "Windows":
+        start_method = 'spawn'
+        print("Using 'spawn' start method (required for Windows)")
+    elif system_platform == "Linux":
+        # On Linux, 'fork' is faster but 'spawn' is safer for complex environments
+        # Use 'spawn' for consistency and to avoid potential issues with library state
+        start_method = 'spawn'
+        print("Using 'spawn' start method (safer for cross-platform consistency)")
+    else:  
+        # abort program if not Windows or Linux
+        raise RuntimeError(f"Unsupported platform: {system_platform}")
+
+
+    
     # Set this to True to use curriculum learning, False to use checkpoint resume
     USE_CURRICULUM = False  # Toggle this flag to switch between modes
     
@@ -56,8 +82,29 @@ def main():
     # Use easier starting power when using curriculum, harder when not
     STARTING_REWARD_POWER = 5 if USE_CURRICULUM else 50
 
-    N_ENVS = 4 # Or os.cpu_count() - 1
-
+    # ==============================================================================
+    # === MULTIPROCESSING CONFIGURATION ============================================
+    # ==============================================================================
+    
+    # Determine the number of parallel environments
+    # Leave at least one core free for the main process
+    cpu_count = mp.cpu_count()
+    # N_ENVS = max(1, cpu_count - 1)  # At least 1, at most (cpu_count - 1)
+    N_ENVS = 4  # At least 1, at most (cpu_count - 1)
+    print(f"Using {N_ENVS} parallel environments (detected {cpu_count} CPU cores)")
+    
+    # Calculate n_steps to maintain consistent total rollout buffer size
+    # Total rollout buffer = n_steps * N_ENVS
+    # We want to maintain a total of 50,000 steps in the rollout buffer
+    TOTAL_ROLLOUT_STEPS = 50000
+    N_STEPS_PER_ENV = TOTAL_ROLLOUT_STEPS // N_ENVS
+    print(f"n_steps per environment: {N_STEPS_PER_ENV} (total rollout: {N_STEPS_PER_ENV * N_ENVS} steps)")
+    
+    # Calculate batch_size proportionally to maintain similar training dynamics
+    # We want batch_size to be a divisor of (n_steps * n_envs) for efficient training
+    # Typical ratio: batch_size ≈ 0.4 * n_steps (when n_envs=4, n_steps=12500, batch_size=5000)
+    BATCH_SIZE = (N_STEPS_PER_ENV * N_ENVS) // 10  # ~10% of total rollout
+    print(f"batch_size: {BATCH_SIZE}")
 
     # Pass the starting difficulty to the environment constructor
     env = make_vec_env(
@@ -69,9 +116,10 @@ def main():
             reward_power=STARTING_REWARD_POWER  # <-- Start easy with low power
         ),
         vec_env_cls=SubprocVecEnv,
-        # On Windows and macOS, 'spawn' is the only safe start method.
-        # This is the default but we make it explicit for clarity.
-        vec_env_kwargs=dict(start_method='spawn')
+        # Use the platform-appropriate start method determined above
+        # 'spawn': Works on all platforms, creates fresh Python interpreter for each process
+        # 'fork': Linux-only, faster but can have issues with certain libraries
+        vec_env_kwargs=dict(start_method=start_method)
     )
 
     # You can add this check to be 100% sure
@@ -164,11 +212,14 @@ def main():
         # n_steps: The number of steps the agent takes in the environment before it updates
         # its policy network. A larger value provides more data for each update, which
         # can lead to more stable training.
-        n_steps=12500,
+        # This is calculated dynamically: n_steps = TOTAL_ROLLOUT_STEPS / N_ENVS
+        # to maintain a consistent total rollout buffer size regardless of N_ENVS
+        n_steps=N_STEPS_PER_ENV,
 
         # batch_size: During the policy update, the collected data is split into
         # mini-batches of this size.
-        batch_size=5000,
+        # This is calculated dynamically to maintain proportional training dynamics
+        batch_size=BATCH_SIZE,
 
         # n_epochs: The number of times the agent will iterate over the collected data
         # during each policy update.
@@ -262,5 +313,16 @@ def main():
 if __name__ == "__main__":
     # This is the crucial part. The main() function will only be called
     # when the script is executed directly.
-    from stable_baselines3.common.vec_env import SubprocVecEnv # Need this for the vec_env_cls argument
+    # 
+    # IMPORTANT FOR MULTIPROCESSING:
+    # On Windows and macOS, the 'spawn' start method requires that all imports
+    # and definitions are at module level (not inside if __name__ == "__main__").
+    # This ensures child processes can properly import everything they need.
+    # 
+    # We've moved the SubprocVecEnv import to the top of the file for this reason.
+    
+    # For Windows specifically, we need to freeze support for multiprocessing
+    if platform.system() == "Windows":
+        mp.freeze_support()
+    
     main()
