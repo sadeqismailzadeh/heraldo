@@ -19,26 +19,17 @@ import strawberryfields as sf
 from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
 
-# --- Helper Function for Fidelity (from your code) ---
-def fidelity(rho, sigma):
+# --- Helper Function for Computing Matrix Square Root ---
+def compute_matrix_sqrt(rho):
     """
-    Calculates the Uhlmann-Jozsa fidelity with enhanced numerical robustness.
-
-    This implementation explicitly uses eigendecomposition and includes steps to
-    handle common floating-point precision issues.
+    Computes the matrix square root of a density matrix robustly.
+    This can be pre-computed for target states and reused.
     """
-    # --- 1. Input Validation and Conditioning ---
     rho = np.asarray(rho, dtype=np.complex128)
-    sigma = np.asarray(sigma, dtype=np.complex128)
     
-    if rho.shape != sigma.shape or rho.ndim != 2 or rho.shape[0] != rho.shape[1]:
-        raise ValueError("Input density matrices must be square and have the same shape.")
-
-    # Enforce Hermiticity on inputs to remove numerical noise
+    # Enforce Hermiticity on input to remove numerical noise
     rho = 0.5 * (rho + rho.T.conj())
-    sigma = 0.5 * (sigma + sigma.T.conj())
-
-    # --- 2. Calculate sqrt(rho) Robustly ---
+    
     # eigh is best for Hermitian matrices
     e_vals_rho, e_vecs_rho = np.linalg.eigh(rho)
     
@@ -51,25 +42,70 @@ def fidelity(rho, sigma):
     # Reconstruct sqrt(rho) = U * sqrt(D) * U_dagger
     rho_sqrt = e_vecs_rho @ np.diag(sqrt_e_vals_rho) @ e_vecs_rho.T.conj()
     
-    # --- 3. Calculate the product matrix K and ensure it's Hermitian ---
-    K = rho_sqrt @ sigma @ rho_sqrt
-    K = 0.5 * (K + K.T.conj()) # Enforce Hermiticity on the result
+    return rho_sqrt
 
-    # --- 4. Calculate Tr(sqrt(K)) Robustly ---
-    # We only need the eigenvalues of K. Use eigvalsh for efficiency.
+# --- Optimized Fidelity Function (with pre-computed sqrt) ---
+def fidelity_with_sqrt(rho_sqrt, sigma):
+    """
+    Calculates the Uhlmann-Jozsa fidelity using pre-computed sqrt(rho).
+    This is more efficient when rho (target state) doesn't change.
+    
+    Args:
+        rho_sqrt: Pre-computed square root of the target density matrix
+        sigma: Current state density matrix
+    """
+    sigma = np.asarray(sigma, dtype=np.complex128)
+    
+    # Enforce Hermiticity on sigma
+    sigma = 0.5 * (sigma + sigma.T.conj())
+    
+    # Calculate the product matrix K and ensure it's Hermitian
+    K = rho_sqrt @ sigma @ rho_sqrt
+    K = 0.5 * (K + K.T.conj())
+    
+    # Calculate Tr(sqrt(K)) robustly
     e_vals_K = np.linalg.eigvalsh(K)
     
-    # Clip again before the final square root
+    # Clip before the final square root
     e_vals_K_clipped = np.maximum(e_vals_K.real, 0)
     
     # The trace of sqrt(K) is the sum of the square roots of K's eigenvalues
     trace_val = np.sum(np.sqrt(e_vals_K_clipped))
     
-    # --- 5. Calculate and Clip Final Fidelity ---
+    # Calculate and clip final fidelity
     fidelity = trace_val**2
     
-    # Clip the final result to the valid [0, 1] range
     return np.clip(fidelity, 0.0, 1.0)
+
+# --- Vectorized Fidelity Calculation ---
+def compute_fidelities_vectorized(target_sqrts, sigma):
+    """
+    Computes fidelities for multiple target states in a vectorized manner.
+    
+    Args:
+        target_sqrts: List of pre-computed square roots of target density matrices
+        sigma: Current state density matrix
+    
+    Returns:
+        Array of fidelity values
+    """
+    sigma = np.asarray(sigma, dtype=np.complex128)
+    sigma = 0.5 * (sigma + sigma.T.conj())
+    
+    fidelities = np.zeros(len(target_sqrts), dtype=np.float64)
+    
+    for i, rho_sqrt in enumerate(target_sqrts):
+        # Calculate the product matrix K
+        K = rho_sqrt @ sigma @ rho_sqrt
+        K = 0.5 * (K + K.T.conj())
+        
+        # Calculate eigenvalues and fidelity
+        e_vals_K = np.linalg.eigvalsh(K)
+        e_vals_K_clipped = np.maximum(e_vals_K.real, 0)
+        trace_val = np.sum(np.sqrt(e_vals_K_clipped))
+        fidelities[i] = trace_val**2
+    
+    return np.clip(fidelities, 0.0, 1.0)
 
 class QuantumCircuitEnv(gym.Env):
     """
@@ -91,9 +127,12 @@ class QuantumCircuitEnv(gym.Env):
         self.eng = None # Will be initialized in reset()
 
         # --- Pre-calculate Target States (Reward States) ---
-        print("Pre-calculating target density matrices...")
-        self.target_dms = self._initialize_target_states()
-        print("Target states initialized.")
+        print("Pre-calculating target density matrices and their square roots...")
+        self.target_dms, self.target_sqrts = self._initialize_target_states()
+        print("Target states and square roots initialized.")
+        
+        # --- Pre-allocate observation buffer for efficiency ---
+        self._obs_buffer = np.zeros(2 * self.cutoff_dim**2, dtype=np.float32)
 
         # --- Define Observation and Action Spaces ---
         # OBSERVATION SPACE: The flattened density matrix (real and imaginary parts).
@@ -119,10 +158,11 @@ class QuantumCircuitEnv(gym.Env):
         self.current_dm = None # This will hold the density matrix of mode 1
 
     def _initialize_target_states(self):
-        """Generates the four target squeezed cat state density matrices."""
+        """Generates the four target squeezed cat state density matrices and their square roots."""
         alpha = 3.0
         r = 1.38
         targets = []
+        target_sqrts = []
 
         temp_eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
         
@@ -131,14 +171,18 @@ class QuantumCircuitEnv(gym.Env):
         with prog.context as q:
             Catstate(alpha, p=0) | q[0]
             Sgate(r) | q[0]
-        targets.append(temp_eng.run(prog).state.dm())
+        dm = temp_eng.run(prog).state.dm()
+        targets.append(dm)
+        target_sqrts.append(compute_matrix_sqrt(dm))
         
         # Target 2: rho_minus
         prog = sf.Program(1)
         with prog.context as q:
             Catstate(alpha, p=1) | q[0]
             Sgate(r) | q[0]
-        targets.append(temp_eng.run(prog).state.dm())
+        dm = temp_eng.run(prog).state.dm()
+        targets.append(dm)
+        target_sqrts.append(compute_matrix_sqrt(dm))
 
         # Target 3: rho_plus_rot
         prog = sf.Program(1)
@@ -146,7 +190,9 @@ class QuantumCircuitEnv(gym.Env):
             Catstate(alpha, p=0) | q[0]
             Sgate(r) | q[0]
             Rgate(np.pi/2) | q[0]
-        targets.append(temp_eng.run(prog).state.dm())
+        dm = temp_eng.run(prog).state.dm()
+        targets.append(dm)
+        target_sqrts.append(compute_matrix_sqrt(dm))
         
         # Target 4: rho_minus_rot
         prog = sf.Program(1)
@@ -154,18 +200,25 @@ class QuantumCircuitEnv(gym.Env):
             Catstate(alpha, p=1) | q[0]
             Sgate(r) | q[0]
             Rgate(np.pi/2) | q[0]
-        targets.append(temp_eng.run(prog).state.dm())
+        dm = temp_eng.run(prog).state.dm()
+        targets.append(dm)
+        target_sqrts.append(compute_matrix_sqrt(dm))
         
-        return targets
+        return targets, target_sqrts
 
     def _dm_to_observation(self, dm):
-        """Converts a density matrix to a flattened observation vector."""
+        """Converts a density matrix to a flattened observation vector using pre-allocated buffer."""
         if dm is None or dm.shape != (self.cutoff_dim, self.cutoff_dim):
-             # Return a zero vector if DM is invalid
-            return np.zeros(2 * self.cutoff_dim**2, dtype=np.float32)
-        real_part = dm.real.flatten()
-        imag_part = dm.imag.flatten()
-        return np.concatenate([real_part, imag_part]).astype(np.float32)
+            # Return a zero vector if DM is invalid
+            self._obs_buffer.fill(0)
+            return self._obs_buffer.copy()
+        
+        # Use pre-allocated buffer for efficiency
+        cutoff_sq = self.cutoff_dim**2
+        self._obs_buffer[:cutoff_sq] = dm.real.flatten()
+        self._obs_buffer[cutoff_sq:] = dm.imag.flatten()
+        
+        return self._obs_buffer.copy()
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -239,10 +292,9 @@ class QuantumCircuitEnv(gym.Env):
         # 4. Convert the new state to an observation for the agent
         observation = self._dm_to_observation(self.current_dm)
 
-        # 5. Calculate the reward
-        # Enable debug mode to see potential numerical issues
-        fidelities = [fidelity(sigma=self.current_dm, rho=target) for target in self.target_dms]
-        max_fidelity = np.max(fidelities) if len(fidelities) > 0 else 0.0
+        # 5. Calculate the reward using vectorized fidelity calculation
+        fidelities = compute_fidelities_vectorized(self.target_sqrts, self.current_dm)
+        max_fidelity = np.max(fidelities)
         reward = max_fidelity ** self.reward_power
 
         # 6. Check for termination/truncation
