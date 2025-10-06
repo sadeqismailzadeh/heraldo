@@ -8,12 +8,12 @@ import multiprocessing as mp
 # Set these environment variables BEFORE importing numpy, sf, or sb3.
 # This prevents NumPy's backend from creating a thread storm when using
 # multiple environments in parallel. We want each process to use only ONE core.
-# print("--- Configuring thread limits for NumPy/OpenBLAS/MKL ---")
-# os.environ['OMP_NUM_THREADS'] = '1'
-# os.environ['OPENBLAS_NUM_THREADS'] = '1'
-# os.environ['MKL_NUM_THREADS'] = '1'
-# os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
-# os.environ['NUMEXPR_NUM_THREADS'] = '1'
+print("--- Configuring thread limits for NumPy/OpenBLAS/MKL ---")
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 import glob
 import re
