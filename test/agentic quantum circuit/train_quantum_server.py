@@ -56,7 +56,7 @@ def main():
     # Use easier starting power when using curriculum, harder when not
     STARTING_REWARD_POWER = 5 if USE_CURRICULUM else 50
 
-    N_ENVS = 3 # Or os.cpu_count() - 1
+    N_ENVS = 4 # Or os.cpu_count() - 1
 
 
     # Pass the starting difficulty to the environment constructor
@@ -164,19 +164,19 @@ def main():
         # n_steps: The number of steps the agent takes in the environment before it updates
         # its policy network. A larger value provides more data for each update, which
         # can lead to more stable training.
-        n_steps=8192,
+        n_steps=12500,
 
         # batch_size: During the policy update, the collected data is split into
         # mini-batches of this size.
-        batch_size=64,
+        batch_size=5000,
 
         # n_epochs: The number of times the agent will iterate over the collected data
         # during each policy update.
-        n_epochs=10,
+        n_epochs=14,
 
         # learning_rate: Controls how much the neural network's weights are adjusted
         # during each update. A smaller value leads to slower but often more stable learning.
-        learning_rate=3e-4,
+        learning_rate=0.001,
 
         # ======================================================================
         # === OTHER CONFIGURATIONS =============================================
@@ -230,7 +230,7 @@ def main():
     # === 7. TRAIN THE AGENT =======================================================
     # ==============================================================================
     # Set the total number of timesteps for the entire training run
-    TOTAL_TIMESTEPS = 800_000
+    TOTAL_TIMESTEPS = 7_000_000
 
     print(f"\n--- Starting/Resuming training for {TOTAL_TIMESTEPS} total timesteps ---")
 
