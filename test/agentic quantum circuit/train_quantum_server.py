@@ -8,12 +8,12 @@ import multiprocessing as mp
 # Set these environment variables BEFORE importing numpy, sf, or sb3.
 # This prevents NumPy's backend from creating a thread storm when using
 # multiple environments in parallel. We want each process to use only ONE core.
-print("--- Configuring thread limits for NumPy/OpenBLAS/MKL ---")
-os.environ['OMP_NUM_THREADS'] = '1'
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-os.environ['MKL_NUM_THREADS'] = '1'
-os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
-os.environ['NUMEXPR_NUM_THREADS'] = '1'
+# print("--- Configuring thread limits for NumPy/OpenBLAS/MKL ---")
+# os.environ['OMP_NUM_THREADS'] = '1'
+# os.environ['OPENBLAS_NUM_THREADS'] = '1'
+# os.environ['MKL_NUM_THREADS'] = '1'
+# os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+# os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 import glob
 import re
@@ -26,6 +26,7 @@ from stable_baselines3.common.env_util import make_vec_env
 # Import our custom quantum environment
 from quantum_circuit_env import QuantumCircuitEnv
 from curriculum_callback import CurriculumCallback
+from thread_manager_callback import ThreadManagerCallback
 
 import warnings
 from scipy.linalg import LinAlgWarning
@@ -116,6 +117,7 @@ def main():
     # === 4. AUTO-RESUME LOGIC (when not using curriculum) ========================
     # ==============================================================================
     latest_checkpoint = None
+    current_steps = 0
     
     if not USE_CURRICULUM:
         print("--- Checking for existing checkpoints... ---")
@@ -134,6 +136,8 @@ def main():
                         checkpoint_files,
                         key=lambda f: int(re.search(r'_(\d+)_steps.zip', f).group(1))
                     )
+                    # --- NEW: PARSE THE STEP COUNT FROM THE FILENAME ---
+                    current_steps = int(re.search(r'_(\d+)_steps.zip', latest_checkpoint).group(1))
                     print(f"✅ Found latest checkpoint: {os.path.basename(latest_checkpoint)}")
             except (ValueError, AttributeError):
                 print("⚠️ Could not determine the latest checkpoint. Starting fresh.")
@@ -232,26 +236,42 @@ def main():
     save_vecnormalize=True
     )
 
+
+    # NEW: Add the thread management callback
+    # It's good practice to get the cpu_count once and reuse it
+    # num_cpus = mp.cpu_count()
+    num_cpus = 4
+    print(f"--- Configuring dynamic threading ---")
+    print(f"Threads during rollout: 1")
+    print(f"Threads during model update: {num_cpus}")
+
+    thread_manager_callback = ThreadManagerCallback(rollout_threads=1, update_threads=num_cpus, verbose=1)
+
     # Conditionally set up callbacks based on USE_CURRICULUM flag
     if USE_CURRICULUM:
         # Callback for curriculum learning (verbose=2 for detailed debugging)
         curriculum_callback = CurriculumCallback(curriculum_stages=CURRICULUM_STAGES, verbose=2)
-        # Combine both callbacks into a list
-        callback_list = CallbackList([checkpoint_callback, curriculum_callback])
-        print("Using curriculum learning with checkpoint saving.")
+        # Combine all callbacks into a list
+        callback_list = CallbackList([checkpoint_callback, curriculum_callback, thread_manager_callback])
+        print("Using curriculum learning with checkpoint saving and dynamic threading.")
     else:
-        # Use only checkpoint callback for regular training with resume capability
-        callback_list = checkpoint_callback
-        print("Using checkpoint-based training (no curriculum learning).")
-
+        # Combine checkpoint and thread callbacks
+        callback_list = CallbackList([checkpoint_callback, thread_manager_callback])
+        print("Using checkpoint-based training with dynamic threading (no curriculum learning).")
 
     # ==============================================================================
     # === 7. TRAIN THE AGENT =======================================================
     # ==============================================================================
     # Set the total number of timesteps for the entire training run
-    TOTAL_TIMESTEPS = 7_000_000
+    TARGET_TIMESTEPS = 7_000_000
+    # --- NEW: CALCULATE THE REMAINING STEPS TO TRAIN ---
+    remaining_timesteps = TARGET_TIMESTEPS - current_steps
 
-    print(f"\n--- Starting/Resuming training for {TOTAL_TIMESTEPS} total timesteps ---")
+    print(f"\n--- Starting/Resuming training ---")
+    print(f"Total timesteps: {TARGET_TIMESTEPS}")
+    print(f"Current timesteps: {current_steps}")
+    print(f"Remaining timesteps to learn: {remaining_timesteps}")
+
 
     # The `learn` call
     # `reset_num_timesteps=False` is CRUCIAL for resuming. It ensures the step
@@ -259,7 +279,7 @@ def main():
 
 
     model.learn(
-        total_timesteps=TOTAL_TIMESTEPS,
+        total_timesteps=remaining_timesteps,
         callback=callback_list,
         reset_num_timesteps=(False if latest_checkpoint else True), # IMPORTANT FOR RESUMING
         progress_bar = True,
