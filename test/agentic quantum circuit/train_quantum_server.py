@@ -39,21 +39,22 @@ def main():
     # ==============================================================================
     # === 2. DEFINE CURRICULUM & SETUP ENVIRONMENT =================================
     # ==============================================================================
-    # Define the stages: {mean_reward_threshold: new_fidelity_goal}
+    # Define the stages: {mean_reward_threshold: new_reward_power}
     # This requires tuning! Start with thresholds you think are achievable at each stage.
-    # The rewards are high due to the reward bonus (10.0) on success.
-    # Note: With the bonus reward structure, achieving fidelity gives +10 reward
-    # So we need to gradually increase difficulty based on consistent performance
+    # The reward is calculated as: max_fidelity ** reward_power
+    # Higher reward_power makes it harder to get high rewards (sharper curve)
+    # Lower reward_power makes it easier to get rewards (flatter curve)
+    # Start with low power (easy) and gradually increase to make learning harder
     CURRICULUM_STAGES = {
-        5.0: 0.65,  # When mean reward >= 5.0, set goal to 0.65 fidelity
-        7.0: 0.75,  # When mean reward >= 7.0, set goal to 0.75 fidelity
-        8.5: 0.85,  # When mean reward >= 8.5, set goal to 0.85 fidelity
-        9.5: 0.95   # When mean reward >= 9.5, set goal to the final 0.95 fidelity
+        0.5: 10,   # When mean reward >= 0.5, increase power to 10
+        0.7: 20,   # When mean reward >= 0.7, increase power to 20
+        0.85: 30,  # When mean reward >= 0.85, increase power to 30
+        0.95: 50   # When mean reward >= 0.95, increase power to final 50
     }
 
-    # The starting difficulty for the environment. Make it easy!
-    # Use easier starting threshold when using curriculum, harder when not
-    STARTING_FIDELITY_THRESHOLD = 0.6 if USE_CURRICULUM else 0.95
+    # The starting reward_power for the environment. Make it easy!
+    # Use easier starting power when using curriculum, harder when not
+    STARTING_REWARD_POWER = 5 if USE_CURRICULUM else 50
 
     N_ENVS = 3 # Or os.cpu_count() - 1
 
@@ -65,7 +66,7 @@ def main():
         env_kwargs=dict(
             cutoff_dim=25,
             max_steps=10,
-            fidelity_threshold=STARTING_FIDELITY_THRESHOLD # <-- Start easy
+            reward_power=STARTING_REWARD_POWER  # <-- Start easy with low power
         ),
         vec_env_cls=SubprocVecEnv,
         # On Windows and macOS, 'spawn' is the only safe start method.

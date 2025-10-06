@@ -4,14 +4,14 @@ import numpy as np
 class CurriculumCallback(BaseCallback):
     """
     A stateful callback to implement curriculum learning one stage at a time.
-    It increases the environment's difficulty (fidelity_threshold) only when the
+    It increases the environment's difficulty (reward_power) only when the
     agent's performance (mean reward) exceeds the threshold for the *current* stage.
     """
     def __init__(self, curriculum_stages, verbose=1):
         """
         :param curriculum_stages: A dictionary where keys are the mean reward
-                                  to achieve and values are the new fidelity_threshold.
-                                  Example: {5.0: 0.5, 8.0: 0.7, 10.0: 0.9}
+                                  to achieve and values are the new reward_power.
+                                  Example: {0.5: 10, 0.7: 20, 0.85: 30, 0.95: 50}
         """
         super(CurriculumCallback, self).__init__(verbose)
         
@@ -64,10 +64,10 @@ class CurriculumCallback(BaseCallback):
             
             # Add debug logging to see what's happening
             if self.verbose > 1:
-                current_fidelity = self.training_env.get_attr('fidelity_threshold')[0]
+                current_power = self.training_env.get_attr('reward_power')[0]
                 print(f"[Curriculum] Stage {self.current_stage_idx + 1}/{len(self.stages)}: "
                       f"Current reward: {current_reward:.3f}, Threshold: {reward_threshold:.3f}, "
-                      f"Current fidelity goal: {current_fidelity:.3f}")
+                      f"Current reward_power: {current_power}")
 
             # 4. Check if the agent has mastered the current stage.
             if current_reward >= reward_threshold:
@@ -75,14 +75,14 @@ class CurriculumCallback(BaseCallback):
                     print("\n" + "="*60)
                     print(f"✅ CURRICULUM ADVANCEMENT: Mean reward {current_reward:.2f} > threshold {reward_threshold:.2f}.")
                     print(f"   Stage {self.current_stage_idx + 1}/{len(self.stages)} complete. Promoting to next difficulty.")
-                    print(f"   Fidelity Threshold: {self.training_env.get_attr('fidelity_threshold')[0]:.2f} -> {new_difficulty:.2f}")
+                    print(f"   Reward Power: {self.training_env.get_attr('reward_power')[0]} -> {new_difficulty}")
                     print("="*60)
 
                 # 5. Apply the new difficulty to all parallel environments.
-                self.training_env.set_attr('fidelity_threshold', new_difficulty)
+                self.training_env.set_attr('reward_power', new_difficulty)
                 
                 # Log the new difficulty to TensorBoard for tracking.
-                self.logger.record("curriculum/fidelity_threshold", new_difficulty)
+                self.logger.record("curriculum/reward_power", new_difficulty)
                 self.logger.record("curriculum/stage_index", self.current_stage_idx + 1)
 
                 # 6. CRUCIAL: Increment the stage index so we look for the next goal.

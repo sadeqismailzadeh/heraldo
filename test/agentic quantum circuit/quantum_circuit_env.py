@@ -78,18 +78,14 @@ class QuantumCircuitEnv(gym.Env):
     """
     metadata = {"render_modes": [], "render_fps": 0}
 
-    def __init__(self, cutoff_dim=20, max_steps=10, reward_power=50, fidelity_threshold=0.9):
+    def __init__(self, cutoff_dim=20, max_steps=10, reward_power=50):
         super(QuantumCircuitEnv, self).__init__()
 
         # --- Environment Parameters ---
         self.cutoff_dim = cutoff_dim
         self.max_steps = max_steps
-        self.reward_power = reward_power
+        self.reward_power = reward_power  # Controls reward curve steepness (higher = harder)
         self.initial_squeezing = 1.38 # r0 from the paper
-
-        ### MODIFIED: Store the curriculum difficulty parameter ###
-        # This is the fidelity the agent must achieve to "win" the episode.
-        self.fidelity_threshold = fidelity_threshold
 
         # --- Strawberry Fields Engine ---
         self.eng = None # Will be initialized in reset()
@@ -252,18 +248,19 @@ class QuantumCircuitEnv(gym.Env):
         # 6. Check for termination/truncation
         # The episode ends when the maximum number of steps is reached
 
-        # Give a large bonus reward if a high fidelity is achieved
-        terminated = False
-        if max_fidelity > self.fidelity_threshold:
-             terminated = True
-             reward += 10.0 
+        # The episode is NEVER terminated early by the environment.
+        # The agent must learn to stabilize a high-fidelity state.
+        terminated = False 
 
         truncated = self.current_step >= self.max_steps
 
         
         # The 'info' dictionary is the standard place for diagnostic information.
         # result.samples[0][0] holds the measured photon number from q[0].
-        info = {'measured_photons': result.samples[0][0]}
+        info = {
+                'measured_photons': result.samples[0][0],
+                'max_fidelity': max_fidelity  # It's good practice to log this
+                }
 
         return observation, reward, terminated, truncated, info
 
