@@ -36,17 +36,19 @@ def main():
     # Define the stages: {mean_reward_threshold: new_fidelity_goal}
     # This requires tuning! Start with thresholds you think are achievable at each stage.
     # The rewards are high due to the reward bonus (10.0) on success.
+    # Note: With the bonus reward structure, achieving fidelity gives +10 reward
+    # So we need to gradually increase difficulty based on consistent performance
     CURRICULUM_STAGES = {
-        2.0: 0.5,   # When mean reward > 2.0, set goal to 0.5 fidelity
-        5.0: 0.7,   # When mean reward > 5.0, set goal to 0.7 fidelity
-        8.0: 0.85,  # When mean reward > 8.0, set goal to 0.85 fidelity
-        10.0: 0.95  # When mean reward > 10.0, set goal to the final 0.95 fidelity
+        5.0: 0.65,  # When mean reward >= 5.0, set goal to 0.65 fidelity
+        7.0: 0.75,  # When mean reward >= 7.0, set goal to 0.75 fidelity
+        8.5: 0.85,  # When mean reward >= 8.5, set goal to 0.85 fidelity
+        9.5: 0.95   # When mean reward >= 9.5, set goal to the final 0.95 fidelity
     }
 
     # The starting difficulty for the environment. Make it easy!
-    STARTING_FIDELITY_THRESHOLD = 0.3
+    STARTING_FIDELITY_THRESHOLD = 0.6
 
-    N_ENVS = 4 # Or os.cpu_count() - 1
+    N_ENVS = 3 # Or os.cpu_count() - 1
 
 
     # Pass the starting difficulty to the environment constructor
@@ -275,8 +277,8 @@ def main():
     save_vecnormalize=True
     )
 
-    # Callback for curriculum learning
-    curriculum_callback = CurriculumCallback(curriculum_stages=CURRICULUM_STAGES, verbose=1)
+    # Callback for curriculum learning (verbose=2 for detailed debugging)
+    curriculum_callback = CurriculumCallback(curriculum_stages=CURRICULUM_STAGES, verbose=2)
 
     # Combine both callbacks into a list
     callback_list = CallbackList([checkpoint_callback, curriculum_callback])

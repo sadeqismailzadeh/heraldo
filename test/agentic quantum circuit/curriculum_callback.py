@@ -22,6 +22,11 @@ class CurriculumCallback(BaseCallback):
         
         # 2. Add state to track our current position in the curriculum.
         self.current_stage_idx = 0
+        
+        # 3. Track when we last advanced to prevent multiple rapid advancements
+        self.last_advancement_step = 0
+        # Require at least this many steps at new difficulty before advancing again
+        self.min_steps_between_advancements = 2  # At least 2 rollouts at new difficulty
 
     def _on_step(self) -> bool:
         # Check if we should evaluate for a curriculum update.
@@ -35,7 +40,18 @@ class CurriculumCallback(BaseCallback):
         
         # 1. Check if the curriculum is already complete.
         if self.current_stage_idx >= len(self.stages):
-            # No more stages left, do nothing.
+            if self.verbose > 0:
+                print(f"[Curriculum] All stages complete! ({self.current_stage_idx}/{len(self.stages)})")
+            return
+        
+        # 1.5. Calculate how many rollouts have passed since last advancement
+        current_rollout = self.num_timesteps // self.model.n_steps
+        rollouts_since_advancement = current_rollout - self.last_advancement_step
+        
+        # Don't advance too quickly - require performance at the new difficulty level
+        if rollouts_since_advancement < self.min_steps_between_advancements:
+            if self.verbose > 1:
+                print(f"[Curriculum] Waiting for stability: {rollouts_since_advancement}/{self.min_steps_between_advancements} rollouts at current difficulty")
             return
 
         # 2. Get the requirements for the VERY NEXT stage only.
@@ -45,9 +61,16 @@ class CurriculumCallback(BaseCallback):
         # The logger stores the mean reward of the last 100 episodes.
         if 'rollout/ep_rew_mean' in self.model.logger.name_to_value:
             current_reward = self.model.logger.name_to_value['rollout/ep_rew_mean']
+            
+            # Add debug logging to see what's happening
+            if self.verbose > 1:
+                current_fidelity = self.training_env.get_attr('fidelity_threshold')[0]
+                print(f"[Curriculum] Stage {self.current_stage_idx + 1}/{len(self.stages)}: "
+                      f"Current reward: {current_reward:.3f}, Threshold: {reward_threshold:.3f}, "
+                      f"Current fidelity goal: {current_fidelity:.3f}")
 
             # 4. Check if the agent has mastered the current stage.
-            if current_reward > reward_threshold:
+            if current_reward >= reward_threshold:
                 if self.verbose > 0:
                     print("\n" + "="*60)
                     print(f"✅ CURRICULUM ADVANCEMENT: Mean reward {current_reward:.2f} > threshold {reward_threshold:.2f}.")
@@ -64,3 +87,6 @@ class CurriculumCallback(BaseCallback):
 
                 # 6. CRUCIAL: Increment the stage index so we look for the next goal.
                 self.current_stage_idx += 1
+                
+                # 7. Record when we advanced to prevent rapid successive advancements
+                self.last_advancement_step = self.num_timesteps // self.model.n_steps
