@@ -77,35 +77,6 @@ def fidelity_with_sqrt(rho_sqrt, sigma):
     
     return np.clip(fidelity, 0.0, 1.0)
 
-# --- Vectorized Fidelity Calculation ---
-def compute_fidelities_vectorized(target_sqrts, sigma):
-    """
-    Computes fidelities for multiple target states in a vectorized manner.
-    
-    Args:
-        target_sqrts: List of pre-computed square roots of target density matrices
-        sigma: Current state density matrix
-    
-    Returns:
-        Array of fidelity values
-    """
-    sigma = np.asarray(sigma, dtype=np.complex128)
-    sigma = 0.5 * (sigma + sigma.T.conj())
-    
-    fidelities = np.zeros(len(target_sqrts), dtype=np.float64)
-    
-    for i, rho_sqrt in enumerate(target_sqrts):
-        # Calculate the product matrix K
-        K = rho_sqrt @ sigma @ rho_sqrt
-        K = 0.5 * (K + K.T.conj())
-        
-        # Calculate eigenvalues and fidelity
-        e_vals_K = np.linalg.eigvalsh(K)
-        e_vals_K_clipped = np.maximum(e_vals_K.real, 0)
-        trace_val = np.sum(np.sqrt(e_vals_K_clipped))
-        fidelities[i] = trace_val**2
-    
-    return np.clip(fidelities, 0.0, 1.0)
 
 class QuantumCircuitEnv(gym.Env):
     """
@@ -292,8 +263,8 @@ class QuantumCircuitEnv(gym.Env):
         # 4. Convert the new state to an observation for the agent
         observation = self._dm_to_observation(self.current_dm)
 
-        # 5. Calculate the reward using vectorized fidelity calculation
-        fidelities = compute_fidelities_vectorized(self.target_sqrts, self.current_dm)
+        # 5. Calculate the reward by computing fidelities for all target states
+        fidelities = np.array([fidelity_with_sqrt(sqrt, self.current_dm) for sqrt in self.target_sqrts])
         max_fidelity = np.max(fidelities)
         reward = max_fidelity ** self.reward_power
 
