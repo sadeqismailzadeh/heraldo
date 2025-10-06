@@ -37,26 +37,6 @@ def main():
     # ==============================================================================
     # === 1. CONFIGURATION =========================================================
     # ==============================================================================
-    
-    # Detect the operating system for platform-specific configurations
-    system_platform = platform.system()  # 'Windows', 'Linux'
-    print(f"--- Detected platform: {system_platform} ---")
-    
-    # Configure multiprocessing start method based on platform
-    # Windows REQUIRES 'spawn' (only option available)
-    # Linux can use 'fork' (faster, more memory efficient) or 'spawn' (safer, more isolated)
-    if system_platform == "Windows":
-        start_method = 'spawn'
-        print("Using 'spawn' start method (required for Windows)")
-    elif system_platform == "Linux":
-        # On Linux, 'fork' is faster but 'spawn' is safer for complex environments
-        # Use 'spawn' for consistency and to avoid potential issues with library state
-        start_method = 'spawn'
-        print("Using 'spawn' start method (safer for cross-platform consistency)")
-    else:  
-        # abort program if not Windows or Linux
-        raise RuntimeError(f"Unsupported platform: {system_platform}")
-
 
     
     # Set this to True to use curriculum learning, False to use checkpoint resume
@@ -93,18 +73,6 @@ def main():
     N_ENVS = 4  # At least 1, at most (cpu_count - 1)
     print(f"Using {N_ENVS} parallel environments (detected {cpu_count} CPU cores)")
     
-    # Calculate n_steps to maintain consistent total rollout buffer size
-    # Total rollout buffer = n_steps * N_ENVS
-    # We want to maintain a total of 50,000 steps in the rollout buffer
-    TOTAL_ROLLOUT_STEPS = 50000
-    N_STEPS_PER_ENV = TOTAL_ROLLOUT_STEPS // N_ENVS
-    print(f"n_steps per environment: {N_STEPS_PER_ENV} (total rollout: {N_STEPS_PER_ENV * N_ENVS} steps)")
-    
-    # Calculate batch_size proportionally to maintain similar training dynamics
-    # We want batch_size to be a divisor of (n_steps * n_envs) for efficient training
-    # Typical ratio: batch_size ≈ 0.4 * n_steps (when n_envs=4, n_steps=12500, batch_size=5000)
-    BATCH_SIZE = (N_STEPS_PER_ENV * N_ENVS) // 10  # ~10% of total rollout
-    print(f"batch_size: {BATCH_SIZE}")
 
     # Pass the starting difficulty to the environment constructor
     env = make_vec_env(
@@ -119,7 +87,7 @@ def main():
         # Use the platform-appropriate start method determined above
         # 'spawn': Works on all platforms, creates fresh Python interpreter for each process
         # 'fork': Linux-only, faster but can have issues with certain libraries
-        vec_env_kwargs=dict(start_method=start_method)
+        vec_env_kwargs=dict(start_method='spawn')
     )
 
     # You can add this check to be 100% sure
@@ -214,12 +182,12 @@ def main():
         # can lead to more stable training.
         # This is calculated dynamically: n_steps = TOTAL_ROLLOUT_STEPS / N_ENVS
         # to maintain a consistent total rollout buffer size regardless of N_ENVS
-        n_steps=N_STEPS_PER_ENV,
+        n_steps=12500,
 
         # batch_size: During the policy update, the collected data is split into
         # mini-batches of this size.
         # This is calculated dynamically to maintain proportional training dynamics
-        batch_size=BATCH_SIZE,
+        batch_size=5000,
 
         # n_epochs: The number of times the agent will iterate over the collected data
         # during each policy update.
@@ -313,16 +281,5 @@ def main():
 if __name__ == "__main__":
     # This is the crucial part. The main() function will only be called
     # when the script is executed directly.
-    # 
-    # IMPORTANT FOR MULTIPROCESSING:
-    # On Windows and macOS, the 'spawn' start method requires that all imports
-    # and definitions are at module level (not inside if __name__ == "__main__").
-    # This ensures child processes can properly import everything they need.
-    # 
-    # We've moved the SubprocVecEnv import to the top of the file for this reason.
-    
-    # For Windows specifically, we need to freeze support for multiprocessing
-    if platform.system() == "Windows":
-        mp.freeze_support()
     
     main()
