@@ -25,13 +25,15 @@ from stable_baselines3.common.env_util import make_vec_env
 
 # Import our custom quantum environment
 from quantum_circuit_env import QuantumCircuitEnv
-from curriculum_callback import CurriculumCallback
 from thread_manager_callback import ThreadManagerCallback
 
 import warnings
 from scipy.linalg import LinAlgWarning
 warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 
+#TODO ste representation: upper half of density matrix
+# TODO action reward float64?
+#TODO move trained models
 
 # It's good practice to wrap the main execution logic in a function
 def main():
@@ -39,32 +41,11 @@ def main():
     # === 1. CONFIGURATION =========================================================
     # ==============================================================================
 
-    
-    # Set this to True to use curriculum learning, False to use checkpoint resume
-    USE_CURRICULUM = False  # Toggle this flag to switch between modes
-    
-    # ==============================================================================
-    # === 2. DEFINE CURRICULUM & SETUP ENVIRONMENT =================================
-    # ==============================================================================
-    # Define the stages: {mean_reward_threshold: new_reward_power}
-    # This requires tuning! Start with thresholds you think are achievable at each stage.
-    # The reward is calculated as: max_fidelity ** reward_power
-    # Higher reward_power makes it harder to get high rewards (sharper curve)
-    # Lower reward_power makes it easier to get rewards (flatter curve)
-    # Start with low power (easy) and gradually increase to make learning harder
-    CURRICULUM_STAGES = {
-        0.5: 10,   # When mean reward >= 0.5, increase power to 10
-        0.7: 20,   # When mean reward >= 0.7, increase power to 20
-        0.85: 30,  # When mean reward >= 0.85, increase power to 30
-        0.95: 50   # When mean reward >= 0.95, increase power to final 50
-    }
-
-    # The starting reward_power for the environment. Make it easy!
-    # Use easier starting power when using curriculum, harder when not
-    STARTING_REWARD_POWER = 5 if USE_CURRICULUM else 50
+    # The reward_power for the environment
+    REWARD_POWER = 50
 
     # ==============================================================================
-    # === MULTIPROCESSING CONFIGURATION ============================================
+    # === 2. MULTIPROCESSING CONFIGURATION =========================================
     # ==============================================================================
     
     # Determine the number of parallel environments
@@ -75,14 +56,14 @@ def main():
     print(f"Using {N_ENVS} parallel environments (detected {cpu_count} CPU cores)")
     
 
-    # Pass the starting difficulty to the environment constructor
+    # Create the vectorized environment
     env = make_vec_env(
         QuantumCircuitEnv,
         n_envs=N_ENVS,
         env_kwargs=dict(
             cutoff_dim=25,
             max_steps=10,
-            reward_power=STARTING_REWARD_POWER  # <-- Start easy with low power
+            reward_power=REWARD_POWER
         ),
         vec_env_cls=SubprocVecEnv,
         # Use the platform-appropriate start method determined above
@@ -114,34 +95,33 @@ def main():
 
 
     # ==============================================================================
-    # === 4. AUTO-RESUME LOGIC (when not using curriculum) ========================
+    # === 4. AUTO-RESUME LOGIC =====================================================
     # ==============================================================================
     latest_checkpoint = None
     current_steps = 0
     
-    if not USE_CURRICULUM:
-        print("--- Checking for existing checkpoints... ---")
+    print("--- Checking for existing checkpoints... ---")
 
-        # Find all checkpoint files in the log directory that match the prefix
-        checkpoint_files = glob.glob(os.path.join(log_dir, f"{model_prefix}_*.zip"))
+    # Find all checkpoint files in the log directory that match the prefix
+    checkpoint_files = glob.glob(os.path.join(log_dir, f"{model_prefix}_*.zip"))
 
-        if checkpoint_files:
-            # If checkpoints exist, find the one with the highest step number
-            # We extract the number from the filename (e.g., "ppo_..._120000_steps.zip")
-            try:
-                # Exclude the final model from checkpoint resume
-                checkpoint_files = [f for f in checkpoint_files if "_final.zip" not in f]
-                if checkpoint_files:
-                    latest_checkpoint = max(
-                        checkpoint_files,
-                        key=lambda f: int(re.search(r'_(\d+)_steps.zip', f).group(1))
-                    )
-                    # --- NEW: PARSE THE STEP COUNT FROM THE FILENAME ---
-                    current_steps = int(re.search(r'_(\d+)_steps.zip', latest_checkpoint).group(1))
-                    print(f"✅ Found latest checkpoint: {os.path.basename(latest_checkpoint)}")
-            except (ValueError, AttributeError):
-                print("⚠️ Could not determine the latest checkpoint. Starting fresh.")
-                # This can happen if filenames are not in the expected format
+    if checkpoint_files:
+        # If checkpoints exist, find the one with the highest step number
+        # We extract the number from the filename (e.g., "ppo_..._120000_steps.zip")
+        try:
+            # Exclude the final model from checkpoint resume
+            checkpoint_files = [f for f in checkpoint_files if "_final.zip" not in f]
+            if checkpoint_files:
+                latest_checkpoint = max(
+                    checkpoint_files,
+                    key=lambda f: int(re.search(r'_(\d+)_steps.zip', f).group(1))
+                )
+                # --- NEW: PARSE THE STEP COUNT FROM THE FILENAME ---
+                current_steps = int(re.search(r'_(\d+)_steps.zip', latest_checkpoint).group(1))
+                print(f"✅ Found latest checkpoint: {os.path.basename(latest_checkpoint)}")
+        except (ValueError, AttributeError):
+            print("⚠️ Could not determine the latest checkpoint. Starting fresh.")
+            # This can happen if filenames are not in the expected format
 
 
     # ==============================================================================
@@ -149,16 +129,13 @@ def main():
     # ==============================================================================
     
     # Create or load the model
-    if latest_checkpoint and not USE_CURRICULUM:
+    if latest_checkpoint:
         print("\n--- RESUMING TRAINING ---")
         # Load the model from the latest checkpoint
         model = PPO.load(latest_checkpoint, env=env)
         print("Model loaded. Continuing from where it left off.")
     else:
-        if USE_CURRICULUM:
-            print("\n--- STARTING NEW TRAINING WITH CURRICULUM ---")
-        else:
-            print("\n--- STARTING NEW TRAINING ---")
+        print("\n--- STARTING NEW TRAINING ---")
         # If no checkpoint was found, create a new PPO model
         model = PPO(
         # "MlpPolicy": This tells SB3 to use a standard neural network (Multi-Layer Perceptron)
@@ -247,17 +224,9 @@ def main():
 
     thread_manager_callback = ThreadManagerCallback(rollout_threads=1, update_threads=num_cpus, verbose=1)
 
-    # Conditionally set up callbacks based on USE_CURRICULUM flag
-    if USE_CURRICULUM:
-        # Callback for curriculum learning (verbose=2 for detailed debugging)
-        curriculum_callback = CurriculumCallback(curriculum_stages=CURRICULUM_STAGES, verbose=2)
-        # Combine all callbacks into a list
-        callback_list = CallbackList([checkpoint_callback, curriculum_callback, thread_manager_callback])
-        print("Using curriculum learning with checkpoint saving and dynamic threading.")
-    else:
-        # Combine checkpoint and thread callbacks
-        callback_list = CallbackList([checkpoint_callback, thread_manager_callback])
-        print("Using checkpoint-based training with dynamic threading (no curriculum learning).")
+    # Combine checkpoint and thread callbacks
+    callback_list = CallbackList([checkpoint_callback, thread_manager_callback])
+    print("Using checkpoint-based training with dynamic threading.")
 
     # ==============================================================================
     # === 7. TRAIN THE AGENT =======================================================
