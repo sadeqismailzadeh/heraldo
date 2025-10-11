@@ -103,12 +103,15 @@ class QuantumCircuitEnv(gym.Env):
         print("Target states and square roots initialized.")
         
         # --- Pre-allocate observation buffer for efficiency ---
-        self._obs_buffer = np.zeros(2 * self.cutoff_dim**2, dtype=np.float32)
+        obs_size = self.cutoff_dim**2
+        self._obs_buffer = np.zeros(obs_size, dtype=np.float32)
 
         # --- Define Observation and Action Spaces ---
-        # OBSERVATION SPACE: The flattened density matrix (real and imaginary parts).
-        # Shape is 2 * (cutoff_dim * cutoff_dim).
-        obs_size = 2 * self.cutoff_dim**2
+        # OBSERVATION SPACE: The upper triangular part of the density matrix.
+        # Since the DM is Hermitian, this is sufficient to describe the state.
+        # It consists of the real diagonal elements, and the real and imaginary
+        # parts of the off-diagonal elements in the upper triangle.
+        # Shape is cutoff_dim**2.
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(obs_size,), dtype=np.float32
         )
@@ -178,16 +181,32 @@ class QuantumCircuitEnv(gym.Env):
         return targets, target_sqrts
 
     def _dm_to_observation(self, dm):
-        """Converts a density matrix to a flattened observation vector using pre-allocated buffer."""
+        """
+        Converts a density matrix to a flattened observation vector using the upper triangular part.
+        Since the density matrix is Hermitian, we only need the diagonal (real)
+        and the upper triangle (real and imaginary parts) to represent it fully.
+        """
         if dm is None or dm.shape != (self.cutoff_dim, self.cutoff_dim):
             # Return a zero vector if DM is invalid
             self._obs_buffer.fill(0)
             return self._obs_buffer.copy()
+
+        # Extract the diagonal elements (which are real)
+        diag_elements = np.real(np.diag(dm))
+
+        # Extract the real and imaginary parts of the upper triangular elements (excluding the diagonal)
+        iu1 = np.triu_indices(self.cutoff_dim, k=1)
+        off_diag_elements = dm[iu1]
+        real_parts = off_diag_elements.real
+        imag_parts = off_diag_elements.imag
         
-        # Use pre-allocated buffer for efficiency
-        cutoff_sq = self.cutoff_dim**2
-        self._obs_buffer[:cutoff_sq] = dm.real.flatten()
-        self._obs_buffer[cutoff_sq:] = dm.imag.flatten()
+        # Concatenate into the observation buffer
+        len_diag = len(diag_elements)
+        len_real = len(real_parts)
+        
+        self._obs_buffer[:len_diag] = diag_elements
+        self._obs_buffer[len_diag:len_diag + len_real] = real_parts
+        self._obs_buffer[len_diag + len_real:] = imag_parts
         
         return self._obs_buffer.copy()
 

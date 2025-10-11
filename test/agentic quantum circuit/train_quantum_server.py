@@ -31,7 +31,6 @@ import warnings
 from scipy.linalg import LinAlgWarning
 warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 
-#TODO ste representation: upper half of density matrix
 # TODO action reward float64?
 #TODO move trained models
 
