@@ -18,6 +18,9 @@ from scipy.linalg import sqrtm
 import strawberryfields as sf
 from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
+from sf_operations_no_cache import disable_fock_caching
+# disable caching to save memory for large cutoff dims
+# disable_fock_caching() 
 
 # --- Helper Function for Computing Matrix Square Root ---
 def compute_matrix_sqrt(rho):
