@@ -34,8 +34,8 @@ class ThreadManagerCallback(BaseCallback):
         torch.set_num_threads(self.update_threads)
 
     def _on_step(self) -> bool:
-        """
-        This method is called after each step in the environment.
-        We don't need to do anything here, so we just return True.
-        """
+        # Check for "done" signals from all parallel environments
+        for done, info in zip(self.locals['dones'], self.locals['infos']):
+            if done and 'max_fidelity' in info:
+                self.logger.record('custom/final_fidelity', info['max_fidelity'])
         return True
