@@ -1,3 +1,5 @@
+# dependencies
+# strawberryfields gymnasium stable-baselines3[extra]
 import os
 import platform
 import multiprocessing as mp
@@ -31,9 +33,9 @@ import warnings
 from scipy.linalg import LinAlgWarning
 warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 
-# TODO action reward float64?
-#TODO move trained models
-
+# TODO validity of no cache functions 
+# TODO ask ai where to increase dificulty curriculum
+# TODO train with fixed r=1.38
 # It's good practice to wrap the main execution logic in a function
 def main():
     # ==============================================================================
@@ -86,7 +88,8 @@ def main():
     # ==============================================================================
 
     # Define the base directory where everything will be saved.
-    log_dir = "./Train/"
+    # on script directory   
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train")
     os.makedirs(log_dir, exist_ok=True)
 
     # Define a prefix for your saved model files
