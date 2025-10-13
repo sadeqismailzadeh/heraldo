@@ -35,7 +35,10 @@ warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 
 # TODO validity of no cache functions 
 # TODO ask ai where to increase dificulty curriculum
-# TODO train with fixed r=1.38
+# TODO train with tunable r, vacuum inital state
+# TODO optimize second BSgate if possible
+# TODO PPO why more environment less correlation
+# TODO learning rate schedule possibility?
 # It's good practice to wrap the main execution logic in a function
 def main():
     # ==============================================================================
@@ -43,7 +46,7 @@ def main():
     # ==============================================================================
 
     # The reward_power for the environment
-    REWARD_POWER = 50
+    REWARD_POWER = 2
 
     # ==============================================================================
     # === 2. MULTIPROCESSING CONFIGURATION =========================================
@@ -136,69 +139,100 @@ def main():
         # Load the model from the latest checkpoint
         model = PPO.load(latest_checkpoint, env=env)
         print("Model loaded. Continuing from where it left off.")
+
+        # --- SET a new, much smaller learning rate ---
+        # One order of magnitude smaller is a great starting point.
+        new_learning_rate = 3e-5 
+        # Update lr_schedule, which is called to determine current learning rate
+        # here a constant learning rate
+        model.lr_schedule = lambda _: new_learning_rate
+        # Update `learning_rate` too in case we want to save/load the model
+        # (cf. remark below)
+        model.learning_rate = lambda _: new_learning_rate
+        print(f"New learning rate set to: {new_learning_rate}")
     else:
         print("\n--- STARTING NEW TRAINING ---")
         # If no checkpoint was found, create a new PPO model
-        model = PPO(
-        # "MlpPolicy": This tells SB3 to use a standard neural network (Multi-Layer Perceptron)
-        # as the agent's "brain". This is the right choice for vector-based states like ours.
-        # If we had image-based states, we would use "CnnPolicy".
-        "MlpPolicy",
+        # model = PPO(
+        # # "MlpPolicy": This tells SB3 to use a standard neural network (Multi-Layer Perceptron)
+        # # as the agent's "brain". This is the right choice for vector-based states like ours.
+        # # If we had image-based states, we would use "CnnPolicy".
+        # "MlpPolicy",
 
-        # The environment the agent will interact with and learn from.
-        env,
+        # # The environment the agent will interact with and learn from.
+        # env,
 
-        # verbose=1 prints out training progress (rewards, episode lengths, etc.) to the console.
-        verbose=1,
+        # # verbose=1 prints out training progress (rewards, episode lengths, etc.) to the console.
+        # verbose=1,
 
-        # ======================================================================
-        # === KEY HYPERPARAMETERS  =============================================
-        # ======================================================================
-        # These values control the learning process. Tuning them can improve performance.
+        # # ======================================================================
+        # # === KEY HYPERPARAMETERS  =============================================
+        # # ======================================================================
+        # # These values control the learning process. Tuning them can improve performance.
 
-        # gamma: The discount factor. A value close to 1 (like 0.99) makes the agent "patient",
-        # caring about long-term rewards. A value close to 0 would make it "short-sighted".
-        gamma=0.999,
+        # # gamma: The discount factor. A value close to 1 (like 0.99) makes the agent "patient",
+        # # caring about long-term rewards. A value close to 0 would make it "short-sighted".
+        # gamma=0.999,
 
-        # n_steps: The number of steps the agent takes in the environment before it updates
-        # its policy network. A larger value provides more data for each update, which
-        # can lead to more stable training.
-        # This is calculated dynamically: n_steps = TOTAL_ROLLOUT_STEPS / N_ENVS
-        # to maintain a consistent total rollout buffer size regardless of N_ENVS
-        n_steps=12500,
+        # # n_steps: The number of steps the agent takes in the environment before it updates
+        # # its policy network. A larger value provides more data for each update, which
+        # # can lead to more stable training.
+        # # This is calculated dynamically: n_steps = TOTAL_ROLLOUT_STEPS / N_ENVS
+        # # to maintain a consistent total rollout buffer size regardless of N_ENVS
+        # n_steps=12500,
 
-        # batch_size: During the policy update, the collected data is split into
-        # mini-batches of this size.
-        # This is calculated dynamically to maintain proportional training dynamics
-        batch_size=5000,
+        # # batch_size: During the policy update, the collected data is split into
+        # # mini-batches of this size.
+        # # This is calculated dynamically to maintain proportional training dynamics
+        # batch_size=5000,
 
-        # n_epochs: The number of times the agent will iterate over the collected data
-        # during each policy update.
-        n_epochs=14,
+        # # n_epochs: The number of times the agent will iterate over the collected data
+        # # during each policy update.
+        # n_epochs=14,
 
-        # learning_rate: Controls how much the neural network's weights are adjusted
-        # during each update. A smaller value leads to slower but often more stable learning.
-        learning_rate=0.001,
+        # # learning_rate: Controls how much the neural network's weights are adjusted
+        # # during each update. A smaller value leads to slower but often more stable learning.
+        # learning_rate=0.001,
 
-        # ======================================================================
-        # === OTHER CONFIGURATIONS =============================================
-        # ======================================================================
+        # # ======================================================================
+        # # === OTHER CONFIGURATIONS =============================================
+        # # ======================================================================
 
-        # policy_kwargs: A dictionary for passing extra arguments to the policy
-        # network, such as network architecture and the optimizer.
-        # net_arch: Defines the size of the neural networks for the policy (pi)
-        # and the value function (vf).
-        policy_kwargs = dict(net_arch=dict(pi=[256, 128, 64], vf=[256, 128, 64])),
+        # # policy_kwargs: A dictionary for passing extra arguments to the policy
+        # # network, such as network architecture and the optimizer.
+        # # net_arch: Defines the size of the neural networks for the policy (pi)
+        # # and the value function (vf).
+        # policy_kwargs = dict(net_arch=dict(pi=[256, 128, 64], vf=[256, 128, 64])),
 
-        # tensorboard_log: Specifies a directory to save training logs. These can be
-        # viewed with a tool called TensorBoard for detailed graphs of the training process.
-        tensorboard_log=log_dir,
+        # # tensorboard_log: Specifies a directory to save training logs. These can be
+        # # viewed with a tool called TensorBoard for detailed graphs of the training process.
+        # tensorboard_log=log_dir,
 
-        device="cpu",
+        # device="cpu",
 
-        # for debug. remove in actual training
-        # seed=42 
+        # # for debug. remove in actual training
+        # # seed=42 
+        # )
+
+        policy_kwargs = dict(
+            net_arch=dict(pi=[256, 256], vf=[256, 256]) # pi=policy network, vf=value network
         )
+
+        model = PPO(
+            "MlpPolicy",
+            env,
+            policy_kwargs=policy_kwargs,
+            learning_rate=3e-4,      # Default is good. Can try 1e-4 if unstable.
+            n_steps=2*1024,            # Crucial: Number of steps per env before an update.
+            batch_size=64,           # Mini-batch size for the update.
+            n_epochs=10,             # How many times to iterate over the collected data.
+            gamma=0.98,              # Discount factor. Slightly lower for short episodes.
+            gae_lambda=0.95,         # Factor for trade-off of bias vs variance for GAE.
+            ent_coef=0.01,           # Entropy coefficient to encourage exploration.
+            verbose=1,
+            tensorboard_log="./ppo_quantum_tensorboard/"
+        )
+
         print("New model created.")
 
 

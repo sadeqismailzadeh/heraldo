@@ -18,8 +18,9 @@ from scipy.linalg import sqrtm
 import strawberryfields as sf
 from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
-from sf_operations_no_cache import disable_fock_caching
+
 # disable caching to save memory for large cutoff dims
+# from sf_operations_no_cache import disable_fock_caching
 # disable_fock_caching() 
 
 # --- Helper Function for Computing Matrix Square Root ---
@@ -124,11 +125,17 @@ class QuantumCircuitEnv(gym.Env):
         # BS angle is between 0 (perfectly transparent) and pi/2 (perfect mirror).
         # Squeezing phase is between -pi and pi.
         self.action_space = spaces.Box(
-            low=np.array([0.0, 0.0, -np.pi]),
-            high=np.array([2.0, np.pi/2,  np.pi]),
-            shape=(3,),
+            low=np.array([0.0, -np.pi]),
+            high=np.array([np.pi/2,  np.pi]),
+            shape=(2,),
             dtype=np.float32
         )
+        #         self.action_space = spaces.Box(
+        #     low=np.array([0.0, 0.0, -np.pi]),
+        #     high=np.array([2.0, np.pi/2,  np.pi]),
+        #     shape=(3,),
+        #     dtype=np.float32
+        # )
         
         # Internal state of the environment
         self.current_step = 0
@@ -243,9 +250,14 @@ class QuantumCircuitEnv(gym.Env):
         self.current_step += 1
 
         # 1. Unpack and clip the agent's action
-        squeezing_r = np.clip(action[0], 0, 2)
-        theta_1 = action[1]
-        squeezing_phase = action[2]
+        squeezing_r = self.initial_squeezing
+        theta_1 = action[0]
+        squeezing_phase = action[1]
+
+        # squeezing_r = np.clip(action[0], 0, 2)
+        # theta_1 = action[1]
+        # squeezing_phase = action[2]
+
 
         # 2. Build the Strawberry Fields program for one step
         prog = sf.Program(2)
@@ -283,13 +295,25 @@ class QuantumCircuitEnv(gym.Env):
 
         # The episode is  terminated when a very high fidelity is achieved   
         terminated = False 
-        if max_fidelity >= 0.9:
-            # bounus termination reward 
-            reward += 10.0
-            terminated = True
+        # if max_fidelity >= 0.9:
+        #     # bounus termination reward 
+        #     reward += 10.0
+        #     terminated = True
        
 
         truncated = self.current_step >= self.max_steps
+
+        # Add a large, shaped bonus on the final step of the episode.
+        if truncated:
+            fidelity_threshold = 0.9
+            # Your proposed bonus function:
+            excess_fidelity = max(max_fidelity - fidelity_threshold, 0)
+            # Rescale the excess from [0, 0.1] to [0, 1]
+            rescaled_excess = excess_fidelity / (1 - fidelity_threshold)
+            # Apply non-linear shaping and final scaling
+            terminal_bonus = (rescaled_excess ** 2) * 10
+            
+            reward += terminal_bonus
 
         
         # The 'info' dictionary is the standard place for diagnostic information.
@@ -298,6 +322,9 @@ class QuantumCircuitEnv(gym.Env):
                 'measured_photons': result.samples[0][0],
                 'max_fidelity': max_fidelity  # It's good practice to log this
                 }
+        
+        if truncated:
+            info['terminal_bonus'] = terminal_bonus
 
         return observation, reward, terminated, truncated, info
 
