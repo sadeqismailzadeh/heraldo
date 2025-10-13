@@ -225,23 +225,11 @@ class QuantumCircuitEnv(gym.Env):
         # Prepare the initial circuit
         prog = sf.Program(2)
         with prog.context as q:
-            # Initialize mode 1 with a squeezed vacuum state
-            Sgate(self.initial_squeezing) | q[1]
-
-            # Apply variable beam splitter (VBS1). 
-            # initially perfect transmitive. no entanglement
-            BSgate(0, 0) | (q[0], q[1])
-
-            # Photon-number-resolving measurement (PNR)
-            # does basically nothing
-            MeasureFock() | q[0]
-
-            # Fully reflective mirror  
-            # the mode q[1] is now q[0]
-            BSgate(np.pi/2, 0) | (q[0], q[1]) 
-
-            # the final result is q[1] becomes q[0]
-            # the squeezed mode only went into the loop      
+            # MeasureFock() | q[0]  # Start with vacuum in mode 0
+            # MeasureFock() | q[1]  # Start with vacuum in mode 1
+            
+            # Initialize mode 0 with a squeezed vacuum state
+            Sgate(self.initial_squeezing) | q[0]   
 
         self.current_state = self.eng.run(prog).state
         self.current_dm = self.current_state.reduced_dm(modes=[0])
