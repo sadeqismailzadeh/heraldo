@@ -4,7 +4,7 @@ import webbrowser
 import time
 
 # Set the log directory where your training data is saved
-log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ppo_navigation_tensorboard")
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train")
 
 # Start TensorBoard
 tb = program.TensorBoard()
