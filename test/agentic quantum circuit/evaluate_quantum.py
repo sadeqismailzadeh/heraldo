@@ -3,13 +3,12 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import cm
 
-import strawberryfields as sf
-from strawberryfields.ops import Load
-
 from stable_baselines3 import PPO
 
 # Import our custom quantum environment and the fidelity function
-from quantum_circuit_env import QuantumCircuitEnv, uhlmann_jozsa_fidelity
+from quantum_circuit_env import QuantumCircuitEnv, fidelity_with_sqrt
+
+import strawberryfields as sf
 
 import os
 # temporary fix. it may cause crashes or silently produce incorrect results
@@ -20,11 +19,13 @@ os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 # IMPORTANT: The parameters here (especially cutoff_dim) MUST match
 # the parameters used during training.
-CUTOFF_DIM = 20 # The same cutoff_dim used in train_quantum.py
-env = QuantumCircuitEnv(cutoff_dim=CUTOFF_DIM)
+CUTOFF_DIM = 25 # The same cutoff_dim used in train_quantum.py
+env = QuantumCircuitEnv(cutoff_dim=25,
+                        max_steps=20,
+                        reward_power=5)
 
-# Load the trained model
-MODEL_PATH = "ppo_quantum_circuit.zip"
+# Load the trained model4
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ppo_quantum_circuit.zip")
 try:
     model = PPO.load(MODEL_PATH, env=env)
 except FileNotFoundError:
@@ -33,7 +34,7 @@ except FileNotFoundError:
     exit()
 
 # --- 2. Run the Evaluation ---
-num_episodes = 2 # Run for a few episodes to see different outcomes
+num_episodes = 10 # Run for a few episodes to see different outcomes
 for episode in range(num_episodes):
     print(f"\n{'='*20} Starting Evaluation Episode {episode + 1} {'='*20}")
     
@@ -54,7 +55,7 @@ for episode in range(num_episodes):
         # Log the details of this step
         print(
             f"Step {env.current_step:2d}: "
-            f"Action=[r={action[0]:.4f}, T={action[1]:.4f}], "
+            f"Action=[r={action[0]:.4f}, theta_1={action[1]:.4f}, squeezing_phase={action[2]:.4f}], "
             f"Measured_n={measured_n}, "
             f"Step Reward={reward:.6f}"
         )
@@ -69,7 +70,9 @@ for episode in range(num_episodes):
     final_dm = env.current_dm
 
     # Calculate the fidelity against the four target states
-    final_fidelities = [uhlmann_jozsa_fidelity(final_dm, target) for target in env.target_dms]
+        # 5. Calculate the reward by computing fidelities for all target states
+
+    final_fidelities = np.array([fidelity_with_sqrt(sqrt, final_dm) for sqrt in env.target_sqrts])
     best_fidelity = np.max(final_fidelities)
     best_target_index = np.argmax(final_fidelities)
 
