@@ -281,9 +281,13 @@ class QuantumCircuitEnv(gym.Env):
         # 6. Check for termination/truncation
         # The episode ends when the maximum number of steps is reached
 
-        # The episode is NEVER terminated early by the environment.
-        # The agent must learn to stabilize a high-fidelity state.
+        # The episode is  terminated when a very high fidelity is achieved   
         terminated = False 
+        if max_fidelity >= 0.9:
+            # bounus termination reward 
+            reward += 10.0
+            terminated = True
+       
 
         truncated = self.current_step >= self.max_steps
 
