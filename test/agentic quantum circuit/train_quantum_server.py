@@ -41,6 +41,7 @@ warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 # TODO learning rate schedule possibility?
 # TODO test SAC to see if its faster than ppo
 # TODO squeezed cat with coherent state?
+# TODO termination with set full reflective action ask ai
 # It's good practice to wrap the main execution logic in a function
 def main():
     # ==============================================================================
@@ -69,7 +70,9 @@ def main():
         env_kwargs=dict(
             cutoff_dim=25,
             max_steps=10,
-            reward_power=REWARD_POWER
+            reward_power=REWARD_POWER,
+            tunable_r=False,
+            is_agent_able_to_terminate=False
         ),
         vec_env_cls=SubprocVecEnv,
         # Use the platform-appropriate start method determined above

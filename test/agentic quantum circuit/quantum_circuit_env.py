@@ -88,15 +88,18 @@ class QuantumCircuitEnv(gym.Env):
     The agent's goal is to control circuit parameters to generate a target squeezed cat state.
     """
     metadata = {"render_modes": [], "render_fps": 0}
-
-    def __init__(self, cutoff_dim=20, max_steps=10, reward_power=50):
+    # agent can terminate
+    def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False, is_agent_able_to_terminate=False):
         super(QuantumCircuitEnv, self).__init__()
 
         # --- Environment Parameters ---
         self.cutoff_dim = cutoff_dim
         self.max_steps = max_steps
         self.reward_power = reward_power  # Controls reward curve steepness (higher = harder)
-        self.initial_squeezing = 1.38 # r0 from the paper
+        self.tunable_r = tunable_r  # Toggle: True = action controls r, False = fixed r
+        self.initial_squeezing = 1.38 # r0 from the paper (used when tunable_r=False)
+        self.termination_threshold = 0.001 # e.g., less than 0.1% transmissivity
+        self.is_agent_able_to_terminate = is_agent_able_to_terminate # If True, agent can choose to terminate the episode early
 
         # --- Strawberry Fields Engine ---
         self.eng = None # Will be initialized in reset()
@@ -120,22 +123,28 @@ class QuantumCircuitEnv(gym.Env):
             low=-1.0, high=1.0, shape=(obs_size,), dtype=np.float32
         )
 
-        # ACTION SPACE: A vector [squeezing_r, BS angle, squeezing_phase].
+        # ACTION SPACE: Depends on tunable_r setting
+        # If tunable_r=True: [squeezing_r, BS_angle, squeezing_phase] (3D)
+        # If tunable_r=False: [BS_angle, squeezing_phase] (2D)
         # Squeezing 'r' is between 0 and 2.
         # BS angle is between 0 (perfectly transparent) and pi/2 (perfect mirror).
         # Squeezing phase is between -pi and pi.
-        # self.action_space = spaces.Box(
-        #     low=np.array([0.0, -np.pi]),
-        #     high=np.array([np.pi/2,  np.pi]),
-        #     shape=(2,),
-        #     dtype=np.float32
-        # )
-        self.action_space = spaces.Box(
-            low=np.array([0.0, 0.0, -np.pi]),
-            high=np.array([2.0, np.pi/2,  np.pi]),
-            shape=(3,),
-            dtype=np.float32
-        )
+        if self.tunable_r:
+            # 3D action space: agent controls squeezing_r, BS angle, and phase
+            self.action_space = spaces.Box(
+                low=np.array([0.0, 0.0, -np.pi]),
+                high=np.array([2.0, np.pi/2, np.pi]),
+                shape=(3,),
+                dtype=np.float32
+            )
+        else:
+            # 2D action space: squeezing_r is fixed, agent controls BS angle and phase only
+            self.action_space = spaces.Box(
+                low=np.array([0.0, -np.pi]),
+                high=np.array([np.pi/2, np.pi]),
+                shape=(2,),
+                dtype=np.float32
+            )
         
         # Internal state of the environment
         self.current_step = 0
@@ -231,12 +240,15 @@ class QuantumCircuitEnv(gym.Env):
         
         # Prepare the initial circuit
         prog = sf.Program(2)
-        with prog.context as q:
-            MeasureFock() | q[0]  # Start with vacuum in mode 0
-            # MeasureFock() | q[1]  # Start with vacuum in mode 1
-            
-            # Initialize mode 0 with a squeezed vacuum state
-            # Sgate(self.initial_squeezing) | q[0]   
+        if self.tunable_r:
+            with prog.context as q:
+                MeasureFock() | q[0]  # Start with vacuum in mode 0
+                # MeasureFock() | q[1]  # Start with vacuum in mode 1
+
+        else:
+            with prog.context as q:
+                # Initialize mode 0 with a squeezed vacuum state
+                Sgate(self.initial_squeezing) | q[0]  
 
         self.current_state = self.eng.run(prog).state
         self.current_dm = self.current_state.reduced_dm(modes=[0])
@@ -249,15 +261,17 @@ class QuantumCircuitEnv(gym.Env):
     def step(self, action):
         self.current_step += 1
 
-        # 1. Unpack and clip the agent's action
-        # squeezing_r = self.initial_squeezing
-        # theta_1 = action[0]
-        # squeezing_phase = action[1]
-
-        squeezing_r = np.clip(action[0], 0, 2)
-        theta_1 = action[1]
-        squeezing_phase = action[2]
-
+        # 1. Unpack and clip the agent's action based on tunable_r setting
+        if self.tunable_r:
+            # 3D action: [squeezing_r, BS_angle, squeezing_phase]
+            squeezing_r = np.clip(action[0], 0, 2)
+            theta_1 = np.clip(action[1], 0, np.pi/2)
+            squeezing_phase = np.clip(action[2], -np.pi, np.pi)
+        else:
+            # 2D action: [BS_angle, squeezing_phase], squeezing_r is fixed
+            squeezing_r = self.initial_squeezing
+            theta_1 = np.clip(action[0], 0, np.pi/2)
+            squeezing_phase = np.clip(action[1], -np.pi, np.pi)
 
         # 2. Build the Strawberry Fields program for one step
         prog = sf.Program(2)
@@ -295,18 +309,25 @@ class QuantumCircuitEnv(gym.Env):
 
         # The episode is  terminated when a very high fidelity is achieved   
         terminated = False 
-        # if max_fidelity >= 0.9:
-        #     # bounus termination reward 
-        #     reward += 10.0
-        #     terminated = True
+
+        transmissivity = np.cos(theta_1)**2
+        agent_wants_to_terminate = transmissivity < self.termination_threshold
+        
+        terminated = False
+        if self.is_agent_able_to_terminate and agent_wants_to_terminate:
+            # The agent has chosen to end the episode.
+            # The state does not change further. We calculate a final reward.
+            terminated = True
+
        
 
         truncated = self.current_step >= self.max_steps
 
         # Add a large, shaped bonus on the final step of the episode.
         terminal_bonus = 0
-        if truncated:
-            terminal_bonus += (max_fidelity ** 2) * 10
+        if truncated or terminated:
+            if self.tunable_r:
+                terminal_bonus += (max_fidelity ** 2) * 10
 
             fidelity_threshold = 0.9
             # Your proposed bonus function:
@@ -328,6 +349,7 @@ class QuantumCircuitEnv(gym.Env):
         
         if truncated:
             info['terminal_bonus'] = terminal_bonus
+            info['final_dm'] = self.current_dm
 
         return observation, reward, terminated, truncated, info
 
