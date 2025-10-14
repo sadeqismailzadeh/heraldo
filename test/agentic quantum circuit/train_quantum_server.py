@@ -39,6 +39,8 @@ warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 # TODO optimize second BSgate if possible
 # TODO PPO why more environment less correlation
 # TODO learning rate schedule possibility?
+# TODO test SAC to see if its faster than ppo
+# TODO squeezed cat with coherent state?
 # It's good practice to wrap the main execution logic in a function
 def main():
     # ==============================================================================
@@ -142,14 +144,14 @@ def main():
 
         # --- SET a new, much smaller learning rate ---
         # One order of magnitude smaller is a great starting point.
-        new_learning_rate = 3e-5 
-        # Update lr_schedule, which is called to determine current learning rate
-        # here a constant learning rate
-        model.lr_schedule = lambda _: new_learning_rate
-        # Update `learning_rate` too in case we want to save/load the model
-        # (cf. remark below)
-        model.learning_rate = lambda _: new_learning_rate
-        print(f"New learning rate set to: {new_learning_rate}")
+        # new_learning_rate = 3e-5 
+        # # Update lr_schedule, which is called to determine current learning rate
+        # # here a constant learning rate
+        # model.lr_schedule = lambda _: new_learning_rate
+        # # Update `learning_rate` too in case we want to save/load the model
+        # # (cf. remark below)
+        # model.learning_rate = lambda _: new_learning_rate
+        # print(f"New learning rate set to: {new_learning_rate}")
     else:
         print("\n--- STARTING NEW TRAINING ---")
         # If no checkpoint was found, create a new PPO model
@@ -230,7 +232,7 @@ def main():
             gae_lambda=0.95,         # Factor for trade-off of bias vs variance for GAE.
             ent_coef=0.01,           # Entropy coefficient to encourage exploration.
             verbose=1,
-            tensorboard_log="./ppo_quantum_tensorboard/"
+            tensorboard_log=log_dir
         )
 
         print("New model created.")

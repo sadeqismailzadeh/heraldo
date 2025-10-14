@@ -124,18 +124,18 @@ class QuantumCircuitEnv(gym.Env):
         # Squeezing 'r' is between 0 and 2.
         # BS angle is between 0 (perfectly transparent) and pi/2 (perfect mirror).
         # Squeezing phase is between -pi and pi.
-        self.action_space = spaces.Box(
-            low=np.array([0.0, -np.pi]),
-            high=np.array([np.pi/2,  np.pi]),
-            shape=(2,),
-            dtype=np.float32
-        )
-        #         self.action_space = spaces.Box(
-        #     low=np.array([0.0, 0.0, -np.pi]),
-        #     high=np.array([2.0, np.pi/2,  np.pi]),
-        #     shape=(3,),
+        # self.action_space = spaces.Box(
+        #     low=np.array([0.0, -np.pi]),
+        #     high=np.array([np.pi/2,  np.pi]),
+        #     shape=(2,),
         #     dtype=np.float32
         # )
+        self.action_space = spaces.Box(
+            low=np.array([0.0, 0.0, -np.pi]),
+            high=np.array([2.0, np.pi/2,  np.pi]),
+            shape=(3,),
+            dtype=np.float32
+        )
         
         # Internal state of the environment
         self.current_step = 0
@@ -232,11 +232,11 @@ class QuantumCircuitEnv(gym.Env):
         # Prepare the initial circuit
         prog = sf.Program(2)
         with prog.context as q:
-            # MeasureFock() | q[0]  # Start with vacuum in mode 0
+            MeasureFock() | q[0]  # Start with vacuum in mode 0
             # MeasureFock() | q[1]  # Start with vacuum in mode 1
             
             # Initialize mode 0 with a squeezed vacuum state
-            Sgate(self.initial_squeezing) | q[0]   
+            # Sgate(self.initial_squeezing) | q[0]   
 
         self.current_state = self.eng.run(prog).state
         self.current_dm = self.current_state.reduced_dm(modes=[0])
@@ -250,13 +250,13 @@ class QuantumCircuitEnv(gym.Env):
         self.current_step += 1
 
         # 1. Unpack and clip the agent's action
-        squeezing_r = self.initial_squeezing
-        theta_1 = action[0]
-        squeezing_phase = action[1]
+        # squeezing_r = self.initial_squeezing
+        # theta_1 = action[0]
+        # squeezing_phase = action[1]
 
-        # squeezing_r = np.clip(action[0], 0, 2)
-        # theta_1 = action[1]
-        # squeezing_phase = action[2]
+        squeezing_r = np.clip(action[0], 0, 2)
+        theta_1 = action[1]
+        squeezing_phase = action[2]
 
 
         # 2. Build the Strawberry Fields program for one step
@@ -304,14 +304,17 @@ class QuantumCircuitEnv(gym.Env):
         truncated = self.current_step >= self.max_steps
 
         # Add a large, shaped bonus on the final step of the episode.
+        terminal_bonus = 0
         if truncated:
+            terminal_bonus += (max_fidelity ** 2) * 10
+
             fidelity_threshold = 0.9
             # Your proposed bonus function:
             excess_fidelity = max(max_fidelity - fidelity_threshold, 0)
             # Rescale the excess from [0, 0.1] to [0, 1]
             rescaled_excess = excess_fidelity / (1 - fidelity_threshold)
             # Apply non-linear shaping and final scaling
-            terminal_bonus = (rescaled_excess ** 2) * 10
+            terminal_bonus += (rescaled_excess ** 2) * 10
             
             reward += terminal_bonus
 

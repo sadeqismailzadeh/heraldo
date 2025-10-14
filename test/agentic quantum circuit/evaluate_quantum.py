@@ -55,8 +55,8 @@ for episode in range(num_episodes):
         # Log the details of this step
         print(
             f"Step {env.current_step:2d}: "
-            # f"Action=[r={action[0]:.4f}, theta_1={action[1]:.4f}, squeezing_phase={action[2]:.4f}], "
-            f"Action=[theta_1={action[0]:.4f}, squeezing_phase={action[1]:.4f}], "
+            f"Action=[r={action[0]:.4f}, theta_1={action[1]:.4f}, squeezing_phase={action[2]:.4f}], "
+            # f"Action=[theta_1={action[0]:.4f}, squeezing_phase={action[1]:.4f}], "
             f"Measured_n={measured_n}, "
             f"Step Reward={reward:.6f}"
         )
