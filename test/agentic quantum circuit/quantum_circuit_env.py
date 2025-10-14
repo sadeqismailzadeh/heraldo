@@ -16,7 +16,7 @@ from scipy.linalg import sqrtm
 
 # Import Strawberry Fields
 import strawberryfields as sf
-from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
+from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate, Coherent
 
 
 # disable caching to save memory for large cutoff dims
@@ -89,7 +89,7 @@ class QuantumCircuitEnv(gym.Env):
     """
     metadata = {"render_modes": [], "render_fps": 0}
     # agent can terminate
-    def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False, is_agent_able_to_terminate=False):
+    def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False, is_agent_able_to_terminate=False, is_coherent=False):
         super(QuantumCircuitEnv, self).__init__()
 
         # --- Environment Parameters ---
@@ -97,6 +97,7 @@ class QuantumCircuitEnv(gym.Env):
         self.max_steps = max_steps
         self.reward_power = reward_power  # Controls reward curve steepness (higher = harder)
         self.tunable_r = tunable_r  # Toggle: True = action controls r, False = fixed r
+        self.is_coherent = is_coherent  # Toggle: True = use coherent state, False = use squeezed vacuum
         self.initial_squeezing = 1.38 # r0 from the paper (used when tunable_r=False)
         self.termination_threshold = 0.001 # e.g., less than 0.1% transmissivity
         self.is_agent_able_to_terminate = is_agent_able_to_terminate # If True, agent can choose to terminate the episode early
@@ -123,13 +124,23 @@ class QuantumCircuitEnv(gym.Env):
             low=-1.0, high=1.0, shape=(obs_size,), dtype=np.float32
         )
 
-        # ACTION SPACE: Depends on tunable_r setting
+        # ACTION SPACE: Depends on tunable_r and is_coherent settings
+        # If is_coherent=True: [coherent_amplitude, coherent_phase, BS_angle] (3D)
         # If tunable_r=True: [squeezing_r, BS_angle, squeezing_phase] (3D)
         # If tunable_r=False: [BS_angle, squeezing_phase] (2D)
         # Squeezing 'r' is between 0 and 2.
+        # Coherent amplitude is between 0 and 3.
         # BS angle is between 0 (perfectly transparent) and pi/2 (perfect mirror).
-        # Squeezing phase is between -pi and pi.
-        if self.tunable_r:
+        # Phase is between -pi and pi.
+        if self.is_coherent:
+            # 3D action space for coherent state: agent controls amplitude, phase, and BS angle
+            self.action_space = spaces.Box(
+                low=np.array([0.0, -np.pi, 0.0]),
+                high=np.array([3.0, np.pi, np.pi/2]),
+                shape=(3,),
+                dtype=np.float32
+            )
+        elif self.tunable_r:
             # 3D action space: agent controls squeezing_r, BS angle, and phase
             self.action_space = spaces.Box(
                 low=np.array([0.0, 0.0, -np.pi]),
@@ -240,7 +251,7 @@ class QuantumCircuitEnv(gym.Env):
         
         # Prepare the initial circuit
         prog = sf.Program(2)
-        if self.tunable_r:
+        if self.tunable_r or self.is_coherent:
             with prog.context as q:
                 MeasureFock() | q[0]  # Start with vacuum in mode 0
                 # MeasureFock() | q[1]  # Start with vacuum in mode 1
@@ -261,33 +272,54 @@ class QuantumCircuitEnv(gym.Env):
     def step(self, action):
         self.current_step += 1
 
-        # 1. Unpack and clip the agent's action based on tunable_r setting
-        if self.tunable_r:
-            # 3D action: [squeezing_r, BS_angle, squeezing_phase]
-            squeezing_r = np.clip(action[0], 0, 2)
-            theta_1 = np.clip(action[1], 0, np.pi/2)
-            squeezing_phase = np.clip(action[2], -np.pi, np.pi)
+        if self.is_coherent:
+            # Unpack coherent state parameters: [amplitude, phase, BS_angle]
+            amplitude = np.clip(action[0], 0, 3)
+            phase = np.clip(action[1], -np.pi, np.pi)
+            theta_1 = np.clip(action[2], 0, np.pi/2)
+            
+            prog = sf.Program(2)
+            with prog.context as q:
+                # Initialize mode 1 with a coherent state
+                Coherent(amplitude, phase) | q[1]
+
+                # Apply variable beam splitter (VBS1)
+                BSgate(theta_1, 0) | (q[0], q[1])
+
+                # Photon-number-resolving measurement (PNR)
+                MeasureFock() | q[0]
+
+                # Fully reflective mirror  
+                # the mode q[1] is now q[0]
+                BSgate(np.pi/2, 0) | (q[0], q[1])       
         else:
-            # 2D action: [BS_angle, squeezing_phase], squeezing_r is fixed
-            squeezing_r = self.initial_squeezing
-            theta_1 = np.clip(action[0], 0, np.pi/2)
-            squeezing_phase = np.clip(action[1], -np.pi, np.pi)
+            # 1. Unpack and clip the agent's action based on tunable_r setting
+            if self.tunable_r:
+                # 3D action: [squeezing_r, BS_angle, squeezing_phase]
+                squeezing_r = np.clip(action[0], 0, 2)
+                theta_1 = np.clip(action[1], 0, np.pi/2)
+                squeezing_phase = np.clip(action[2], -np.pi, np.pi)
+            else:
+                # 2D action: [BS_angle, squeezing_phase], squeezing_r is fixed
+                squeezing_r = self.initial_squeezing
+                theta_1 = np.clip(action[0], 0, np.pi/2)
+                squeezing_phase = np.clip(action[1], -np.pi, np.pi)
 
-        # 2. Build the Strawberry Fields program for one step
-        prog = sf.Program(2)
-        with prog.context as q:
-            # Initialize mode 1 with a squeezed vacuum state
-            Sgate(squeezing_r, squeezing_phase) | q[1]
+            # 2. Build the Strawberry Fields program for one step
+            prog = sf.Program(2)
+            with prog.context as q:
+                # Initialize mode 1 with a squeezed vacuum state
+                Sgate(squeezing_r, squeezing_phase) | q[1]
 
-            # Apply variable beam splitter (VBS1).
-            BSgate(theta_1, 0) | (q[0], q[1])
+                # Apply variable beam splitter (VBS1).
+                BSgate(theta_1, 0) | (q[0], q[1])
 
-            # Photon-number-resolving measurement (PNR)
-            MeasureFock() | q[0]
+                # Photon-number-resolving measurement (PNR)
+                MeasureFock() | q[0]
 
-            # Fully reflective mirror  
-            # the mode q[1] is now q[0]
-            BSgate(np.pi/2, 0) | (q[0], q[1])        
+                # Fully reflective mirror  
+                # the mode q[1] is now q[0]
+                BSgate(np.pi/2, 0) | (q[0], q[1])        
         
         # 3. Run the simulation
         result = self.eng.run(prog)
@@ -326,8 +358,7 @@ class QuantumCircuitEnv(gym.Env):
         # Add a large, shaped bonus on the final step of the episode.
         terminal_bonus = 0
         if truncated or terminated:
-            if self.tunable_r:
-                terminal_bonus += (max_fidelity ** 2) * 10
+            terminal_bonus += (max_fidelity ** 2) * 10
 
             fidelity_threshold = 0.9
             # Your proposed bonus function:
