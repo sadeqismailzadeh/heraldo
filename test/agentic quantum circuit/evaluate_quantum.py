@@ -22,10 +22,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 CUTOFF_DIM = 25 # The same cutoff_dim used in train_quantum.py
 env = QuantumCircuitEnv(cutoff_dim=25,
                         max_steps=50,
-                        reward_power=2,
-                        tunable_r=False,
-                        is_agent_able_to_terminate=False,
-                        is_coherent=False)
+                        reward_power=2)
 
 # Load the trained model4
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ppo_quantum_circuit.zip")
@@ -58,8 +55,8 @@ for episode in range(num_episodes):
         # Log the details of this step
         print(
             f"Step {env.current_step:2d}: "
-            # f"Action=[r={action[0]:.4f}, theta_1={action[1]:.4f}, squeezing_phase={action[2]:.4f}], "
-            f"Action=[theta_1={action[0]:.4f}, squeezing_phase={action[1]:.4f}], "
+            f"Action=[r={action[0]:.4f}, theta_1={action[1]:.4f}, squeezing_phase={action[2]:.4f}], "
+            # f"Action=[theta_1={action[0]:.4f}, squeezing_phase={action[1]:.4f}], "
             f"Measured_n={measured_n}, "
             f"Step Reward={reward:.6f}"
         )

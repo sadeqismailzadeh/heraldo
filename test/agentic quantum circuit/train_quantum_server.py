@@ -77,8 +77,7 @@ def main():
             max_steps=10,
             reward_power=REWARD_POWER,
             tunable_r=False,
-            is_agent_able_to_terminate=False,
-            is_coherent=False
+            is_agent_able_to_terminate=False
         ),
         vec_env_cls=SubprocVecEnv,
         # Use the platform-appropriate start method determined above
