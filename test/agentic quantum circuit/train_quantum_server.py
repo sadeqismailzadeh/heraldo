@@ -42,6 +42,11 @@ warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 # TODO test SAC to see if its faster than ppo
 # TODO squeezed cat with coherent state?
 # TODO termination with set full reflective action ask ai
+# TODO self.reward_power in bounus as well?
+# TODO loss channel
+# TODO direct GKP
+# TODO Map a full noise-phase diagram. Find noise thresholds where RL still outperforms baselines?
+
 # It's good practice to wrap the main execution logic in a function
 def main():
     # ==============================================================================
