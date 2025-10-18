@@ -1,3 +1,5 @@
+"""Batch evaluation script that reproduces Figure 3 statistics from the article."""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -37,9 +39,14 @@ SUCCESS_FIDELITY_THRESHOLD = 0.90
 
 # --- Helper Function for Plotting (Unchanged from before) ---
 def plot_results(fidelities, photons, episode_lengths, steps_between_resets):
-    """
-    Generates the 2x2 plot corresponding to Figure 3 in the paper,
-    with the exact subplot layout (a,c) on top and (b,d) on bottom.
+    """Replicate the paper's Figure 3 layout for collected episode statistics.
+
+    Args:
+        fidelities (Iterable[float]): Maximum fidelity achieved per episode.
+        photons (Iterable[int]): Photon counts accumulated between agent resets.
+        episode_lengths (Iterable[int]): Number of interaction steps per episode.
+        steps_between_resets (Iterable[int]): Steps elapsed before each
+            transmissivity reset event.
     """
     print("\n--- Generating Plots (Replicating Figure 3 Layout) ---")
     fig, axes = plt.subplots(2, 2, figsize=(10, 7))
@@ -77,6 +84,7 @@ def plot_results(fidelities, photons, episode_lengths, steps_between_resets):
 
 # --- Main Evaluation Script ---
 def main():
+    """Evaluate the policy in parallel and summarize outcomes for Figure 3."""
     print("--- Starting Parallel Evaluation ---")
     
     # --- 1. Setup Parallel Environment and Load Model ---

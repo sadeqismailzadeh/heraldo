@@ -1,3 +1,11 @@
+"""Training entry point for reinforcement-learning control of a quantum circuit.
+
+This script configures multiprocessing-safe threading limits, constructs a
+vectorized :class:`QuantumCircuitEnv`, and trains a Stable-Baselines3 PPO agent
+with checkpoint-based auto-resume support. The resulting policy checkpoints and
+TensorBoard logs are stored under the local ``Train`` directory.
+"""
+
 # dependencies
 # pip install strawberryfields gymnasium stable-baselines3[extra]
 
@@ -47,6 +55,7 @@ warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 
 # It's good practice to wrap the main execution logic in a function
 def main():
+    """Configure the environment, resume if possible, and launch PPO training."""
     # ==============================================================================
     # === 1. CONFIGURATION =========================================================
     # ==============================================================================

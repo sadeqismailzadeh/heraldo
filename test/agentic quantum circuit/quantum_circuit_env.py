@@ -1,3 +1,5 @@
+"""Custom Gymnasium environment that simulates a squeezed-cat generation circuit."""
+
 # 1. Import the module we need to patch
 import scipy.integrate
 
@@ -26,9 +28,15 @@ from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
 # --- Helper Function for Computing Matrix Square Root ---
 def compute_matrix_sqrt(rho):
-    """
-    Computes the matrix square root of a density matrix robustly.
-    This can be pre-computed for target states and reused.
+    """Return a numerically stable matrix square root of a density matrix.
+
+    Args:
+        rho (np.ndarray): Hermitian density matrix for which to compute
+            :math:`\sqrt{\rho}`.
+
+    Returns:
+        np.ndarray: Hermitian square root of ``rho`` with negative eigenvalues
+        clipped to zero.
     """
     rho = np.asarray(rho, dtype=np.complex128)
     
@@ -51,13 +59,14 @@ def compute_matrix_sqrt(rho):
 
 # --- Optimized Fidelity Function (with pre-computed sqrt) ---
 def fidelity_with_sqrt(rho_sqrt, sigma):
-    """
-    Calculates the Uhlmann-Jozsa fidelity using pre-computed sqrt(rho).
-    This is more efficient when rho (target state) doesn't change.
-    
+    """Return Uhlmann fidelity using a pre-computed target square root.
+
     Args:
-        rho_sqrt: Pre-computed square root of the target density matrix
-        sigma: Current state density matrix
+        rho_sqrt (np.ndarray): Square root of a target density matrix.
+        sigma (np.ndarray): Candidate density matrix produced by the agent.
+
+    Returns:
+        float: Clipped fidelity value in :math:`[0, 1]`.
     """
     sigma = np.asarray(sigma, dtype=np.complex128)
     
@@ -91,6 +100,16 @@ class QuantumCircuitEnv(gym.Env):
     metadata = {"render_modes": [], "render_fps": 0}
     # agent can terminate
     def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False, is_agent_able_to_terminate=False):
+        """Initialize engines, target states, and RL interfaces for the circuit.
+
+        Args:
+            cutoff_dim (int): Fock-space cutoff used for Strawberry Fields simulations.
+            max_steps (int): Maximum number of control steps per episode.
+            reward_power (int): Exponent applied to fidelity to shape PPO rewards.
+            tunable_r (bool): Whether the agent controls squeezing strength ``r``.
+            is_agent_able_to_terminate (bool): Allows agent-driven early stopping when
+                transmissivity falls below ``termination_threshold``.
+        """
         super(QuantumCircuitEnv, self).__init__()
 
         # --- Environment Parameters ---
@@ -152,7 +171,12 @@ class QuantumCircuitEnv(gym.Env):
         self.current_dm = None # This will hold the density matrix of mode 1
 
     def _initialize_target_states(self):
-        """Generates the four target squeezed cat state density matrices and their square roots."""
+        """Generate canonical squeezed-cat states and cache their square roots.
+
+        Returns:
+            tuple[list[np.ndarray], list[np.ndarray]]: Density matrices and
+            corresponding square roots for each target state variant.
+        """
         alpha = 3.0
         r = 1.38
         targets = []
@@ -201,10 +225,15 @@ class QuantumCircuitEnv(gym.Env):
         return targets, target_sqrts
 
     def _dm_to_observation(self, dm):
-        """
-        Converts a density matrix to a flattened observation vector using the upper triangular part.
-        Since the density matrix is Hermitian, we only need the diagonal (real)
-        and the upper triangle (real and imaginary parts) to represent it fully.
+        """Flatten a density matrix into the observation vector expected by PPO.
+
+        Args:
+            dm (np.ndarray | None): Density matrix for mode ``0`` or ``None`` if
+                the state is invalid.
+
+        Returns:
+            np.ndarray: Real-valued observation vector containing diagonal,
+            upper-triangular real, and imaginary parts.
         """
         if dm is None or dm.shape != (self.cutoff_dim, self.cutoff_dim):
             # Return a zero vector if DM is invalid
@@ -231,6 +260,11 @@ class QuantumCircuitEnv(gym.Env):
         return self._obs_buffer.copy()
 
     def reset(self, seed=None, options=None):
+        """Reset the Strawberry Fields engine and return the vacuum observation.
+
+        Returns:
+            tuple[np.ndarray, dict]: Initial observation and empty info payload.
+        """
         super().reset(seed=seed)
 
         # Create a new engine for the new episode
@@ -255,6 +289,16 @@ class QuantumCircuitEnv(gym.Env):
         return observation, {}
 
     def step(self, action):
+        """Evolve the circuit with the chosen action and produce reward signals.
+
+        Args:
+            action (np.ndarray): Control parameters for squeezing and beam-splitter
+                operations according to ``tunable_r``.
+
+        Returns:
+            tuple: Observation, shaped reward, termination flag, truncation flag,
+            and diagnostic info dictionary compatible with Gymnasium.
+        """
         self.current_step += 1
 
         # 1. Unpack and clip the agent's action based on tunable_r setting
