@@ -16,6 +16,7 @@ from scipy.linalg import sqrtm
 
 # Import Strawberry Fields
 import strawberryfields as sf
+from strawberryfields import ops
 from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
 
@@ -240,15 +241,10 @@ class QuantumCircuitEnv(gym.Env):
         
         # Prepare the initial circuit
         prog = sf.Program(2)
-        if self.tunable_r:
-            with prog.context as q:
-                MeasureFock() | q[0]  # Start with vacuum in mode 0
-                # MeasureFock() | q[1]  # Start with vacuum in mode 1
 
-        else:
-            with prog.context as q:
-                # Initialize mode 0 with a squeezed vacuum state
-                Sgate(self.initial_squeezing) | q[0]  
+        with prog.context as q:
+            MeasureFock() | q[0]  # Start with vacuum in mode 0
+            # MeasureFock() | q[1]  # Start with vacuum in mode 1
 
         self.current_state = self.eng.run(prog).state
         self.current_dm = self.current_state.reduced_dm(modes=[0])
@@ -326,8 +322,7 @@ class QuantumCircuitEnv(gym.Env):
         # Add a large, shaped bonus on the final step of the episode.
         terminal_bonus = 0
         if truncated or terminated:
-            if self.tunable_r:
-                terminal_bonus += (max_fidelity ** 2) * 10
+            terminal_bonus += (max_fidelity ** self.reward_power) * 10
 
             fidelity_threshold = 0.9
             # Your proposed bonus function:
@@ -335,7 +330,7 @@ class QuantumCircuitEnv(gym.Env):
             # Rescale the excess from [0, 0.1] to [0, 1]
             rescaled_excess = excess_fidelity / (1 - fidelity_threshold)
             # Apply non-linear shaping and final scaling
-            terminal_bonus += (rescaled_excess ** 2) * 10
+            terminal_bonus += (rescaled_excess ** self.reward_power) * 10
             
             reward += terminal_bonus
 

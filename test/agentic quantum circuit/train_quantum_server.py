@@ -1,5 +1,6 @@
 # dependencies
-# strawberryfields gymnasium stable-baselines3[extra]
+# pip install strawberryfields gymnasium stable-baselines3[extra]
+
 import os
 import platform
 import multiprocessing as mp
@@ -19,7 +20,7 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 import glob
 import re
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList 
 from stable_baselines3.common.vec_env import SubprocVecEnv
 # NEW: Import for creating parallel environments
@@ -28,24 +29,21 @@ from stable_baselines3.common.env_util import make_vec_env
 # Import our custom quantum environment
 from quantum_circuit_env import QuantumCircuitEnv
 from thread_manager_callback import ThreadManagerCallback
+import torch
 
 import warnings
 from scipy.linalg import LinAlgWarning
 warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 
+# TODO SUPERVISOR: document the code. flowchart
+
 # TODO validity of no cache functions 
-# TODO ask ai where to increase dificulty curriculum
 # TODO train with tunable r, vacuum inital state
-# TODO optimize second BSgate if possible
-# TODO PPO why more environment less correlation
-# TODO learning rate schedule possibility?
-# TODO test SAC to see if its faster than ppo
-# TODO squeezed cat with coherent state?
 # TODO termination with set full reflective action ask ai
-# TODO self.reward_power in bounus as well?
 # TODO loss channel
-# TODO direct GKP
-# TODO Map a full noise-phase diagram. Find noise thresholds where RL still outperforms baselines?
+# TODO Map a full noise-phase diagram. Find noise thresholds where RL still performs like baselines?
+# TODO stable baseline zoo for hyperparameter tuning
+# TODO venv on ssd no cuda
 
 # It's good practice to wrap the main execution logic in a function
 def main():
@@ -89,13 +87,7 @@ def main():
     # You can add this check to be 100% sure
     print(f"Vectorized environment type: {type(env.unwrapped)}")
     assert isinstance(env.unwrapped, SubprocVecEnv), "FATAL: Not using SubprocVecEnv for multiprocessing!"
-
-
-
-    # env = QuantumCircuitEnv(cutoff_dim=25, max_steps=10)
-    # env = make_vec_env(QuantumCircuitEnv, n_envs=4, env_kwargs=dict(cutoff_dim=25, max_steps=10))
-
-
+    
     # ==============================================================================
     # === 3. SETUP PATHS ===========================================================
     # ==============================================================================
@@ -148,6 +140,7 @@ def main():
         print("\n--- RESUMING TRAINING ---")
         # Load the model from the latest checkpoint
         model = PPO.load(latest_checkpoint, env=env)
+        # model = SAC.load(latest_checkpoint, env=env)
         print("Model loaded. Continuing from where it left off.")
 
         # --- SET a new, much smaller learning rate ---
@@ -160,70 +153,9 @@ def main():
         # # (cf. remark below)
         # model.learning_rate = lambda _: new_learning_rate
         # print(f"New learning rate set to: {new_learning_rate}")
+        
     else:
         print("\n--- STARTING NEW TRAINING ---")
-        # If no checkpoint was found, create a new PPO model
-        # model = PPO(
-        # # "MlpPolicy": This tells SB3 to use a standard neural network (Multi-Layer Perceptron)
-        # # as the agent's "brain". This is the right choice for vector-based states like ours.
-        # # If we had image-based states, we would use "CnnPolicy".
-        # "MlpPolicy",
-
-        # # The environment the agent will interact with and learn from.
-        # env,
-
-        # # verbose=1 prints out training progress (rewards, episode lengths, etc.) to the console.
-        # verbose=1,
-
-        # # ======================================================================
-        # # === KEY HYPERPARAMETERS  =============================================
-        # # ======================================================================
-        # # These values control the learning process. Tuning them can improve performance.
-
-        # # gamma: The discount factor. A value close to 1 (like 0.99) makes the agent "patient",
-        # # caring about long-term rewards. A value close to 0 would make it "short-sighted".
-        # gamma=0.999,
-
-        # # n_steps: The number of steps the agent takes in the environment before it updates
-        # # its policy network. A larger value provides more data for each update, which
-        # # can lead to more stable training.
-        # # This is calculated dynamically: n_steps = TOTAL_ROLLOUT_STEPS / N_ENVS
-        # # to maintain a consistent total rollout buffer size regardless of N_ENVS
-        # n_steps=12500,
-
-        # # batch_size: During the policy update, the collected data is split into
-        # # mini-batches of this size.
-        # # This is calculated dynamically to maintain proportional training dynamics
-        # batch_size=5000,
-
-        # # n_epochs: The number of times the agent will iterate over the collected data
-        # # during each policy update.
-        # n_epochs=14,
-
-        # # learning_rate: Controls how much the neural network's weights are adjusted
-        # # during each update. A smaller value leads to slower but often more stable learning.
-        # learning_rate=0.001,
-
-        # # ======================================================================
-        # # === OTHER CONFIGURATIONS =============================================
-        # # ======================================================================
-
-        # # policy_kwargs: A dictionary for passing extra arguments to the policy
-        # # network, such as network architecture and the optimizer.
-        # # net_arch: Defines the size of the neural networks for the policy (pi)
-        # # and the value function (vf).
-        # policy_kwargs = dict(net_arch=dict(pi=[256, 128, 64], vf=[256, 128, 64])),
-
-        # # tensorboard_log: Specifies a directory to save training logs. These can be
-        # # viewed with a tool called TensorBoard for detailed graphs of the training process.
-        # tensorboard_log=log_dir,
-
-        # device="cpu",
-
-        # # for debug. remove in actual training
-        # # seed=42 
-        # )
-
         policy_kwargs = dict(
             net_arch=dict(pi=[256, 256], vf=[256, 256]) # pi=policy network, vf=value network
         )
@@ -242,6 +174,29 @@ def main():
             verbose=1,
             tensorboard_log=log_dir
         )
+
+        # policy_kwargs = dict(
+        #     net_arch=dict(pi=[256, 256], qf=[256, 256]) # pi=policy network, qf=Q-function network
+        # )
+
+        # model = SAC(
+        #     "MlpPolicy",
+        #     env,
+        #     policy_kwargs=policy_kwargs,
+        #     learning_rate=3e-4,        # Good default. Can be tuned with a scheduler.
+        #     buffer_size=200_000,       # How many transitions to store in the replay buffer.
+        #     batch_size=256,            # How many samples to use for each gradient update.
+        #     gamma=0.98,                # Discount factor.
+        #     tau=0.005,                 # The soft update coefficient for target networks.
+        #     ent_coef='auto',           # Crucial: Automatically tunes the entropy bonus.
+        #     train_freq = (1, "step"),   # Update the model after every step.
+        #     gradient_steps=-1,          # Perform one gradient step per update.
+        #     learning_starts=8000,      # Collect 1000 random steps before starting to train.
+        #     verbose=0,
+        #     device='cuda' if torch.cuda.is_available() else 'cpu',
+        #     tensorboard_log=log_dir
+        # )
+
 
         print("New model created.")
 
