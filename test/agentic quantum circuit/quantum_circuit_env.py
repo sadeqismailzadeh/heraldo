@@ -93,22 +93,53 @@ def fidelity_with_sqrt(rho_sqrt, sigma):
 
 
 class QuantumCircuitEnv(gym.Env):
-    """
-    A gymnasium environment for the quantum optical circuit described in the paper.
-    The agent's goal is to control circuit parameters to generate a target squeezed cat state.
+    """A gymnasium environment for a quantum optical circuit.
+
+    This environment simulates the quantum optical circuit described in the paper.
+    The agent's goal is to control the circuit parameters to generate a target
+    squeezed cat state.
+
+    Attributes:
+        cutoff_dim (int): The Fock-space cutoff dimension for the simulation.
+        max_steps (int): The maximum number of steps per episode.
+        reward_power (int): The exponent applied to the fidelity for reward shaping.
+        tunable_r (bool): Whether the agent can tune the squeezing parameter 'r'.
+        initial_squeezing (float): The initial squeezing parameter 'r0'.
+        termination_threshold (float): The transmissivity threshold for early termination.
+        is_agent_able_to_terminate (bool): Whether the agent can terminate an episode early.
+        eng (sf.Engine): The Strawberry Fields engine for the simulation.
+        target_dms (list): A list of target density matrices.
+        target_sqrts (list): A list of the square roots of the target density matrices.
+        observation_space (gym.spaces.Box): The observation space for the environment.
+        action_space (gym.spaces.Box): The action space for the environment.
+        current_step (int): The current step in the episode.
+        current_dm (np.ndarray): The current density matrix of the system.
     """
     metadata = {"render_modes": [], "render_fps": 0}
     # agent can terminate
     def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False, is_agent_able_to_terminate=False):
-        """Initialize engines, target states, and RL interfaces for the circuit.
+        """Initializes the quantum circuit environment.
+
+        This method sets up the simulation parameters, pre-calculates the target
+        states, and defines the observation and action spaces for the reinforcement
+        learning agent.
 
         Args:
-            cutoff_dim (int): Fock-space cutoff used for Strawberry Fields simulations.
-            max_steps (int): Maximum number of control steps per episode.
-            reward_power (int): Exponent applied to fidelity to shape PPO rewards.
-            tunable_r (bool): Whether the agent controls squeezing strength ``r``.
-            is_agent_able_to_terminate (bool): Allows agent-driven early stopping when
-                transmissivity falls below ``termination_threshold``.
+            cutoff_dim (int): The Fock-space cutoff dimension used for the
+                Strawberry Fields simulations.
+            max_steps (int): The maximum number of control steps per episode.
+            reward_power (int): The exponent applied to the fidelity to shape the
+                PPO rewards.
+            tunable_r (bool): A flag to determine if the agent controls the
+                squeezing strength 'r'.
+            is_agent_able_to_terminate (bool): A flag that allows the agent to
+                drive an early stopping of the simulation when the
+                transmissivity falls below the `termination_threshold`.
+        
+        Example:
+            >>> env = QuantumCircuitEnv(cutoff_dim=20, max_steps=15)
+            >>> print(env.observation_space)
+            Box(-1.0, 1.0, (400,), float32)
         """
         super(QuantumCircuitEnv, self).__init__()
 
@@ -171,11 +202,17 @@ class QuantumCircuitEnv(gym.Env):
         self.current_dm = None # This will hold the density matrix of mode 1
 
     def _initialize_target_states(self):
-        """Generate canonical squeezed-cat states and cache their square roots.
+        """Generates and caches the target squeezed-cat states.
+
+        This method creates the canonical squeezed-cat states that the agent
+        will be trained to generate. It also pre-computes and caches the square
+        roots of their density matrices to speed up the fidelity calculations.
 
         Returns:
-            tuple[list[np.ndarray], list[np.ndarray]]: Density matrices and
-            corresponding square roots for each target state variant.
+            tuple[list[np.ndarray], list[np.ndarray]]: A tuple containing two lists.
+                The first list holds the density matrices of the target states,
+                and the second list holds the corresponding square roots of these
+                matrices.
         """
         alpha = 3.0
         r = 1.38
@@ -225,15 +262,21 @@ class QuantumCircuitEnv(gym.Env):
         return targets, target_sqrts
 
     def _dm_to_observation(self, dm):
-        """Flatten a density matrix into the observation vector expected by PPO.
+        """Flattens the density matrix into an observation vector.
+
+        This method converts the density matrix of the quantum state into a
+        one-dimensional vector that can be used as an observation by the PPO
+        agent. The vector contains the real and imaginary parts of the upper
+        triangular elements of the density matrix.
 
         Args:
-            dm (np.ndarray | None): Density matrix for mode ``0`` or ``None`` if
-                the state is invalid.
+            dm (np.ndarray | None): The density matrix for mode `0`. If the state
+                is invalid, this can be `None`.
 
         Returns:
-            np.ndarray: Real-valued observation vector containing diagonal,
-            upper-triangular real, and imaginary parts.
+            np.ndarray: A real-valued observation vector that contains the
+                diagonal, upper-triangular real, and imaginary parts of the
+                density matrix.
         """
         if dm is None or dm.shape != (self.cutoff_dim, self.cutoff_dim):
             # Return a zero vector if DM is invalid
@@ -260,10 +303,25 @@ class QuantumCircuitEnv(gym.Env):
         return self._obs_buffer.copy()
 
     def reset(self, seed=None, options=None):
-        """Reset the Strawberry Fields engine and return the vacuum observation.
+        """Resets the environment to its initial state.
+
+        This method is called at the beginning of each episode. It resets the
+        Strawberry Fields engine and returns the initial observation, which
+        corresponds to the vacuum state.
+
+        Args:
+            seed (int, optional): The seed for the random number generator.
+            options (dict, optional): Additional options for resetting the environment.
 
         Returns:
-            tuple[np.ndarray, dict]: Initial observation and empty info payload.
+            tuple[np.ndarray, dict]: A tuple containing the initial observation
+                and an empty dictionary for additional information.
+        
+        Example:
+            >>> env = QuantumCircuitEnv()
+            >>> observation, info = env.reset()
+            >>> print(observation.shape)
+            (625,)
         """
         super().reset(seed=seed)
 
@@ -289,15 +347,27 @@ class QuantumCircuitEnv(gym.Env):
         return observation, {}
 
     def step(self, action):
-        """Evolve the circuit with the chosen action and produce reward signals.
+        """Executes one time step in the environment.
+
+        This method applies the agent's action to the quantum circuit, evolves
+        the state, and calculates the reward.
 
         Args:
-            action (np.ndarray): Control parameters for squeezing and beam-splitter
-                operations according to ``tunable_r``.
+            action (np.ndarray): The control parameters for the squeezing and
+                beam-splitter operations, as determined by the `tunable_r` setting.
 
         Returns:
-            tuple: Observation, shaped reward, termination flag, truncation flag,
-            and diagnostic info dictionary compatible with Gymnasium.
+            tuple: A tuple containing the observation, the shaped reward, a
+                termination flag, a truncation flag, and a dictionary with
+                diagnostic information, compatible with the Gymnasium API.
+        
+        Example:
+            >>> env = QuantumCircuitEnv()
+            >>> obs, info = env.reset()
+            >>> action = env.action_space.sample()
+            >>> obs, reward, terminated, truncated, info = env.step(action)
+            >>> print(reward)
+            0.0
         """
         self.current_step += 1
 
@@ -393,9 +463,13 @@ class QuantumCircuitEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def render(self):
-        # We won't implement graphical rendering for this complex environment
-        pass
+        """Renders the environment.
+
+        This method is not implemented for this environment.
+        """
 
     def close(self):
-        # No special cleanup needed
-        pass
+        """Closes the environment.
+
+        This method does not require any special cleanup.
+        """
