@@ -1,24 +1,36 @@
-"""Training entry point for reinforcement-learning control of a quantum circuit.
+"""Main training script for the quantum circuit reinforcement learning agent.
 
-This script configures multiprocessing-safe threading limits, constructs a
-vectorized :class:`QuantumCircuitEnv`, and trains a Stable-Baselines3 PPO agent
-with checkpoint-based auto-resume support. The resulting policy checkpoints and
-TensorBoard logs are stored under the local ``Train`` directory.
+This script sets up and runs the training process for a PPO agent from the
+Stable Baselines3 library. It is designed for efficient, parallel training
+and includes robust features like automatic resumption from the latest
+checkpoint.
+
+Key Features:
+  - **Parallel Training:** Utilizes `SubprocVecEnv` to run multiple environments
+    in parallel, significantly speeding up data collection.
+  - **Auto-Resume:** Automatically detects and loads the latest model checkpoint
+    from the `Train/` directory, allowing training to be stopped and started
+    without losing progress.
+  - **TensorBoard Logging:** Logs key training metrics (reward, loss, etc.)
+    to a TensorBoard instance for real-time monitoring.
+  - **Dynamic Threading:** Manages CPU threads to optimize for both data
+    collection (rollout) and model updates, preventing performance bottlenecks.
+
+Usage:
+    1. Adjust the parameters in the "Configuration" section of the `main()`
+       function below.
+    2. Run the script from the command line: `python train_quantum_circuit.py`
+    3. To monitor training, run: `python run_tensorboard.py`
 """
-
-# dependencies
-# pip install strawberryfields gymnasium stable-baselines3[extra]
-
 import os
+import re
+import glob
 import platform
 import multiprocessing as mp
 
-# ==============================================================================
-# === CRITICAL: CONTROL NUMPY THREADING FOR MULTIPROCESSING ====================
-# ==============================================================================
-# Set these environment variables BEFORE importing numpy, sf, or sb3.
+# --- CRITICAL: Set thread limits BEFORE importing other libraries ---
 # This prevents NumPy's backend from creating a thread storm when using
-# multiple environments in parallel. We want each process to use only ONE core.
+# multiple environments in parallel. Each process should use only one core.
 print("--- Configuring thread limits for NumPy/OpenBLAS/MKL ---")
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
@@ -26,22 +38,13 @@ os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
-import glob
-import re
-from stable_baselines3 import PPO, SAC
-from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList 
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from stable_baselines3.common.vec_env import SubprocVecEnv
-# NEW: Import for creating parallel environments
 from stable_baselines3.common.env_util import make_vec_env
 
-# Import our custom quantum environment
 from quantum_circuit_env import QuantumCircuitEnv
 from thread_manager_callback import ThreadManagerCallback
-import torch
-
-import warnings
-from scipy.linalg import LinAlgWarning
-warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 
 # TODO SUPERVISOR: document the code. flowchart
 
@@ -53,232 +56,130 @@ warnings.simplefilter('always', LinAlgWarning)  # show every occurrence
 # TODO stable baseline zoo for hyperparameter tuning
 # TODO venv on ssd no cuda
 
-# It's good practice to wrap the main execution logic in a function
 def main():
-    """Configure the environment, resume if possible, and launch PPO training."""
-    # ==============================================================================
-    # === 1. CONFIGURATION =========================================================
-    # ==============================================================================
-
-    # The reward_power for the environment
+    """Configures the environment, resumes if possible, and launches PPO training."""
+    # --- Configuration ---
+    # Environment Parameters
+    CUTOFF_DIM = 25
+    MAX_STEPS = 10
     REWARD_POWER = 2
+    TUNABLE_R = False
+    AGENT_CAN_TERMINATE = False
 
-    # ==============================================================================
-    # === 2. MULTIPROCESSING CONFIGURATION =========================================
-    # ==============================================================================
-    
-    # Determine the number of parallel environments
-    # Leave at least one core free for the main process
-    cpu_count = mp.cpu_count()
-    # N_ENVS = max(1, cpu_count - 1)  # At least 1, at most (cpu_count - 1)
-    N_ENVS = 4  # At least 1, at most (cpu_count - 1)
-    print(f"Using {N_ENVS} parallel environments (detected {cpu_count} CPU cores)")
-    
+    # Training Parameters
+    N_ENVS = 1  # Number of parallel environments
+    TARGET_TIMESTEPS = 7_000_000  # Total steps for the entire training run
+    CHECKPOINT_FREQ = 20_000  # Save a checkpoint every N steps
 
-    # Create the vectorized environment
+    # PPO Hyperparameters
+    POLICY_KWARGS = dict(net_arch=dict(pi=[256, 256], vf=[256, 256]))
+    LEARNING_RATE = 3e-4
+    N_STEPS_PER_UPDATE = 2048
+    BATCH_SIZE = 64
+    N_EPOCHS = 10
+    GAMMA = 0.98
+    GAE_LAMBDA = 0.95
+    ENT_COEF = 0.01
+
+    # --- Setup Paths ---
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train")
+    os.makedirs(log_dir, exist_ok=True)
+    model_prefix = "ppo_quantum_circuit"
+
+    # --- Setup Parallel Environments ---
+    print(f"Using {N_ENVS} parallel environments.")
     env = make_vec_env(
         QuantumCircuitEnv,
         n_envs=N_ENVS,
         env_kwargs=dict(
-            cutoff_dim=25,
-            max_steps=10,
+            cutoff_dim=CUTOFF_DIM,
+            max_steps=MAX_STEPS,
             reward_power=REWARD_POWER,
-            tunable_r=False,
-            is_agent_able_to_terminate=False
+            tunable_r=TUNABLE_R,
+            is_agent_able_to_terminate=AGENT_CAN_TERMINATE
         ),
         vec_env_cls=SubprocVecEnv,
-        # Use the platform-appropriate start method determined above
-        # 'spawn': Works on all platforms, creates fresh Python interpreter for each process
-        # 'fork': Linux-only, faster but can have issues with certain libraries
-        vec_env_kwargs=dict(start_method='spawn')
+        vec_env_kwargs=dict(start_method='spawn') # 'spawn' is safer for cross-platform
     )
 
-    # You can add this check to be 100% sure
-    print(f"Vectorized environment type: {type(env.unwrapped)}")
-    assert isinstance(env.unwrapped, SubprocVecEnv), "FATAL: Not using SubprocVecEnv for multiprocessing!"
-    
-    # ==============================================================================
-    # === 3. SETUP PATHS ===========================================================
-    # ==============================================================================
-
-    # Define the base directory where everything will be saved.
-    # on script directory   
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train")
-    os.makedirs(log_dir, exist_ok=True)
-
-    # Define a prefix for your saved model files
-    model_prefix = "ppo_quantum_circuit"
-
-
-    # ==============================================================================
-    # === 4. AUTO-RESUME LOGIC =====================================================
-    # ==============================================================================
+    # --- Auto-Resume Logic ---
     latest_checkpoint = None
     current_steps = 0
-    
     print("--- Checking for existing checkpoints... ---")
-
-    # Find all checkpoint files in the log directory that match the prefix
     checkpoint_files = glob.glob(os.path.join(log_dir, f"{model_prefix}_*.zip"))
+    
+    # Exclude the final model from the list of checkpoints to resume from
+    checkpoint_files = [f for f in checkpoint_files if "_final.zip" not in f]
 
     if checkpoint_files:
-        # If checkpoints exist, find the one with the highest step number
-        # We extract the number from the filename (e.g., "ppo_..._120000_steps.zip")
         try:
-            # Exclude the final model from checkpoint resume
-            checkpoint_files = [f for f in checkpoint_files if "_final.zip" not in f]
-            if checkpoint_files:
-                latest_checkpoint = max(
-                    checkpoint_files,
-                    key=lambda f: int(re.search(r'_(\d+)_steps.zip', f).group(1))
-                )
-                # --- NEW: PARSE THE STEP COUNT FROM THE FILENAME ---
-                current_steps = int(re.search(r'_(\d+)_steps.zip', latest_checkpoint).group(1))
-                print(f"✅ Found latest checkpoint: {os.path.basename(latest_checkpoint)}")
+            latest_checkpoint = max(
+                checkpoint_files,
+                key=lambda f: int(re.search(r'_(\d+)_steps.zip', f).group(1))
+            )
+            current_steps = int(re.search(r'_(\d+)_steps.zip', latest_checkpoint).group(1))
+            print(f"✅ Found latest checkpoint: {os.path.basename(latest_checkpoint)}")
         except (ValueError, AttributeError):
-            print("⚠️ Could not determine the latest checkpoint. Starting fresh.")
-            # This can happen if filenames are not in the expected format
+            print("⚠️ Could not parse step count from checkpoint names. Starting fresh.")
 
-
-    # ==============================================================================
-    # === 5. CREATE OR LOAD MODEL ==================================================
-    # ==============================================================================
-    
-    # Create or load the model
+    # --- Create or Load Model ---
     if latest_checkpoint:
         print("\n--- RESUMING TRAINING ---")
-        # Load the model from the latest checkpoint
         model = PPO.load(latest_checkpoint, env=env)
-        # model = SAC.load(latest_checkpoint, env=env)
-        print("Model loaded. Continuing from where it left off.")
-
-        # --- SET a new, much smaller learning rate ---
-        # One order of magnitude smaller is a great starting point.
-        # new_learning_rate = 3e-5 
-        # # Update lr_schedule, which is called to determine current learning rate
-        # # here a constant learning rate
-        # model.lr_schedule = lambda _: new_learning_rate
-        # # Update `learning_rate` too in case we want to save/load the model
-        # # (cf. remark below)
-        # model.learning_rate = lambda _: new_learning_rate
-        # print(f"New learning rate set to: {new_learning_rate}")
-        
+        print(f"Model loaded. Resuming from {current_steps} timesteps.")
     else:
         print("\n--- STARTING NEW TRAINING ---")
-        policy_kwargs = dict(
-            net_arch=dict(pi=[256, 256], vf=[256, 256]) # pi=policy network, vf=value network
-        )
-
         model = PPO(
             "MlpPolicy",
             env,
-            policy_kwargs=policy_kwargs,
-            learning_rate=3e-4,      # Default is good. Can try 1e-4 if unstable.
-            n_steps=2*1024,            # Crucial: Number of steps per env before an update.
-            batch_size=64,           # Mini-batch size for the update.
-            n_epochs=10,             # How many times to iterate over the collected data.
-            gamma=0.98,              # Discount factor. Slightly lower for short episodes.
-            gae_lambda=0.95,         # Factor for trade-off of bias vs variance for GAE.
-            ent_coef=0.01,           # Entropy coefficient to encourage exploration.
+            policy_kwargs=POLICY_KWARGS,
+            learning_rate=LEARNING_RATE,
+            n_steps=N_STEPS_PER_UPDATE,
+            batch_size=BATCH_SIZE,
+            n_epochs=N_EPOCHS,
+            gamma=GAMMA,
+            gae_lambda=GAE_LAMBDA,
+            ent_coef=ENT_COEF,
             verbose=1,
+            device='cpu',
             tensorboard_log=log_dir
         )
+        print("New PPO model created.")
 
-        # policy_kwargs = dict(
-        #     net_arch=dict(pi=[256, 256], qf=[256, 256]) # pi=policy network, qf=Q-function network
-        # )
-
-        # model = SAC(
-        #     "MlpPolicy",
-        #     env,
-        #     policy_kwargs=policy_kwargs,
-        #     learning_rate=3e-4,        # Good default. Can be tuned with a scheduler.
-        #     buffer_size=200_000,       # How many transitions to store in the replay buffer.
-        #     batch_size=256,            # How many samples to use for each gradient update.
-        #     gamma=0.98,                # Discount factor.
-        #     tau=0.005,                 # The soft update coefficient for target networks.
-        #     ent_coef='auto',           # Crucial: Automatically tunes the entropy bonus.
-        #     train_freq = (1, "step"),   # Update the model after every step.
-        #     gradient_steps=-1,          # Perform one gradient step per update.
-        #     learning_starts=8000,      # Collect 1000 random steps before starting to train.
-        #     verbose=0,
-        #     device='cuda' if torch.cuda.is_available() else 'cpu',
-        #     tensorboard_log=log_dir
-        # )
-
-
-        print("New model created.")
-
-
-    # ==============================================================================
-    # === 6. DEFINE CALLBACKS ======================================================
-    # ==============================================================================
-    # This callback will save the model every `save_freq` steps.
-    # A frequency of 10,000 to 20,000 steps is a good starting point.
+    # --- Define Callbacks ---
     checkpoint_callback = CheckpointCallback(
-    save_freq=20000,
-    save_path=log_dir,
-    name_prefix=model_prefix,
-    save_replay_buffer=True,
-    save_vecnormalize=True
+        save_freq=CHECKPOINT_FREQ,
+        save_path=log_dir,
+        name_prefix=model_prefix,
+        save_replay_buffer=True,
+        save_vecnormalize=True
     )
-
-
-    # NEW: Add the thread management callback
-    # It's good practice to get the cpu_count once and reuse it
-    # num_cpus = mp.cpu_count()
+    
+    # Optimize thread usage for different parts of the training loop
     num_cpus = 4
-    print(f"--- Configuring dynamic threading ---")
-    print(f"Threads during rollout: 1")
-    print(f"Threads during model update: {num_cpus}")
-
     thread_manager_callback = ThreadManagerCallback(rollout_threads=1, update_threads=num_cpus, verbose=1)
-
-    # Combine checkpoint and thread callbacks
+    
     callback_list = CallbackList([checkpoint_callback, thread_manager_callback])
-    print("Using checkpoint-based training with dynamic threading.")
 
-    # ==============================================================================
-    # === 7. TRAIN THE AGENT =======================================================
-    # ==============================================================================
-    # Set the total number of timesteps for the entire training run
-    TARGET_TIMESTEPS = 7_000_000
-    # --- NEW: CALCULATE THE REMAINING STEPS TO TRAIN ---
+    # --- Train the Agent ---
     remaining_timesteps = TARGET_TIMESTEPS - current_steps
-
     print(f"\n--- Starting/Resuming training ---")
-    print(f"Total timesteps: {TARGET_TIMESTEPS}")
-    print(f"Current timesteps: {current_steps}")
+    print(f"Total target timesteps: {TARGET_TIMESTEPS}")
     print(f"Remaining timesteps to learn: {remaining_timesteps}")
-
-
-    # The `learn` call
-    # `reset_num_timesteps=False` is CRUCIAL for resuming. It ensures the step
-    # counter continues from the loaded model's progress.
-
 
     model.learn(
         total_timesteps=remaining_timesteps,
         callback=callback_list,
-        reset_num_timesteps=(False if latest_checkpoint else True), # IMPORTANT FOR RESUMING
-        progress_bar = True,
+        reset_num_timesteps=(latest_checkpoint is None), # Crucial for resuming
+        progress_bar=True,
     )
 
     print("\n--- Training Finished! ---")
 
-
-    # ==============================================================================
-    # === 8. SAVE THE FINAL MODEL ==================================================
-    # ==============================================================================
+    # --- Save the Final Model ---
     final_model_path = os.path.join(log_dir, f"{model_prefix}_final.zip")
     model.save(final_model_path)
     print(f"\n✅ Final model saved to: {final_model_path}")
 
-# ==============================================================================
-# === SCRIPT ENTRY POINT =======================================================
-# ==============================================================================
 if __name__ == "__main__":
-    # This is the crucial part. The main() function will only be called
-    # when the script is executed directly.
-    
     main()

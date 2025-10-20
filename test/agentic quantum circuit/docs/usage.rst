@@ -17,7 +17,7 @@ use a virtual environment to manage your dependencies.
    source .venv/bin/activate  # On Windows, use `.venv\Scripts\activate`
 
    # Install the core dependencies
-   pip install gymnasium stable-baselines3[extra] strawberryfields numpy scipy tensorflow
+   pip install gymnasium stable-baselines3[extra] strawberryfields
 
 2. Training the Agent
 ---------------------
