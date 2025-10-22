@@ -117,7 +117,8 @@ class QuantumCircuitEnv(gym.Env):
     """
     metadata = {"render_modes": [], "render_fps": 0}
     # agent can terminate
-    def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False, is_agent_able_to_terminate=False):
+    def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False,
+                 is_loss_channel=False, loss_channel=0):
         """Initializes the quantum circuit environment.
 
         This method sets up the simulation parameters, pre-calculates the target
@@ -150,7 +151,9 @@ class QuantumCircuitEnv(gym.Env):
         self.tunable_r = tunable_r  # Toggle: True = action controls r, False = fixed r
         self.initial_squeezing = 1.38 # r0 from the paper (used when tunable_r=False)
         self.termination_threshold = 0.001 # e.g., less than 0.1% transmissivity
-        self.is_agent_able_to_terminate = is_agent_able_to_terminate # If True, agent can choose to terminate the episode early
+        self.is_loss_channel=is_loss_channel
+        self.loss_channel=loss_channel
+
 
         # --- Strawberry Fields Engine ---
         self.eng = None # Will be initialized in reset()
@@ -184,7 +187,7 @@ class QuantumCircuitEnv(gym.Env):
             # 3D action space: agent controls squeezing_r, BS angle, and phase
             self.action_space = spaces.Box(
                 low=np.array([0.0, 0.0, -np.pi]),
-                high=np.array([2.0, np.pi/2, np.pi]),
+                high=np.array([1.38, np.pi/2, np.pi]),
                 shape=(3,),
                 dtype=np.float32
             )
@@ -335,7 +338,8 @@ class QuantumCircuitEnv(gym.Env):
         prog = sf.Program(2)
 
         with prog.context as q:
-            MeasureFock() | q[0]  # Start with vacuum in mode 0
+            # MeasureFock() | q[0]  # Start with vacuum in mode 0
+            Sgate(self.initial_squeezing) | q[0]
             # MeasureFock() | q[1]  # Start with vacuum in mode 1
 
         self.current_state = self.eng.run(prog).state
@@ -374,7 +378,7 @@ class QuantumCircuitEnv(gym.Env):
         # 1. Unpack and clip the agent's action based on tunable_r setting
         if self.tunable_r:
             # 3D action: [squeezing_r, BS_angle, squeezing_phase]
-            squeezing_r = np.clip(action[0], 0, 2)
+            squeezing_r = np.clip(action[0], 0, 1.38)
             theta_1 = np.clip(action[1], 0, np.pi/2)
             squeezing_phase = np.clip(action[2], -np.pi, np.pi)
         else:
@@ -391,6 +395,9 @@ class QuantumCircuitEnv(gym.Env):
 
             # Apply variable beam splitter (VBS1).
             BSgate(theta_1, 0) | (q[0], q[1])
+
+            if self.is_loss_channel:
+                ops.LossChannel(self.loss_channel) | q[0]
 
             # Photon-number-resolving measurement (PNR)
             MeasureFock() | q[0]
@@ -416,26 +423,14 @@ class QuantumCircuitEnv(gym.Env):
 
         # 6. Check for termination/truncation
         # The episode ends when the maximum number of steps is reached
-
-        # The episode is  terminated when a very high fidelity is achieved   
-        terminated = False 
-
-        transmissivity = np.cos(theta_1)**2
-        agent_wants_to_terminate = transmissivity < self.termination_threshold
-        
-        terminated = False
-        if self.is_agent_able_to_terminate and agent_wants_to_terminate:
-            # The agent has chosen to end the episode.
-            # The state does not change further. We calculate a final reward.
-            terminated = True
-
        
-
+        terminated = False
         truncated = self.current_step >= self.max_steps
 
-        # Add a large, shaped bonus on the final step of the episode.
+        # # Add a large, shaped bonus on the final step of the episode.
         terminal_bonus = 0
-        if truncated or terminated:
+
+        if truncated:
             terminal_bonus += (max_fidelity ** self.reward_power) * 10
 
             fidelity_threshold = 0.9

@@ -45,8 +45,7 @@ from stable_baselines3.common.env_util import make_vec_env
 
 from quantum_circuit_env import QuantumCircuitEnv
 from thread_manager_callback import ThreadManagerCallback
-
-# TODO SUPERVISOR: document the code. flowchart
+from typing import Callable
 
 # TODO validity of no cache functions 
 # TODO train with tunable r, vacuum inital state
@@ -67,7 +66,7 @@ def main():
     AGENT_CAN_TERMINATE = False
 
     # Training Parameters
-    N_ENVS = 1  # Number of parallel environments
+    N_ENVS = 4  # Number of parallel environments
     TARGET_TIMESTEPS = 7_000_000  # Total steps for the entire training run
     CHECKPOINT_FREQ = 20_000  # Save a checkpoint every N steps
 
@@ -96,7 +95,6 @@ def main():
             max_steps=MAX_STEPS,
             reward_power=REWARD_POWER,
             tunable_r=TUNABLE_R,
-            is_agent_able_to_terminate=AGENT_CAN_TERMINATE
         ),
         vec_env_cls=SubprocVecEnv,
         vec_env_kwargs=dict(start_method='spawn') # 'spawn' is safer for cross-platform
