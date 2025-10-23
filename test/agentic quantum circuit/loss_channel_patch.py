@@ -145,55 +145,69 @@ from strawberryfields.ops import Fock
 import numpy as np
 # Test function
 def test_loss_channel(T_values=[0.0, 0.3, 0.5, 0.9, 1.0], truncs=[3, 5, 10]):
-    """Compare original vs optimized loss channel"""
+    """Test the patched loss channel implementation against the original version.
+    
+    This function creates quantum circuits with various loss parameters and truncation
+    dimensions to verify that the optimized loss channel produces identical results
+    to the original implementation.
+    
+    Args:
+        T_values (list): Transmission coefficients to test (0.0 = complete loss,
+                        1.0 = no loss)
+        truncs (list): Fock space truncation dimensions to test
+    
+    Raises:
+        AssertionError: If the states from original and optimized implementations
+                       differ by more than 1e-10
+    """
     for trunc in truncs:
         for T in T_values:
-            # Create two identical states
-                # Configuration
-            cutoff = trunc
-            n_modes = 2
+            # Set up circuit parameters
+            cutoff = trunc  # Dimension of the truncated Fock space
+            n_modes = 2     # Number of quantum modes in the circuit
             
             prog = sf.Program(n_modes)
             with prog.context as q:
-                # State preparation to ensure gates have a non-trivial effect
-                Dgate(0.5, np.pi/4) | q[0] # Corresponds to ops.displacement
-                Sgate(0.6, 0) | q[1]          # Corresponds to ops.squeezing
-                LossChannel(T) | q[0]        # Apply loss channel to mode 0
-                BSgate(np.pi/4, np.pi/6) | (q[0], q[1]) # Corresponds to ops.beamsplitter
+                # Prepare a non-trivial quantum state:
+                # 1. Apply displacement to first mode with amplitude 0.5 and phase pi/4
+                Dgate(0.5, np.pi/4) | q[0]
+                # 2. Apply squeezing to second mode with strength 0.6 and phase 0
+                Sgate(0.6, 0) | q[1]
+                # 3. Apply loss channel with transmission T to the first mode
+                LossChannel(T) | q[0]
+                # 4. Mix the modes with a beamsplitter (pi/4 transmissivity, pi/6 phase)
+                BSgate(np.pi/4, np.pi/6) | (q[0], q[1])
 
             
-            # ============================================================================
-            # STEP 1: Make state with default operators (caching is ON by default)
-            # ============================================================================
-            print("--- 1. Calculating state with default (cached) operators ---")
+            # Step 1: Calculate quantum state using original loss channel implementation
+            # Create a Fock backend engine with specified cutoff dimension
             eng_original = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
+            # Run the quantum program and get the final state
             result_original = eng_original.run(prog)
-            state1= result_original.state
+            state1 = result_original.state
             print("Original state calculated successfully.")
 
-            # ============================================================================
-            # STEP 2: patch the loss channel
-            # ============================================================================
-            print("\n--- 2. Disabling Fock backend caching ---")
+            # Step 2: Apply the optimized loss channel patch
+            print("\n--- 2. Applying optimized loss channel implementation ---")
             patch_loss_channel()
 
-            # ============================================================================
-            # STEP 3: Re-run the program and get the new state
-            # ============================================================================
-            print("\n--- 3. Recalculating state with cache disabled ---")
-            # It's good practice to create a new engine after modifying the backend
-            eng_no_cache = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
-            result_no_cache = eng_no_cache.run(prog)
-            state2 = result_no_cache.state
-            print("State with cache disabled calculated successfully.")
+            # Step 3: Calculate state using the optimized loss channel
+            print("\n--- 3. Recalculating state with optimized loss channel ---")
+            # Create a new engine to ensure clean state with patched implementation
+            eng_optimized = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
+            result_optimized = eng_optimized.run(prog)
+            state2 = result_optimized.state
+            print("State with optimized loss channel calculated successfully.")
             
-            # Compare the results
-            diff = np.max(np.abs(state1.dm()- state2.dm()))
-            print(f"T={T}: Max difference = {diff:.2e}")
+            # Compare the density matrices of both states
+            # Calculate maximum absolute difference between matrix elements
+            diff = np.max(np.abs(state1.dm() - state2.dm()))
+            print(f"T={T}: Max difference between density matrices = {diff:.2e}")
             
-            assert diff < 1e-10, f"States differ! T={T}, diff={diff}"
+            # Verify that states are effectively identical (within numerical precision)
+            assert diff < 1e-10, f"States differ significantly! T={T}, maximum difference={diff}"
     
-    print("\n✓ All tests passed!")
+    print("\n✓ All tests passed successfully - original and optimized implementations match!")
 
 def main():
     print("\nRunning loss channel tests...")
