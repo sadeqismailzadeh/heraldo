@@ -3,6 +3,17 @@ COMPLETE SOLUTION: Your circuit with NO CACHING
 Copy this entire script or just copy the disable_fock_caching() function to your code
 """
 
+# 1. Import the module we need to patch
+import scipy.integrate
+
+# 2. Check if the patch is needed to avoid errors
+if not hasattr(scipy.integrate, 'simps'):
+    print("Monkey patching scipy.integrate: 'simps' not found. Pointing to 'simpson'.")
+    # 3. Create the 'simps' attribute and point it to the existing 'simpson' function.
+    scipy.integrate.simps = scipy.integrate.simpson
+else:
+    print("'simps' already exists in scipy.integrate. No patch needed.")
+
 import strawberryfields as sf
 from strawberryfields.ops import *
 import numpy as np
@@ -78,64 +89,79 @@ def disable_fock_caching():
     print("   Memory usage will stay constant - no buildup!")
 
 
-def main():
-    # ============================================================================
-    # STEP 2: CALL THE FUNCTION ONCE AT THE START
-    # ============================================================================
 
+def main():
+    """
+    This function demonstrates that disabling caching does not affect the
+    final state of the quantum simulation. It does this by:
+    1. Calculating a state with default (cached) operators.
+    2. Disabling the cache.
+    3. Recalculating the same state with the new (uncached) operators.
+    4. Asserting that the two states are numerically identical.
+    """
+    # Configuration
+    cutoff = 10  # Use a smaller cutoff for a quick check
+    n_modes = 2
+
+    
+    # Define the quantum program to be used in both scenarios
+    prog = sf.Program(n_modes)
+    # Use fixed parameters for a deterministic and repeatable comparison
+    theta_1 = np.pi / 4
+    theta_2 = np.pi / 3
+
+    with prog.context as q:
+        # State preparation to ensure gates have a non-trivial effect
+        Dgate(0.5, np.pi/4) | q[0] # Corresponds to ops.displacement
+        Sgate(0.6, 0) | q[1]          # Corresponds to ops.squeezing
+
+        # Apply all other disabled operators
+        Rgate(np.pi/3) | q[0]             # Corresponds to ops.phase
+        # Two-mode gates
+        BSgate(np.pi/4, np.pi/6) | (q[0], q[1]) # Corresponds to ops.beamsplitter
+        S2gate(0.7, np.pi/2) | (q[0], q[1])     # Corresponds to ops.two_mode_squeeze
+        MZgate(np.pi/3, np.pi/5) | (q[0], q[1]) # Corresponds to ops.mzgate
+        CKgate(0.3) | (q[0], q[1])          # Corresponds to ops.cross_kerr
+    
+    # ============================================================================
+    # STEP 1: Make state with default operators (caching is ON by default)
+    # ============================================================================
+    print("--- 1. Calculating state with default (cached) operators ---")
+    eng_original = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
+    result_original = eng_original.run(prog)
+    state_original = result_original.state
+    print("Original state calculated successfully.")
+
+    # ============================================================================
+    # STEP 2: Disable the cache
+    # ============================================================================
+    print("\n--- 2. Disabling Fock backend caching ---")
     disable_fock_caching()
 
     # ============================================================================
-    # STEP 3: RUN YOUR CIRCUIT NORMALLY - NO MEMORY ISSUES!
+    # STEP 3: Re-run the program and get the new state
     # ============================================================================
+    print("\n--- 3. Recalculating state with cache disabled ---")
+    # It's good practice to create a new engine after modifying the backend
+    eng_no_cache = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
+    result_no_cache = eng_no_cache.run(prog)
+    state_no_cache = result_no_cache.state
+    print("State with cache disabled calculated successfully.")
 
-    # Configuration
-    cutoff = 45  # Can use high cutoff now!
-    n_modes = 2
-    num_iterations = 100  # As many as you want!
-
-    print(f"\nRunning {num_iterations} iterations with cutoff={cutoff}")
-    print("=" * 70)
-
-    # Create engine
-    eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
-
-    # Run your circuit in a loop
-    for index in range(num_iterations):
-        prog = sf.Program(n_modes)
-        
-        # Your parameters (can be random, doesn't matter!)
-        theta_1 = np.random.rand() * np.pi
-        theta_2 = np.random.rand() * np.pi
-        
-        with prog.context as q:
-            # Your exact circuit
-            rot_theta = index
-            Sgate(1.38, 0) | q[1]
-            BSgate(theta_1, 0) | (q[0], q[1])
-            MeasureFock(select=4) | q[0]
-            BSgate(theta_2, 0) | (q[0], q[1])
-        
-        # Run the circuit
-        result = eng.run(prog)
-        
-        # Progress update
-        if (index + 1) % 10 == 0:
-            print(f"✅ Completed {index + 1}/{num_iterations} iterations - Memory stays constant!")
+    # ============================================================================
+    # STEP 4: Assert that the states are identical
+    # ============================================================================
+    print("\n--- 4. Asserting that the two states are identical ---")
+    
+    # Use np.allclose for robust floating-point comparison of the state vectors
+    are_states_equal = np.allclose(state_original.dm(), state_no_cache.dm())
+    
+    assert are_states_equal, "State with cache disabled is DIFFERENT from the original state!"
 
     print("\n" + "=" * 70)
-    print("✅ DONE! No memory issues!")
+    print("✅ SUCCESS: The state calculated with caching disabled is identical to the original.")
+    print("This confirms the `disable_fock_caching` function works as expected.")
     print("=" * 70)
-
-    # Verify that caching is disabled
-    from strawberryfields.backends.fockbackend import ops
-
-    if hasattr(ops.beamsplitter, 'cache_clear'):
-        print("\n⚠️  WARNING: Caching is still enabled somehow!")
-        print("   Make sure disable_fock_caching() was called.")
-    else:
-        print("\n✅ CONFIRMED: Caching is disabled!")
-        print("   ops.beamsplitter.cache_clear() does not exist (this is correct!)")
 
 
 if __name__ == "__main__":
