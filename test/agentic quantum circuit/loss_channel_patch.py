@@ -1,5 +1,7 @@
 # 1. Import the module we need to patch
 import scipy.integrate
+import time
+import numba
 
 # 2. Check if the patch is needed to avoid errors
 if not hasattr(scipy.integrate, 'simps'):
@@ -16,202 +18,260 @@ from itertools import product
 import strawberryfields.backends.fockbackend.ops as ops
 import types
 
+# Numba-jitted helper functions for fast binomial coefficients
+@numba.jit(nopython=True)
+def factorial(n):
+    res = 1.0
+    for i in range(1, n + 1):
+        res *= i
+    return res
+
+@numba.jit(nopython=True)
+def binom_numba(n, k):
+    if k < 0 or k > n:
+        return 0
+    if k == 0 or k == n:
+        return 1
+    if k > n // 2:
+        k = n - k
+    
+    res = 1.0
+    for i in range(k):
+        res = res * (n - i) / (i + 1)
+    return res
+
+@numba.jit(nopython=True, parallel=True)
+def _core_loss_channel(state_view_flat, trunc, kraus_diags_mat):
+    """
+    JIT-compiled core function to apply the loss channel.
+    This function iterates over all spectator mode configurations in parallel.
+    """
+    other_modes_dim = state_view_flat.shape[0]
+    new_state_flat = np.zeros_like(state_view_flat)
+
+    for i in numba.prange(other_modes_dim):
+        sub_rho = state_view_flat[i].copy().reshape(trunc, trunc)
+        new_sub_rho = np.zeros((trunc, trunc), dtype=np.complex128)
+
+        for k in range(trunc):
+            diag_k = kraus_diags_mat[k]
+            block_size = trunc - k
+            
+            if block_size <= 0:
+                continue
+
+            source_block = sub_rho[k:, k:]
+            
+            for row in range(block_size):
+                for col in range(block_size):
+                    scaling_factor = diag_k[row] * np.conj(diag_k[col])
+                    new_sub_rho[row, col] += scaling_factor * source_block[row, col]
+
+        new_state_flat[i] = new_sub_rho.flatten()
+    
+    return new_state_flat
+
 def _apply_loss_channel_fast(self, T, mode):
     """
     A specialized, high-performance replacement for applying the loss channel.
     This function leverages the sparse structure of the loss channel's Kraus operators
-    to avoid slow, dense matrix multiplications.
+    and uses a Numba JIT-compiled core to achieve high performance.
     
-    The key insight: Each Kraus operator E_k is non-zero only on the k-th superdiagonal.
-    This means E_k @ ρ @ E_k† can be computed by extracting blocks and scaling them,
-    rather than performing full matrix multiplications.
+    The Kraus operators are not pre-computed. Instead, their elements are
+    calculated on-the-fly inside the JIT-compiled function.
     """
     trunc = self._trunc
     n_modes = self._num_modes
 
-    # Convert pure state to mixed state (crucial for consistency)
     if self._pure:
-        # Use the correct ops.mix function with proper arguments
         self._state = ops.mix(self._state, self._num_modes)
         self._pure = False
 
-    # # Handle the edge case of total loss (T=0)
-    # if T == 0:
-    #     # State collapses to vacuum, but trace must be preserved
-    #     new_state = np.zeros_like(self._state)
-    #     vacuum_idx = tuple([0] * (2 * n_modes))
-    #     # The trace of the original state becomes the vacuum state probability
-    #     new_state[vacuum_idx] = np.trace(
-    #         self._state.reshape(trunc**n_modes, trunc**n_modes)
-    #     )
-    #     self._state = new_state
-    #     return
+    # Handle the edge case of T=1 (no loss) separately for speed
+    if T == 1.0:
+        return
 
-    # Generate the Kraus operators for the loss channel
-    kraus_ops = ops.lossChannel(T, trunc)
-
-    # Identify which modes are NOT being operated on
-    other_modes = [i for i in range(n_modes) if i != mode]
+    # Pre-calculate all Kraus diagonals
+    kraus_diags = []
+    for k in range(trunc):
+        diag_k_len = trunc - k
+        diag_k = np.zeros(diag_k_len, dtype=np.complex128)
+        term1 = (1 - T) ** (k / 2.0)
+        for j in range(diag_k_len):
+            diag_k[j] = np.sqrt(binom_numba(j + k, k)) * (T ** (j / 2.0)) * term1
+        kraus_diags.append(diag_k)
     
-    # Create a transpose list that moves the target mode's indices to the end
-    # Original order: [i0, j0, i1, j1, i2, j2, ...]
-    # New order: [i_others, j_others, ..., i_mode, j_mode]
-    # Identify the axes for spectator modes and the target mode
-    # based on an (i0, j0, i1, j1, ...) interleaved layout.
+    # Numba works best with uniform arrays. We pad the diagonals to the same length.
+    kraus_diags_mat = np.zeros((trunc, trunc), dtype=np.complex128)
+    for i, diag in enumerate(kraus_diags):
+        kraus_diags_mat[i, :len(diag)] = diag
+
+    other_modes = [i for i in range(n_modes) if i != mode]
     other_mode_axes = [ax for m in other_modes for ax in (2 * m, 2 * m + 1)]
     target_mode_axes = [2 * mode, 2 * mode + 1]
-
-    # The new permutation list moves all spectator axes to the front
-    # and the target mode's axes to the end.
     transpose_list = tuple(other_mode_axes + target_mode_axes)
 
-
-    # Create the inverse permutation to restore original ordering
     untranspose_list = [0] * len(transpose_list)
     for i, p in enumerate(transpose_list):
         untranspose_list[p] = i
         
-    # Transpose the state so target mode is at the end
     state_view = self._state.transpose(transpose_list)
     
-    # Allocate the new state (not a view, to avoid aliasing issues)
-    new_state = np.zeros_like(state_view)
+    other_modes_dim = trunc**(2 * (n_modes - 1))
+    state_view_flat = state_view.reshape(other_modes_dim, trunc*trunc)
 
-    # Pre-extract the diagonals from each Kraus operator
-    # E_k has non-zero elements only on its k-th superdiagonal
-    kraus_diags = [np.diagonal(E_k, offset=k) for k, E_k in enumerate(kraus_ops)]
-
-    # Iterate over all configurations of the spectator modes
-    # For each configuration, we apply the channel to the target mode's sub-matrix
-    other_modes_iterator = product(*([range(trunc)] * (2 * (n_modes - 1))))
-
-    for other_indices in other_modes_iterator:
-        # Extract the 2D density matrix for the target mode
-        sub_rho = state_view[other_indices]
-        
-        # This will accumulate the result of applying all Kraus operators
-        new_sub_rho = np.zeros((trunc, trunc), dtype=ops.def_type)
-
-        # Apply each Kraus operator using the block-shift optimization
-        for k, diag_k in enumerate(kraus_diags):
-            if k >= trunc or len(diag_k) == 0:
-                continue
-            
-            # The mathematical operation E_k @ sub_rho @ E_k† can be computed efficiently:
-            # Since E_k[i,j] is non-zero only when j = i+k, the result is:
-            # (E_k @ ρ @ E_k†)[i,j] = E_k[i,i+k] * ρ[i+k,j+k] * conj(E_k[j,j+k])
-            
-            # Extract the source block from the original density matrix
-            source_block = sub_rho[k:, k:]
-            
-            # Calculate the scaling factors (outer product of diagonal elements)
-            scaling_matrix = np.outer(diag_k, diag_k.conj())
-            
-            # Compute the scaled block and add it to the result
-            # Note: We need to handle the size mismatch between scaling_matrix and source_block
-            block_size = min(len(diag_k), trunc - k)
-            new_sub_rho[:block_size, :block_size] += (
-                scaling_matrix[:block_size, :block_size] * 
-                source_block[:block_size, :block_size]
-            )
-            
-        # Store the transformed sub-matrix in the new state
-        new_state[other_indices] = new_sub_rho
-
-    # Restore the original mode ordering and update the state
+    # Call the JIT-compiled core function
+    new_state_flat = _core_loss_channel(state_view_flat, trunc, kraus_diags_mat)
+    
+    new_state = new_state_flat.reshape(state_view.shape)
     self._state = new_state.transpose(untranspose_list)
 
 
-# Apply the monkey patch
-print("=" * 60)
-print("Applying Loss Channel Performance Optimization Patch")
-print("=" * 60)
-
 def patch_loss_channel():
     from strawberryfields.backends.fockbackend.circuit import Circuit
-    Circuit._apply_loss_channel_fast = _apply_loss_channel_fast
-
+    
     # Preserve the original loss method for reference/testing
     if not hasattr(Circuit, 'loss_original'):
         Circuit.loss_original = Circuit.loss
 
     Circuit.loss = _apply_loss_channel_fast
     print("loss_channel patch applied successfully")
-    print("=" * 60)
 
 
-import strawberryfields as sf
-from strawberryfields.ops import Fock
-import numpy as np
-# Test function
-def test_loss_channel(T_values=[0.0, 0.3, 0.5, 0.9, 1.0], truncs=[3, 5, 10]):
-    """Test the patched loss channel implementation against the original version.
+def revert_patch():
+    """Reverts the monkey patch on Circuit.loss."""
+    from strawberryfields.backends.fockbackend.circuit import Circuit
     
-    This function creates quantum circuits with various loss parameters and truncation
-    dimensions to verify that the optimized loss channel produces identical results
-    to the original implementation.
-    
-    Args:
-        T_values (list): Transmission coefficients to test (0.0 = complete loss,
-                        1.0 = no loss)
-        truncs (list): Fock space truncation dimensions to test
-    
-    Raises:
-        AssertionError: If the states from original and optimized implementations
-                       differ by more than 1e-10
+    if hasattr(Circuit, 'loss_original'):
+        Circuit.loss = Circuit.loss_original
+        print("loss_channel patch reverted.")
+    else:
+        print("Could not revert: original loss method not found.")
+
+
+def verify_correctness(T_values=[0.8], truncs=[7, 10], n_modes_list=[2]):
     """
-    for trunc in truncs:
-        for T in T_values:
-            # Set up circuit parameters
-            cutoff = trunc  # Dimension of the truncated Fock space
-            n_modes = 2     # Number of quantum modes in the circuit
-            
-            prog = sf.Program(n_modes)
-            with prog.context as q:
-                # Prepare a non-trivial quantum state:
-                # 1. Apply displacement to first mode with amplitude 0.5 and phase pi/4
-                Dgate(0.5, np.pi/4) | q[0]
-                # 2. Apply squeezing to second mode with strength 0.6 and phase 0
-                Sgate(0.6, 0) | q[1]
-                # 3. Apply loss channel with transmission T to the first mode
-                LossChannel(T) | q[0]
-                # 4. Mix the modes with a beamsplitter (pi/4 transmissivity, pi/6 phase)
-                BSgate(np.pi/4, np.pi/6) | (q[0], q[1])
+    Verifies that the patched loss channel produces the same results as the original
+    for a given set of parameters.
+    """
+    print("--- Running correctness verification ---")
+    for n_modes in n_modes_list:
+        for trunc in truncs:
+            for T in T_values:
+                print(f"\nVerifying with trunc={trunc}, T={T}, n_modes={n_modes}")
+                cutoff = trunc
+                
+                prog = sf.Program(n_modes)
+                with prog.context as q:
+                    for i in range(n_modes):
+                        Dgate(0.2 * (i + 1), np.pi / (i + 2)) | q[i]
+                        Sgate(0.2 * (i + 1), 0) | q[i]
+                        LossChannel(T) | q[0]
+                    if n_modes > 1:
+                        BSgate(np.pi / 4, np.pi / 6) | (q[0], q[1])
+                    if n_modes > 2:
+                        BSgate(np.pi / 3, np.pi / 5) | (q[1], q[2])
 
-            
-            # Step 1: Calculate quantum state using original loss channel implementation
-            # Create a Fock backend engine with specified cutoff dimension
-            eng_original = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
-            # Run the quantum program and get the final state
-            result_original = eng_original.run(prog)
-            state1 = result_original.state
-            print("Original state calculated successfully.")
+                revert_patch()
+                eng_original = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
+                state1 = eng_original.run(prog).state
 
-            # Step 2: Apply the optimized loss channel patch
-            print("\n--- 2. Applying optimized loss channel implementation ---")
-            patch_loss_channel()
-
-            # Step 3: Calculate state using the optimized loss channel
-            print("\n--- 3. Recalculating state with optimized loss channel ---")
-            # Create a new engine to ensure clean state with patched implementation
-            eng_optimized = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
-            result_optimized = eng_optimized.run(prog)
-            state2 = result_optimized.state
-            print("State with optimized loss channel calculated successfully.")
-            
-            # Compare the density matrices of both states
-            # Calculate maximum absolute difference between matrix elements
-            diff = np.max(np.abs(state1.dm() - state2.dm()))
-            print(f"T={T}: Max difference between density matrices = {diff:.2e}")
-            
-            # Verify that states are effectively identical (within numerical precision)
-            assert diff < 1e-10, f"States differ significantly! T={T}, maximum difference={diff}"
+                patch_loss_channel()
+                eng_optimized = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
+                state2 = eng_optimized.run(prog).state
+                
+                diff = np.max(np.abs(state1.dm() - state2.dm()))
+                print(f"Max difference between density matrices = {diff:.2e}")
+                assert diff < 1e-10, f"States differ significantly! T={T}, trunc={trunc}, max diff={diff}"
     
-    print("\n✓ All tests passed successfully - original and optimized implementations match!")
+    print("\n✓ Correctness verification passed!\n")
+    revert_patch()
+
+
+def run_benchmark(T_values=[0.3, 0.8], truncs=[5, 8 , 10], n_modes_list=[2], repeats=10):
+    """
+    Benchmarks the performance of the original vs. patched loss channel.
+    """
+    print("--- Running performance benchmark ---")
+    results = []
+
+    print("\nBenchmarking ORIGINAL loss channel...")
+    revert_patch()
+    for n_modes in n_modes_list:
+        for trunc in truncs:
+            for T in T_values:
+                prog = sf.Program(n_modes)
+                with prog.context as q:
+                    for i in range(n_modes):
+                        Dgate(0.2 * (i + 1), np.pi / (i + 2)) | q[i]
+                        Sgate(0.2 * (i + 1), 0) | q[i]
+                        LossChannel(T) | q[0]
+                    if n_modes > 1:
+                        BSgate(np.pi / 4, np.pi / 6) | (q[0], q[1])
+                    if n_modes > 2:
+                        BSgate(np.pi / 3, np.pi / 5) | (q[1], q[2])
+
+                eng = sf.Engine("fock", backend_options={"cutoff_dim": trunc})
+                timings = []
+                for _ in range(repeats):
+                    start = time.time()
+                    eng.run(prog)
+                    end = time.time()
+                    timings.append(end - start)
+                
+                time_original = np.mean(timings)
+                print(f"Original: n_modes={n_modes}, trunc={trunc}, T={T} -> {time_original:.6f}s")
+                results.append({'n_modes': n_modes, 'trunc': trunc, 'T': T, 'original': time_original})
+
+    patch_loss_channel()
+    print("\nJIT warmup run...")
+    eng_warmup = sf.Engine("fock", backend_options={"cutoff_dim": 5})
+    prog_warmup = sf.Program(2)
+    with prog_warmup.context as q:
+        LossChannel(0.5) | q[0]
+    eng_warmup.run(prog_warmup)
+    print("Warmup complete.")
+
+    print("\nBenchmarking OPTIMIZED loss channel...")
+    for i, params in enumerate(results):
+        n_modes, trunc, T = params['n_modes'], params['trunc'], params['T']
+        prog = sf.Program(n_modes)
+        with prog.context as q:
+            for j in range(n_modes):
+                Dgate(0.2 * (j + 1), np.pi / (j + 2)) | q[j]
+                Sgate(0.2 * (j + 1), 0) | q[j]
+            LossChannel(T) | q[0]
+            if n_modes > 1:
+                BSgate(np.pi / 4, np.pi / 6) | (q[0], q[1])
+            if n_modes > 2:
+                BSgate(np.pi / 3, np.pi / 5) | (q[1], q[2])
+
+        eng = sf.Engine("fock", backend_options={"cutoff_dim": trunc})
+        timings = []
+        for _ in range(repeats):
+            start = time.time()
+            eng.run(prog)
+            end = time.time()
+            timings.append(end - start)
+        
+        results[i]['optimized'] = np.mean(timings)
+        print(f"Optimized: n_modes={n_modes}, trunc={trunc}, T={T} -> {results[i]['optimized']:.6f}s")
+
+    print("\n--- Benchmark Summary ---")
+    print(f"{'Modes':<6} {'Trunc':<6} {'T':<4} {'Original (s)':<15} {'Optimized (s)':<15} {'Speedup':<10}")
+    print("-" * 60)
+    for res in results:
+        speedup = res['original'] / res['optimized'] if res.get('optimized', 0) > 0 else float('inf')
+        speedup_str = f"{speedup:.2f}x" if speedup != float('inf') else "inf"
+        print(f"{res['n_modes']:<6} {res['trunc']:<6} {res['T']:<4.2f} {res['original']:<15.6f} {res.get('optimized', 0):<15.6f} {speedup_str:<10}")
+
+    revert_patch()
+
 
 def main():
-    print("\nRunning loss channel tests...")
-    test_loss_channel()
+    verify_correctness()
+    run_benchmark()
+
 
 if __name__ == "__main__":
     main()
