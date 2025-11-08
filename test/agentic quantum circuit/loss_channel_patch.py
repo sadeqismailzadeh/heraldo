@@ -40,7 +40,7 @@ def binom_numba(n, k):
         res = res * (n - i) / (i + 1)
     return res
 
-@numba.jit(nopython=True, parallel=True)
+@numba.jit(nopython=True)
 def _core_loss_channel(state_view_flat, trunc, kraus_diags_mat):
     """
     JIT-compiled core function to apply the loss channel.
