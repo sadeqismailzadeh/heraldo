@@ -14,7 +14,6 @@ else:
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from scipy.linalg import sqrtm 
 
 # Import Strawberry Fields
 import strawberryfields as sf
@@ -27,71 +26,29 @@ from sf_operations_no_cache import disable_fock_caching
 disable_fock_caching() 
 
 # optimized loss channel
-from loss_measure_fock_patch import LossMeasureFock, patch_fock_backend
+from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, decode_measurement_result
 patch_fock_backend()
 
-# --- Helper Function for Computing Matrix Square Root ---
-def compute_matrix_sqrt(rho):
-    """Return a numerically stable matrix square root of a density matrix.
-
+# --- Pure State Fidelity Function ---
+def fidelity_pure_state(target_ket, state_ket):
+    """Return fidelity between two pure states.
+    
+    For two pure states |φ⟩ and |ψ⟩, the fidelity is:
+    F(|φ⟩, |ψ⟩) = |⟨φ|ψ⟩|²
+    
     Args:
-        rho (np.ndarray): Hermitian density matrix for which to compute
-            :math:`\sqrt{\rho}`.
-
+        target_ket (np.ndarray): Target state vector.
+        state_ket (np.ndarray): Current state vector.
+    
     Returns:
-        np.ndarray: Hermitian square root of ``rho`` with negative eigenvalues
-        clipped to zero.
+        float: Clipped fidelity value in [0, 1].
     """
-    rho = np.asarray(rho, dtype=np.complex128)
+    target_ket = np.asarray(target_ket, dtype=np.complex128).flatten()
+    state_ket = np.asarray(state_ket, dtype=np.complex128).flatten()
     
-    # Enforce Hermiticity on input to remove numerical noise
-    rho = 0.5 * (rho + rho.T.conj())
-    
-    # eigh is best for Hermitian matrices
-    e_vals_rho, e_vecs_rho = np.linalg.eigh(rho)
-    
-    # Clip small negative eigenvalues to 0 due to numerical instability
-    e_vals_rho_clipped = np.maximum(e_vals_rho.real, 0)
-    
-    # Calculate square root of eigenvalues
-    sqrt_e_vals_rho = np.sqrt(e_vals_rho_clipped)
-    
-    # Reconstruct sqrt(rho) = U * sqrt(D) * U_dagger
-    rho_sqrt = e_vecs_rho @ np.diag(sqrt_e_vals_rho) @ e_vecs_rho.T.conj()
-    
-    return rho_sqrt
-
-# --- Optimized Fidelity Function (with pre-computed sqrt) ---
-def fidelity_with_sqrt(rho_sqrt, sigma):
-    """Return Uhlmann fidelity using a pre-computed target square root.
-
-    Args:
-        rho_sqrt (np.ndarray): Square root of a target density matrix.
-        sigma (np.ndarray): Candidate density matrix produced by the agent.
-
-    Returns:
-        float: Clipped fidelity value in :math:`[0, 1]`.
-    """
-    sigma = np.asarray(sigma, dtype=np.complex128)
-    
-    # Enforce Hermiticity on sigma
-    sigma = 0.5 * (sigma + sigma.T.conj())
-    
-    # Calculate the product matrix K and ensure it's Hermitian
-    K = rho_sqrt @ sigma @ rho_sqrt
-    K = 0.5 * (K + K.T.conj())
-    
-    # Calculate Tr(sqrt(K)) robustly
-    e_vals_K = np.linalg.eigvalsh(K)
-    
-    # Clip before the final square root
-    e_vals_K_clipped = np.maximum(e_vals_K.real, 0)
-    
-    # The trace of sqrt(K) is the sum of the square roots of K's eigenvalues
-    trace_val = np.sum(np.sqrt(e_vals_K_clipped))
-    
-    # Calculate and clip final fidelity
-    fidelity = trace_val**2
+    # Fidelity: F = |⟨φ|ψ⟩|²
+    overlap = np.vdot(target_ket, state_ket)  # ⟨φ|ψ⟩
+    fidelity = np.abs(overlap) ** 2
     
     return np.clip(fidelity, 0.0, 1.0)
 
@@ -163,12 +120,13 @@ class QuantumCircuitEnv(gym.Env):
         self.eng = None # Will be initialized in reset()
 
         # --- Pre-calculate Target States (Reward States) ---
-        print("Pre-calculating target density matrices and their square roots...")
-        self.target_dms, self.target_sqrts = self._initialize_target_states()
-        print("Target states and square roots initialized.")
+        print("Pre-calculating target state kets...")
+        self.target_kets = self._initialize_target_states()
+        print("Target state kets initialized.")
         
         # --- Pre-allocate observation buffer for efficiency ---
-        obs_size = self.cutoff_dim**2
+        # Pure states: 2*cutoff_dim (real + imaginary parts of ket)
+        obs_size = 2 * self.cutoff_dim
         self._obs_buffer = np.zeros(obs_size, dtype=np.float32)
 
         # --- Define Observation and Action Spaces ---
@@ -206,106 +164,96 @@ class QuantumCircuitEnv(gym.Env):
         
         # Internal state of the environment
         self.current_step = 0
-        self.current_dm = None # This will hold the density matrix of mode 1
+        self.current_ket = None  # This will hold the state vector of mode 0
 
     def _initialize_target_states(self):
         """Generates and caches the target squeezed-cat states.
 
         This method creates the canonical squeezed-cat states that the agent
-        will be trained to generate. It also pre-computes and caches the square
-        roots of their density matrices to speed up the fidelity calculations.
+        will be trained to generate. Target states are stored as state vectors (kets)
+        for efficient pure state fidelity calculation.
 
         Returns:
-            tuple[list[np.ndarray], list[np.ndarray]]: A tuple containing two lists.
-                The first list holds the density matrices of the target states,
-                and the second list holds the corresponding square roots of these
-                matrices.
+            list[np.ndarray]: List of state vectors (kets) of the target states.
         """
         alpha = 3.0
         r = 1.38
         targets = []
-        target_sqrts = []
 
         temp_eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
         
-        # Target 1: rho_plus
+        # Target 1: ket_plus
         prog = sf.Program(1)
         with prog.context as q:
             Catstate(alpha, p=0) | q[0]
             Sgate(r) | q[0]
-        dm = temp_eng.run(prog).state.dm()
-        targets.append(dm)
-        target_sqrts.append(compute_matrix_sqrt(dm))
+        ket = temp_eng.run(prog).state.ket()
+        targets.append(ket)
         
-        # Target 2: rho_minus
+        # Target 2: ket_minus
         prog = sf.Program(1)
         with prog.context as q:
             Catstate(alpha, p=1) | q[0]
             Sgate(r) | q[0]
-        dm = temp_eng.run(prog).state.dm()
-        targets.append(dm)
-        target_sqrts.append(compute_matrix_sqrt(dm))
+        ket = temp_eng.run(prog).state.ket()
+        targets.append(ket)
 
-        # Target 3: rho_plus_rot
+        # Target 3: ket_plus_rot
         prog = sf.Program(1)
         with prog.context as q:
             Catstate(alpha, p=0) | q[0]
             Sgate(r) | q[0]
             Rgate(np.pi/2) | q[0]
-        dm = temp_eng.run(prog).state.dm()
-        targets.append(dm)
-        target_sqrts.append(compute_matrix_sqrt(dm))
+        ket = temp_eng.run(prog).state.ket()
+        targets.append(ket)
         
-        # Target 4: rho_minus_rot
+        # Target 4: ket_minus_rot
         prog = sf.Program(1)
         with prog.context as q:
             Catstate(alpha, p=1) | q[0]
             Sgate(r) | q[0]
             Rgate(np.pi/2) | q[0]
-        dm = temp_eng.run(prog).state.dm()
-        targets.append(dm)
-        target_sqrts.append(compute_matrix_sqrt(dm))
+        ket = temp_eng.run(prog).state.ket()
+        targets.append(ket)
         
-        return targets, target_sqrts
+        return targets
 
-    def _dm_to_observation(self, dm):
-        """Flattens the density matrix into an observation vector.
-
-        This method converts the density matrix of the quantum state into a
-        one-dimensional vector that can be used as an observation by the PPO
-        agent. The vector contains the real and imaginary parts of the upper
-        triangular elements of the density matrix.
-
+    def _ket_to_observation(self, state_ket):
+        """Converts a pure state ket into an observation vector.
+        
+        This method extracts the state vector for a single mode and flattens it
+        into a real-valued observation by separating real and imaginary parts.
+        
         Args:
-            dm (np.ndarray | None): The density matrix for mode `0`. If the state
-                is invalid, this can be `None`.
-
+            state_ket (np.ndarray): The state vector (ket) for the mode.
+            
         Returns:
-            np.ndarray: A real-valued observation vector that contains the
-                diagonal, upper-triangular real, and imaginary parts of the
-                density matrix.
+            np.ndarray: A real-valued observation vector containing the real
+                and imaginary parts of the state coefficients.
         """
-        if dm is None or dm.shape != (self.cutoff_dim, self.cutoff_dim):
-            # Return a zero vector if DM is invalid
+        if state_ket is None:
             self._obs_buffer.fill(0)
             return self._obs_buffer.copy()
-
-        # Extract the diagonal elements (which are real)
-        diag_elements = np.real(np.diag(dm))
-
-        # Extract the real and imaginary parts of the upper triangular elements (excluding the diagonal)
-        iu1 = np.triu_indices(self.cutoff_dim, k=1)
-        off_diag_elements = dm[iu1]
-        real_parts = off_diag_elements.real
-        imag_parts = off_diag_elements.imag
         
-        # Concatenate into the observation buffer
-        len_diag = len(diag_elements)
-        len_real = len(real_parts)
+        state_ket = state_ket.flatten()
         
-        self._obs_buffer[:len_diag] = diag_elements
-        self._obs_buffer[len_diag:len_diag + len_real] = real_parts
-        self._obs_buffer[len_diag + len_real:] = imag_parts
+        # Extract coefficients up to cutoff_dim
+        if len(state_ket) < self.cutoff_dim:
+            # Pad with zeros if state is smaller than cutoff
+            padded = np.zeros(self.cutoff_dim, dtype=np.complex128)
+            padded[:len(state_ket)] = state_ket
+            state_ket = padded
+        elif len(state_ket) > self.cutoff_dim:
+            # Truncate if larger
+            state_ket = state_ket[:self.cutoff_dim]
+        
+        # Split into real and imaginary parts
+        real_parts = state_ket.real
+        imag_parts = state_ket.imag
+        
+        # Concatenate into observation buffer
+        self._obs_buffer[:self.cutoff_dim] = real_parts
+        self._obs_buffer[self.cutoff_dim:] = imag_parts
         
         return self._obs_buffer.copy()
 
@@ -347,10 +295,17 @@ class QuantumCircuitEnv(gym.Env):
             # MeasureFock() | q[1]  # Start with vacuum in mode 1
 
         self.current_state = self.eng.run(prog).state
-        self.current_dm = self.current_state.reduced_dm(modes=[0])
         
-        # Convert the initial DM to an observation
-        observation = self._dm_to_observation(self.current_dm)
+        # Pure state - extract mode 0 ket
+        full_ket = self.current_state.ket()
+        if len(full_ket.shape) == 1:
+            # Single mode
+            self.current_ket = full_ket
+        else:
+            # Multi-mode: extract mode 0 by taking the state when other modes are in vacuum
+            # For a 2-mode state, this is full_ket[:, 0] (mode 1 in vacuum)
+            self.current_ket = full_ket[:, 0]
+        observation = self._ket_to_observation(self.current_ket)
         
         return observation, {}
 
@@ -400,11 +355,8 @@ class QuantumCircuitEnv(gym.Env):
             # Apply variable beam splitter (VBS1).
             BSgate(theta_1, 0) | (q[0], q[1])
 
-            if self.is_loss_channel:
-                LossMeasureFock(self.loss_channel) | q[0]
-            else:
-                # Photon-number-resolving measurement (PNR)
-                MeasureFock() | q[0]
+            # Monitored lossy photon-number-resolving measurement (PNR)
+            MonitoredLossMeasureFock(self.loss_channel) | q[0]
 
             # Fully reflective mirror  
             # the mode q[1] is now q[0]
@@ -415,13 +367,23 @@ class QuantumCircuitEnv(gym.Env):
 
         # The new state is the state of mode 0 after the interaction
         self.current_state = result.state
-        self.current_dm = self.current_state.reduced_dm(modes=[0]) # Get partial trace for mode 0
-
-        # 4. Convert the new state to an observation for the agent
-        observation = self._dm_to_observation(self.current_dm)
+        
+        # 4. Extract pure state and convert to observation
+        full_ket = self.current_state.ket()
+        if len(full_ket.shape) == 1:
+            # Single mode
+            self.current_ket = full_ket
+        else:
+            # Multi-mode: extract mode 0 by taking the state when other modes are in vacuum
+            # For a 2-mode state after measurement, mode 0 is measured and set to vacuum,
+            # so the state is in mode 1. We swap interpretation: the unmeasured mode becomes our mode 0
+            # After MonitoredLossMeasureFock on mode 0 and BSgate swap, mode 1 becomes the new mode 0
+            self.current_ket = full_ket[0, :] if len(full_ket.shape) == 2 else full_ket
+        observation = self._ket_to_observation(self.current_ket)
 
         # 5. Calculate the reward by computing fidelities for all target states
-        fidelities = np.array([fidelity_with_sqrt(sqrt, self.current_dm) for sqrt in self.target_sqrts])
+        fidelities = np.array([fidelity_pure_state(target_ket, self.current_ket) 
+                               for target_ket in self.target_kets])
         max_fidelity = np.max(fidelities)
         reward = max_fidelity ** self.reward_power
 
@@ -449,15 +411,19 @@ class QuantumCircuitEnv(gym.Env):
 
         
         # The 'info' dictionary is the standard place for diagnostic information.
-        # result.samples[0][0] holds the measured photon number from q[0].
+        # Decode the monitored loss measurement result
+        encoded_result = result.samples[0][0]
+        lost_photons, detected_photons = decode_measurement_result(encoded_result)
         info = {
-                'measured_photons': result.samples[0][0],
-                'max_fidelity': max_fidelity  # It's good practice to log this
-                }
+            'lost_photons': lost_photons,
+            'detected_photons': detected_photons,
+            'total_photons': lost_photons + detected_photons,
+            'max_fidelity': max_fidelity
+        }
         
         if truncated:
             info['terminal_bonus'] = terminal_bonus
-            info['final_dm'] = self.current_dm
+            info['final_ket'] = self.current_ket
 
         return observation, reward, terminated, truncated, info
 
