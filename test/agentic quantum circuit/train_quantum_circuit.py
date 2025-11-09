@@ -47,6 +47,8 @@ from quantum_circuit_env import QuantumCircuitEnv
 from thread_manager_callback import ThreadManagerCallback
 from typing import Callable
 
+# TODO FOR SUPERVISOR: send spinx read the docs tutorial
+
 # TODO validity of no cache functions 
 # TODO train with tunable r, vacuum inital state
 # TODO termination with set full reflective action ask ai
@@ -54,6 +56,33 @@ from typing import Callable
 # TODO Map a full noise-phase diagram. Find noise thresholds where RL still performs like baselines?
 # TODO stable baseline zoo for hyperparameter tuning
 # TODO venv on ssd no cuda
+# TODO train folder metadata show env features
+# TODO assert for no env feature conflict
+# TODO possibility of no state agent with only shown measurements
+# TODO terminate give reward for passed steps (same total reward as truncate)
+# TODO SAC for losschannel but first test for normal case
+# TODO ideas from BSgate to optmize loss channel implementation
+# TODO symbolic fock
+# TODO new fock engine each step but passs dm
+# TODO loss channel optimized no parallel
+# TODO lower fock cut off as much as possible
+# TODO qutip insstead of strawberry fields
+
+def linear_schedule(initial_value: float, end_value: float) -> Callable[[float], float]:
+    """
+    Linear learning rate schedule.
+
+    :param initial_value: The initial learning rate.
+    :param end_value: The final learning rate.
+    :return: schedule that computes current learning rate depending on progress
+    """
+    def func(progress_remaining: float) -> float:
+        """
+        Progress will decrease from 1 (beginning) to 0 (end).
+        """
+        return end_value + progress_remaining * (initial_value - end_value)
+
+    return func
 
 def main():
     """Configures the environment, resumes if possible, and launches PPO training."""
@@ -63,15 +92,14 @@ def main():
     MAX_STEPS = 10
     REWARD_POWER = 2
     TUNABLE_R = False
-    AGENT_CAN_TERMINATE = False
 
     # Training Parameters
     N_ENVS = 4  # Number of parallel environments
-    TARGET_TIMESTEPS = 7_000_000  # Total steps for the entire training run
+    TARGET_TIMESTEPS = 700_000  # Total steps for the entire training run
     CHECKPOINT_FREQ = 20_000  # Save a checkpoint every N steps
 
     # PPO Hyperparameters
-    POLICY_KWARGS = dict(net_arch=dict(pi=[256, 256], vf=[256, 256]))
+    POLICY_KWARGS = dict(net_arch=dict(pi=[128, 64], vf=[128, 64]))
     LEARNING_RATE = 3e-4
     N_STEPS_PER_UPDATE = 2048
     BATCH_SIZE = 64
@@ -95,6 +123,8 @@ def main():
             max_steps=MAX_STEPS,
             reward_power=REWARD_POWER,
             tunable_r=TUNABLE_R,
+            is_loss_channel=False, 
+            loss_channel=1
         ),
         vec_env_cls=SubprocVecEnv,
         vec_env_kwargs=dict(start_method='spawn') # 'spawn' is safer for cross-platform
@@ -124,6 +154,22 @@ def main():
     if latest_checkpoint:
         print("\n--- RESUMING TRAINING ---")
         model = PPO.load(latest_checkpoint, env=env)
+
+        
+        # --- SET a new, much smaller learning rate ---
+        # One order of magnitude smaller is a great starting point.
+        # new_learning_rate = 3e-5 
+        # Update lr_schedule, which is called to determine current learning rate
+        # here a constant learning rate
+
+
+        # model.lr_schedule = lambda _: 1e-4
+        # # Update `learning_rate` too in case we want to save/load the model
+        # # (cf. remark below)
+        # model.learning_rate = lambda _: initial_lr
+        # print(f"New learning rate set to: {initial_lr}")
+        
+
         print(f"Model loaded. Resuming from {current_steps} timesteps.")
     else:
         print("\n--- STARTING NEW TRAINING ---")
