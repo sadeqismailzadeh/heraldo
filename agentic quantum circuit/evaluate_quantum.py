@@ -41,7 +41,9 @@ def main():
     # --- Environment and Model Setup ---
     env = QuantumCircuitEnv(cutoff_dim=CUTOFF_DIM,
                             max_steps=MAX_STEPS,
-                            reward_power=REWARD_POWER)
+                            reward_power=REWARD_POWER,
+                            is_loss_channel=True,
+                            loss_channel=0.95)
 
     try:
         model = PPO.load(MODEL_PATH, env=env)
