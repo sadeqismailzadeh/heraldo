@@ -11,6 +11,7 @@ class ThreadManagerCallback(BaseCallback):
     - Manages PyTorch thread counts for rollout and update phases.
     - Records the mean photon loss for each completed episode.
     - Records the final fidelity at the end of each completed episode.
+    - Records the minimum inner product (state normalization) for each episode.
     """
 
     def __init__(self, rollout_threads: int = 1, update_threads: int = -1, verbose: int = 0):
@@ -68,6 +69,11 @@ class ThreadManagerCallback(BaseCallback):
                 if "fidelity" in info:
                     final_fidelity = info["fidelity"]
                     self.logger.record("quantum/final_fidelity", final_fidelity)
+                
+                # A2. Log minimum inner product (normalization check)
+                if "min_inner_product" in info:
+                    min_inner_product = info["min_inner_product"]
+                    self.logger.record("quantum/min_inner_product", min_inner_product)
 
                 # B. Calculate and log mean photon loss for the episode
                 if self.episode_photon_losses[i]: # Ensure the list is not empty
