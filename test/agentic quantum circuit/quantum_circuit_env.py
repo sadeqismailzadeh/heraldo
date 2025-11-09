@@ -302,8 +302,8 @@ class QuantumCircuitEnv(gym.Env):
             # Single mode
             self.current_ket = full_ket
         else:
-            # Multi-mode: extract mode 0 by taking the state when other modes are in vacuum
-            # For a 2-mode state, this is full_ket[:, 0] (mode 1 in vacuum)
+            # Multi-mode: tensor[i,j] = coefficient for |i⟩_mode0 ⊗ |j⟩_mode1
+            # To get state of mode 0, we take the slice when mode 1 is in vacuum: full_ket[:, 0]
             self.current_ket = full_ket[:, 0]
         observation = self._ket_to_observation(self.current_ket)
         
@@ -374,11 +374,12 @@ class QuantumCircuitEnv(gym.Env):
             # Single mode
             self.current_ket = full_ket
         else:
-            # Multi-mode: extract mode 0 by taking the state when other modes are in vacuum
-            # For a 2-mode state after measurement, mode 0 is measured and set to vacuum,
-            # so the state is in mode 1. We swap interpretation: the unmeasured mode becomes our mode 0
-            # After MonitoredLossMeasureFock on mode 0 and BSgate swap, mode 1 becomes the new mode 0
-            self.current_ket = full_ket[0, :] if len(full_ket.shape) == 2 else full_ket
+            # Multi-mode: tensor[i,j] = coefficient for |i⟩_mode0 ⊗ |j⟩_mode1
+            # After MonitoredLossMeasureFock on q[0] and BSgate(π/2) swap:
+            # - Mode 0 is measured and placed in vacuum, then swapped to mode 1
+            # - Mode 1 (unmeasured) is swapped to mode 0
+            # The state of the current mode 0 is: full_ket[:, 0] (mode 1 in vacuum)
+            self.current_ket = full_ket[:, 0]
         observation = self._ket_to_observation(self.current_ket)
 
         # 5. Calculate the reward by computing fidelities for all target states
