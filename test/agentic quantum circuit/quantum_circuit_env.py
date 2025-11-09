@@ -165,6 +165,7 @@ class QuantumCircuitEnv(gym.Env):
         # Internal state of the environment
         self.current_step = 0
         self.current_ket = None  # This will hold the state vector of mode 0
+        self.min_inner_product = 1.0  # Track minimum inner product during episode
 
     def _initialize_target_states(self):
         """Generates and caches the target squeezed-cat states.
@@ -286,6 +287,9 @@ class QuantumCircuitEnv(gym.Env):
         # Reset the step counter
         self.current_step = 0
         
+        # Reset the minimum inner product tracker
+        self.min_inner_product = 1.0
+        
         # Prepare the initial circuit
         prog = sf.Program(2)
 
@@ -295,6 +299,8 @@ class QuantumCircuitEnv(gym.Env):
             # MeasureFock() | q[1]  # Start with vacuum in mode 1
 
         self.current_state = self.eng.run(prog).state
+
+
         
         # Pure state - extract mode 0 ket
         full_ket = self.current_state.ket()
@@ -306,6 +312,10 @@ class QuantumCircuitEnv(gym.Env):
             # To get state of mode 0, we take the slice when mode 1 is in vacuum: full_ket[:, 0]
             self.current_ket = full_ket[:, 0]
         observation = self._ket_to_observation(self.current_ket)
+
+        # Calculate inner product of state with itself (should be ~1 for normalized states)
+        inner_product = np.abs(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
         
         return observation, {}
 
@@ -382,6 +392,10 @@ class QuantumCircuitEnv(gym.Env):
             self.current_ket = full_ket[:, 0]
         observation = self._ket_to_observation(self.current_ket)
 
+        # Calculate inner product of state with itself (should be ~1 for normalized states)
+        inner_product = np.abs(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
+
         # 5. Calculate the reward by computing fidelities for all target states
         fidelities = np.array([fidelity_pure_state(target_ket, self.current_ket) 
                                for target_ket in self.target_kets])
@@ -416,15 +430,16 @@ class QuantumCircuitEnv(gym.Env):
         encoded_result = result.samples[0][0]
         lost_photons, detected_photons = decode_measurement_result(encoded_result)
         info = {
-            'lost_photons': lost_photons,
+            'photon_loss': lost_photons,
             'detected_photons': detected_photons,
             'total_photons': lost_photons + detected_photons,
-            'max_fidelity': max_fidelity
+            'fidelity': max_fidelity
         }
         
         if truncated:
             info['terminal_bonus'] = terminal_bonus
             info['final_ket'] = self.current_ket
+            info['min_inner_product'] = self.min_inner_product
 
         return observation, reward, terminated, truncated, info
 
