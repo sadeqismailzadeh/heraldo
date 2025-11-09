@@ -23,8 +23,12 @@ from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
 
 
 # disable caching to save memory for large cutoff dims
-# from sf_operations_no_cache import disable_fock_caching
-# disable_fock_caching() 
+from sf_operations_no_cache import disable_fock_caching
+disable_fock_caching() 
+
+# optimized loss channel
+from loss_measure_fock_patch import LossMeasureFock, patch_fock_backend
+patch_fock_backend()
 
 # --- Helper Function for Computing Matrix Square Root ---
 def compute_matrix_sqrt(rho):
@@ -118,7 +122,7 @@ class QuantumCircuitEnv(gym.Env):
     metadata = {"render_modes": [], "render_fps": 0}
     # agent can terminate
     def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False,
-                 is_loss_channel=False, loss_channel=0):
+                 is_loss_channel=False, loss_channel=0.99):
         """Initializes the quantum circuit environment.
 
         This method sets up the simulation parameters, pre-calculates the target
@@ -397,10 +401,10 @@ class QuantumCircuitEnv(gym.Env):
             BSgate(theta_1, 0) | (q[0], q[1])
 
             if self.is_loss_channel:
-                ops.LossChannel(self.loss_channel) | q[0]
-
-            # Photon-number-resolving measurement (PNR)
-            MeasureFock() | q[0]
+                LossMeasureFock(self.loss_channel) | q[0]
+            else:
+                # Photon-number-resolving measurement (PNR)
+                MeasureFock() | q[0]
 
             # Fully reflective mirror  
             # the mode q[1] is now q[0]
