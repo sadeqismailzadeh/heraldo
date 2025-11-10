@@ -45,6 +45,7 @@ from stable_baselines3.common.env_util import make_vec_env
 
 from quantum_circuit_env import QuantumCircuitEnv
 from thread_manager_callback import ThreadManagerCallback
+from metrics_callback import MetricsCallback
 from typing import Callable
 
 # TODO FOR SUPERVISOR: send spinx read the docs tutorial
@@ -202,8 +203,9 @@ def main():
     # Optimize thread usage for different parts of the training loop
     num_cpus = 4
     thread_manager_callback = ThreadManagerCallback(rollout_threads=1, update_threads=num_cpus, verbose=1)
+    metrics_callback = MetricsCallback(verbose=1)
     
-    callback_list = CallbackList([checkpoint_callback, thread_manager_callback])
+    callback_list = CallbackList([checkpoint_callback, thread_manager_callback, metrics_callback])
 
     # --- Train the Agent ---
     remaining_timesteps = TARGET_TIMESTEPS - current_steps
