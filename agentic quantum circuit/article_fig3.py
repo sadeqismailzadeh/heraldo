@@ -31,7 +31,7 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_with_sqrt
+from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
 
 # --- Configuration ---
 
@@ -103,7 +103,9 @@ def main():
             cutoff_dim=CUTOFF_DIM,
             max_steps=MAX_STEPS,
             reward_power=REWARD_POWER,
-            tunable_r=False  # Make sure this matches your trained model
+            tunable_r=False,
+            is_loss_channel=True,
+            loss_channel=1 # Make sure this matches your trained model
         ),
         vec_env_cls=SubprocVecEnv,
         vec_env_kwargs=dict(start_method='spawn')
@@ -139,7 +141,7 @@ def main():
             for i in range(N_ENVS):
                 current_episode_steps[i] += 1
                 
-                measured_photons = infos[i].get('measured_photons', 0)
+                measured_photons = infos[i].get('detected_photons', 0)
                 current_segment_photons[i] += 0 if is_reset[i] else measured_photons
                 
                 # Check for the agent's "reset" action (high transmissivity)
@@ -153,11 +155,10 @@ def main():
                 if dones[i]:
                     # Episode finished, collect final data
                     final_info = infos[i]
-                    final_dm = final_info.get('final_dm')
-                    
-                    if final_dm is not None:
-                        target_sqrts = env.get_attr('target_sqrts')[0]
-                        final_fidelities = np.array([fidelity_with_sqrt(sqrt, final_dm) for sqrt in target_sqrts])
+                    final_ket = final_info.get('final_ket')
+                    if final_ket is not None:
+                        target_kets =  env.get_attr('target_kets')[0]
+                        final_fidelities = np.array([fidelity_pure_state(final_ket, target_ket) for target_ket in target_kets])
                         fidelities.append(np.max(final_fidelities))
                     else:
                         fidelities.append(0.0)

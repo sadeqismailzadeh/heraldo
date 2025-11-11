@@ -19,7 +19,7 @@ import matplotlib as mpl
 from matplotlib import cm
 
 from stable_baselines3 import PPO
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_with_sqrt
+from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
 
 import strawberryfields as sf
 # temporary fix. it may cause crashes or silently produce incorrect results
@@ -42,8 +42,9 @@ def main():
     env = QuantumCircuitEnv(cutoff_dim=CUTOFF_DIM,
                             max_steps=MAX_STEPS,
                             reward_power=REWARD_POWER,
+                            tunable_r=True,
                             is_loss_channel=True,
-                            loss_channel=0.95)
+                            loss_channel=0.8)
 
     try:
         model = PPO.load(MODEL_PATH, env=env)
@@ -65,12 +66,14 @@ def main():
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             
-            measured_n = info.get('measured_photons', 'N/A')
-            
+            measured_n = info.get('detected_photons', 'N/A')
+            photon_loss = info.get('photon_loss', 'N/A')
             print(
                 f"Step {env.current_step:2d}: "
-                f"Action=[tau_1={np.cos(action[0]):.4f}, squeezing_phase={action[1]:.4f}], "
+                # f"Action=[tau_1={np.cos(action[0]):.4f}, squeezing_phase={action[1]:.4f}], "
+                f"Action=[squeezing_r={action[0]:.4f},tau_1={np.cos(action[1]):.4f}, squeezing_phase={action[2]:.4f}], "
                 f"Measured_n={measured_n}, "
+                f"photon_loss={photon_loss}, "
                 f"Step Reward={reward:.6f}"
             )
             total_reward += reward
@@ -80,8 +83,8 @@ def main():
         print(f"Total Steps: {env.current_step}")
         print(f"Total Reward: {total_reward:.4f}")
 
-        final_dm = env.current_dm
-        final_fidelities = np.array([fidelity_with_sqrt(sqrt, final_dm) for sqrt in env.target_sqrts])
+        final_ket = env.current_ket
+        final_fidelities = np.array([fidelity_pure_state(final_ket, target_ket) for target_ket in env.target_kets])
         best_fidelity = np.max(final_fidelities)
         best_target_index = np.argmax(final_fidelities)
 
