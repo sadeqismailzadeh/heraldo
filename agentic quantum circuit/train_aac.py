@@ -18,13 +18,13 @@ os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
-from stable_baselines3 import PPO
+from stable_baselines3.ppo import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 
 from aac_quantum_env import AACQuantumCircuitEnv
-from custom_policy import AsymmetricCriticPolicy
+from custom_policy import AsymmetricRecurrentCriticPolicy
 from thread_manager_callback import ThreadManagerCallback
 from metrics_callback import MetricsCallback
 from typing import Callable
@@ -105,18 +105,13 @@ def main():
     # --- Create or Load Model ---
     if latest_checkpoint:
         print("\n--- RESUMING AAC TRAINING ---")
-        model = PPO.load(latest_checkpoint, env=env, policy=AsymmetricCriticPolicy)
+        model = PPO.load(latest_checkpoint, env=env, policy=AsymmetricRecurrentCriticPolicy)
         print(f"Model loaded. Resuming from {current_steps} timesteps.")
     else:
         print("\n--- STARTING NEW AAC TRAINING ---")
         model = PPO(
-            AsymmetricCriticPolicy,
+            AsymmetricRecurrentCriticPolicy,
             env,
-        policy_kwargs=dict(
-            net_arch=dict(pi=[128, 128], vf=[256, 256]),
-            actor_features_dim=64,
-            critic_features_dim=256,
-        ),
             learning_rate=LEARNING_RATE,
             n_steps=N_STEPS_PER_UPDATE,
             batch_size=BATCH_SIZE,
