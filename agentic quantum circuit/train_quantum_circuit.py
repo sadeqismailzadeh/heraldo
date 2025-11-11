@@ -68,6 +68,8 @@ from typing import Callable
 # TODO loss channel optimized no parallel
 # TODO lower fock cut off as much as possible
 # TODO qutip insstead of strawberry fields
+# TODO super bonus 100x instead of 10x
+# TODO paralell env seed? 
 
 def linear_schedule(initial_value: float, end_value: float) -> Callable[[float], float]:
     """
@@ -91,21 +93,21 @@ def main():
     # Environment Parameters
     CUTOFF_DIM = 25
     MAX_STEPS = 10
-    REWARD_POWER = 2
-    TUNABLE_R = False
+    REWARD_POWER = 5
+    TUNABLE_R = True
 
     # Training Parameters
     N_ENVS = 4  # Number of parallel environments
-    TARGET_TIMESTEPS = 700_000  # Total steps for the entire training run
+    TARGET_TIMESTEPS = 10_000_000  # Total steps for the entire training run
     CHECKPOINT_FREQ = 20_000  # Save a checkpoint every N steps
 
     # PPO Hyperparameters
-    POLICY_KWARGS = dict(net_arch=dict(pi=[128, 64], vf=[128, 64]))
+    POLICY_KWARGS = dict(net_arch=dict(pi=[256, 256], vf=[256, 256]))
     LEARNING_RATE = 3e-4
-    N_STEPS_PER_UPDATE = 2048
-    BATCH_SIZE = 64
+    N_STEPS_PER_UPDATE = 2048*2
+    BATCH_SIZE = 64*2
     N_EPOCHS = 10
-    GAMMA = 0.98
+    GAMMA = 0.99
     GAE_LAMBDA = 0.95
     ENT_COEF = 0.01
 
@@ -204,7 +206,7 @@ def main():
     num_cpus = 4
     thread_manager_callback = ThreadManagerCallback(rollout_threads=1, update_threads=num_cpus, verbose=1)
     metrics_callback = MetricsCallback(verbose=1)
-    
+
     callback_list = CallbackList([checkpoint_callback, thread_manager_callback, metrics_callback])
 
     # --- Train the Agent ---
