@@ -110,7 +110,7 @@ class QuantumCircuitEnv(gym.Env):
         self.max_steps = max_steps
         self.reward_power = reward_power  # Controls reward curve steepness (higher = harder)
         self.tunable_r = tunable_r  # Toggle: True = action controls r, False = fixed r
-        self.initial_squeezing = 1.38 # r0 from the paper (used when tunable_r=False)
+        self.max_squeezing = 1.38 # r0 from the paper (used when tunable_r=False)
         self.termination_threshold = 0.001 # e.g., less than 0.1% transmissivity
         self.is_loss_channel=is_loss_channel
         self.loss_channel=loss_channel
@@ -149,7 +149,7 @@ class QuantumCircuitEnv(gym.Env):
             # 3D action space: agent controls squeezing_r, BS angle, and phase
             self.action_space = spaces.Box(
                 low=np.array([0.0, 0.0, -np.pi]),
-                high=np.array([1.38, np.pi/2, np.pi]),
+                high=np.array([self.max_squeezing, np.pi/2, np.pi]),
                 shape=(3,),
                 dtype=np.float32
             )
@@ -295,7 +295,7 @@ class QuantumCircuitEnv(gym.Env):
 
         with prog.context as q:
             # MeasureFock() | q[0]  # Start with vacuum in mode 0
-            Sgate(self.initial_squeezing) | q[0]
+            Sgate(self.max_squeezing) | q[0]
             # MeasureFock() | q[1]  # Start with vacuum in mode 1
 
         self.current_state = self.eng.run(prog).state
@@ -304,13 +304,10 @@ class QuantumCircuitEnv(gym.Env):
         
         # Pure state - extract mode 0 ket
         full_ket = self.current_state.ket()
-        if len(full_ket.shape) == 1:
-            # Single mode
-            self.current_ket = full_ket
-        else:
-            # Multi-mode: tensor[i,j] = coefficient for |i⟩_mode0 ⊗ |j⟩_mode1
-            # To get state of mode 0, we take the slice when mode 1 is in vacuum: full_ket[:, 0]
-            self.current_ket = full_ket[:, 0]
+
+        # Multi-mode: tensor[i,j] = coefficient for |i⟩_mode0 ⊗ |j⟩_mode1
+        # To get state of mode 0, we take the slice when mode 1 is in vacuum: full_ket[:, 0]
+        self.current_ket = full_ket[:, 0]
         observation = self._ket_to_observation(self.current_ket)
 
         # Calculate inner product of state with itself (should be ~1 for normalized states)
@@ -347,12 +344,12 @@ class QuantumCircuitEnv(gym.Env):
         # 1. Unpack and clip the agent's action based on tunable_r setting
         if self.tunable_r:
             # 3D action: [squeezing_r, BS_angle, squeezing_phase]
-            squeezing_r = np.clip(action[0], 0, 1.38)
+            squeezing_r = np.clip(action[0], 0, self.max_squeezing)
             theta_1 = np.clip(action[1], 0, np.pi/2)
             squeezing_phase = np.clip(action[2], -np.pi, np.pi)
         else:
             # 2D action: [BS_angle, squeezing_phase], squeezing_r is fixed
-            squeezing_r = self.initial_squeezing
+            squeezing_r = self.max_squeezing
             theta_1 = np.clip(action[0], 0, np.pi/2)
             squeezing_phase = np.clip(action[1], -np.pi, np.pi)
 
@@ -380,16 +377,12 @@ class QuantumCircuitEnv(gym.Env):
         
         # 4. Extract pure state and convert to observation
         full_ket = self.current_state.ket()
-        if len(full_ket.shape) == 1:
-            # Single mode
-            self.current_ket = full_ket
-        else:
-            # Multi-mode: tensor[i,j] = coefficient for |i⟩_mode0 ⊗ |j⟩_mode1
-            # After MonitoredLossMeasureFock on q[0] and BSgate(π/2) swap:
-            # - Mode 0 is measured and placed in vacuum, then swapped to mode 1
-            # - Mode 1 (unmeasured) is swapped to mode 0
-            # The state of the current mode 0 is: full_ket[:, 0] (mode 1 in vacuum)
-            self.current_ket = full_ket[:, 0]
+        # Multi-mode: tensor[i,j] = coefficient for |i⟩_mode0 ⊗ |j⟩_mode1
+        # After MonitoredLossMeasureFock on q[0] and BSgate(π/2) swap:
+        # - Mode 0 is measured and placed in vacuum, then swapped to mode 1
+        # - Mode 1 (unmeasured) is swapped to mode 0
+        # The state of the current mode 0 is: full_ket[:, 0] (mode 1 in vacuum)
+        self.current_ket = full_ket[:, 0]
         observation = self._ket_to_observation(self.current_ket)
 
         # Calculate inner product of state with itself (should be ~1 for normalized states)
@@ -420,7 +413,7 @@ class QuantumCircuitEnv(gym.Env):
             # Rescale the excess from [0, 0.1] to [0, 1]
             rescaled_excess = excess_fidelity / (1 - fidelity_threshold)
             # Apply non-linear shaping and final scaling
-            terminal_bonus += (rescaled_excess ** self.reward_power) * 10
+            terminal_bonus += (rescaled_excess ** self.reward_power) * 100
             
             reward += terminal_bonus
 
