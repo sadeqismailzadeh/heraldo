@@ -7,6 +7,7 @@ from gymnasium import spaces
 from typing import Type, List, Dict, Tuple
 
 from sb3_contrib.common.recurrent.policies import RecurrentActorCriticPolicy
+from sb3_contrib.common.recurrent.type_aliases import RNNStates
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, MlpExtractor
 from stable_baselines3.common.distributions import Distribution, DiagGaussianDistribution, CategoricalDistribution
 
@@ -132,8 +133,32 @@ class AsymmetricRecurrentCriticPolicy(RecurrentActorCriticPolicy):
         # Reshape actor_features for LSTM: (batch_size, sequence_length, input_size)
         # Here, sequence_length is 1 as we process one step at a time
         actor_features = actor_features.unsqueeze(1) # Add sequence length dimension
-        latent_pi, lstm_states = self.lstm_actor(actor_features, lstm_states)
+        
+        # lstm_states here is (actor_hidden_cell_tuple, critic_hidden_cell_tuple)
+        # Since critic is not recurrent, critic_hidden_cell_tuple will be None
+        actor_lstm_states, _ = lstm_states # Unpack the outer tuple
+
+        if actor_lstm_states is None:
+            # Initialize LSTM states to zeros if None (start of episode)
+            hidden_state = torch.zeros(self.n_lstm_layers, actor_features.size(0), self.lstm_hidden_size).to(self.device)
+            cell_state = torch.zeros(self.n_lstm_layers, actor_features.size(0), self.lstm_hidden_size).to(self.device)
+        else:
+            # actor_lstm_states is (hidden_state_tensor, cell_state_tensor)
+            hidden_state, cell_state = actor_lstm_states[0], actor_lstm_states[1]
+            # Check if batch size matches current input batch size
+            if hidden_state.size(1) != actor_features.size(0):
+                # Reinitialize if batch size changed (e.g., during training with variable batch sizes)
+                hidden_state = torch.zeros(self.n_lstm_layers, actor_features.size(0), self.lstm_hidden_size).to(self.device)
+                cell_state = torch.zeros(self.n_lstm_layers, actor_features.size(0), self.lstm_hidden_size).to(self.device)
+
+        latent_pi, (hidden_state, cell_state) = self.lstm_actor(actor_features, (hidden_state, cell_state))
         latent_pi = latent_pi.squeeze(1) # Remove sequence length dimension
+
+        # Repack lstm_states into RNNStates object for return
+        # The hidden_state and cell_state from LSTM output are already (n_layers, batch, hidden_size)
+        vf_hidden = torch.zeros_like(hidden_state)
+        vf_cell = torch.zeros_like(cell_state)
+        lstm_states = RNNStates(pi=(hidden_state, cell_state), vf=(vf_hidden, vf_cell))
         
         # Critic (MLP)
         latent_vf = self.critic_net(critic_features)
@@ -155,7 +180,21 @@ class AsymmetricRecurrentCriticPolicy(RecurrentActorCriticPolicy):
 
         # Actor (LSTM)
         actor_features = actor_features.unsqueeze(1) # Add sequence length dimension
-        latent_pi, _ = self.lstm_actor(actor_features, lstm_states)
+        
+        if lstm_states is None:
+            # Initialize LSTM states to zeros if None (start of episode)
+            hidden_state = torch.zeros(self.n_lstm_layers, actor_features.size(0), self.lstm_hidden_size).to(self.device)
+            cell_state = torch.zeros(self.n_lstm_layers, actor_features.size(0), self.lstm_hidden_size).to(self.device)
+        else:
+            # Correctly unpack nested lstm_states
+            hidden_state, cell_state = lstm_states.pi[0], lstm_states.pi[1]
+            # Check if batch size matches current input batch size
+            if hidden_state.size(1) != actor_features.size(0):
+                # Reinitialize if batch size changed
+                hidden_state = torch.zeros(self.n_lstm_layers, actor_features.size(0), self.lstm_hidden_size).to(self.device)
+                cell_state = torch.zeros(self.n_lstm_layers, actor_features.size(0), self.lstm_hidden_size).to(self.device)
+
+        latent_pi, _ = self.lstm_actor(actor_features, (hidden_state, cell_state))
         latent_pi = latent_pi.squeeze(1) # Remove sequence length dimension
         
         # Critic (MLP)
