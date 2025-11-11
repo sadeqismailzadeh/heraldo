@@ -4,7 +4,7 @@ Unit tests for the custom_policy.py module, specifically for the recurrent polic
 
 import torch
 import pytest
-from stable_baselines3 import PPO
+from sb3_contrib.ppo_recurrent import RecurrentPPO as PPO
 from aac_quantum_env import AACQuantumCircuitEnv
 from custom_policy import AsymmetricRecurrentCriticPolicy
 
