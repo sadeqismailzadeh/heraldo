@@ -120,21 +120,24 @@ def get_joint_state(tau_sq, cutoff):
     result = eng.run(prog)
     return result.state.ket()
 
-def generate_target_ket(alpha_mag, r_mag, parity, cutoff):
+def generate_target_ket(alpha_mag, r_mag, parity, cutoff, rotation=0):
     """
     Generates a candidate Squeezed Cat ket vector for optimization.
     Orientation is fixed to Vertical (Imaginary Alpha).
+    Optional rotation can be applied.
     """
     eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
     prog = sf.Program(1)
-    
+
     # Vertical Cat orientation
     alpha_val = alpha_mag
-    
+
     with prog.context as q:
         ops.Catstate(alpha_val, p=parity) | q[0]
         ops.Sgate(r_mag) | q[0]
-        
+        if rotation != 0:
+            ops.Rgate(rotation) | q[0]
+
     result = eng.run(prog)
     assert result.state.is_pure
     return result.state.ket()
@@ -231,11 +234,11 @@ def run_fig6_fast():
 
 
                 targets = [
-                    generate_target_ket(a, r, parity, CUTOFF)
-                    for parity in [0, 1]
+                    generate_target_ket(a, r, parity, CUTOFF, rotation=rot)
+                    for parity in [0, 1] for rot in [0, np.pi/2]
                 ]
                 current_fidelities = [
-                    fidelity_pure_state(target, state_ket) 
+                    fidelity_pure_state(target, state_ket)
                     for target in targets
                 ]
                 fid = np.max(current_fidelities)
