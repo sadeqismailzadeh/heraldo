@@ -10,70 +10,7 @@ from strawberryfields import ops
 from scipy.optimize import minimize
 import matplotlib.cm as cm
 import json
-
-
-
-def precompute_target_sqrts(cutoff_dim):
-    """
-    Generates the 4 target Squeezed Cat states used by the agent
-    and returns their matrix square roots.
-    
-    Targets:
-    1. Even Parity (Standard)
-    2. Odd Parity (Standard)
-    3. Even Parity (Rotated 90 deg)
-    4. Odd Parity (Rotated 90 deg)
-    """
-    alpha = 3.0
-    r = 1.38
-    
-    target_sqrts = []
-    
-    # We need a temporary engine to generate these static states
-    eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
-    # eng = sf.Engine("bosonic")
-
-    # --- Define the 4 Programs ---
-    programs = []
-    
-    # 1. Rho Plus (Even)
-    p1 = sf.Program(1)
-    with p1.context as q:
-        ops.Catstate(alpha, p=0) | q[0]
-        ops.Sgate(r) | q[0]
-    programs.append(p1)
-
-    # 2. Rho Minus (Odd)
-    p2 = sf.Program(1)
-    with p2.context as q:
-        ops.Catstate(alpha, p=1) | q[0]
-        ops.Sgate(r) | q[0]
-    programs.append(p2)
-
-    # 3. Rho Plus Rotated
-    p3 = sf.Program(1)
-    with p3.context as q:
-        ops.Catstate(alpha, p=0) | q[0]
-        ops.Sgate(r) | q[0]
-        ops.Rgate(np.pi/2) | q[0]
-    programs.append(p3)
-
-    # 4. Rho Minus Rotated
-    p4 = sf.Program(1)
-    with p4.context as q:
-        ops.Catstate(alpha, p=1) | q[0]
-        ops.Sgate(r) | q[0]
-        ops.Rgate(np.pi/2) | q[0]
-    programs.append(p4)
-
-    # # --- Run and Compute Sqrt ---
-    print("Pre-computing target states...")
-    for prog in programs:
-        result = eng.run(prog)
-        dm = result.state.dm(cutoff=cutoff_dim)
-        target_sqrts.append(compute_matrix_sqrt(dm))
-        
-    return target_sqrts
+import os
 
 # ==========================================
 # PART 1: FAST PURE STATE MATH
@@ -143,39 +80,6 @@ def generate_target_ket(alpha_mag, r_mag, parity, cutoff, rotation=0):
     return result.state.ket()
 
 
-def estimate_alpha_r(state_ket, cutoff):
-    """
-    Mathematically estimates alpha and r to give a perfect starting guess.
-    """
-    # Create number operator diagonal [0, 1, 2, ..., cutoff-1]
-    n_op = np.arange(cutoff)
-    
-    # Calculate Mean Photon Number <n>
-    # state_ket is a 1D vector of coefficients c_n
-    # <n> = sum( |c_n|^2 * n )
-    probs = np.abs(state_ket)**2
-    mean_n = np.sum(probs * n_op)
-    
-    # HEURISTIC GUESS:
-    # Assume squeezing r is roughly proportional to size (typical for these circuits)
-    # A standard guess for this paper is r approx 1.0
-    # <n> = alpha^2 + sinh^2(r)
-    # alpha^2 = <n> - sinh^2(1.0)
-    
-    sinh_sq_r = np.sinh(1.0)**2
-    if mean_n > sinh_sq_r:
-        guess_alpha = np.sqrt(mean_n - sinh_sq_r)
-        guess_r = 1.0
-    else:
-        # If mean photon count is tiny, it's mostly just squeezing
-        guess_alpha = 0.1
-        # sinh^2(r) = mean_n -> r = arcsinh(sqrt(mean_n))
-        guess_r = np.arcsinh(np.sqrt(mean_n))
-        
-    return guess_alpha, guess_r
-
-
-
 # ==========================================
 # PART 3: OPTIMIZATION LOOP
 # ==========================================
@@ -187,7 +91,19 @@ def run_fig6_fast():
     N_VALUES = range(1, 13)
     
     # Increased resolution since calculation is now faster
-    TAU_SQ_VALUES = np.linspace(0.2, 0.5, 30) 
+    TAU_SQ_VALUES = np.linspace(1e-6, 0.5, 30) 
+
+    # --- STRATEGY: WARM STARTING ---
+    # We need to tell the optimizer where to look for the first step (Tau=0).
+    # Looking at Fig 6 (Left side):
+    #   1. Alpha starts low (bottom middle panel) -> approx 0.5
+    #   2. r starts high (bottom panel) -> approx 1.4 to 1.6
+    #
+    # We store these guesses in a dictionary. As the loop progresses, 
+    # we will update these guesses with the result from the previous step.
+    current_guesses = {}
+    for n in N_VALUES:
+        current_guesses[n] = [0.5, 1.45] 
     
     # Data Structure
     data = {n: {'tau': [], 'fid': [], 'alpha': [], 'r': []} for n in N_VALUES}
@@ -226,79 +142,60 @@ def run_fig6_fast():
             # We want to find (alpha, r) that maximizes fidelity with state_ket
             def objective(params):
                 a, r = params
-                # Physics constraints
-                if a < 0.1 or r < 0.0: return 1.0 
                 
-                # target = generate_target_ket(a, r, target_parity, CUTOFF)
-                # fid = fidelity_pure_state(target, state_ket)
+                # --- PENALTY METHOD ---
+                # Nelder-Mead doesn't support hard bounds (like L-BFGS-B).
+                # If the optimizer tries negative alpha/r, we return a "bad" score (2.0).
+                # This forces it back into the valid region.
+                if a < 0.0 or r < 0.0: return 2.0
+                if a > 10.0 or r > 3.0: return 2.0 # Sanity upper bounds
+                
+                # Generate candidate state
+                target = generate_target_ket(a, r, target_parity, CUTOFF)
+                
+                # Calculate Fidelity
+                fid = fidelity_pure_state(target, state_ket)
+                
+                # We want to MAXIMIZE Fidelity, but Scipy only MINIMIZES.
+                # So we minimize (1.0 - Fidelity).
+                return 1.0 - fid 
 
-
-                targets = [
-                    generate_target_ket(a, r, parity, CUTOFF, rotation=rot)
-                    for parity in [0, 1] for rot in [0, np.pi/2]
-                ]
-                current_fidelities = [
-                    fidelity_pure_state(target, state_ket)
-                    for target in targets
-                ]
-                fid = np.max(current_fidelities)
-
-                return 1.0 - fid # Minimize Loss
+            # 5. Run Optimization
+            # We use the "Warm Start" guess from the dictionary.
+            guess = current_guesses[n]
             
-            # Initial Guess (Heuristic based on Fig 6)
-            # High Tau -> Low Alpha, Low r
-            # Low Tau -> High Alpha, High r
-            # ---- INSIDE YOUR LOOP ----
-            # Replace the previous guess logic with:
-            # guess_alpha, guess_r = estimate_alpha_r(state_ket, CUTOFF)
-            guess_alpha = 7.5
-            guess_r = 1.8
-
-            # guess_alpha = 3.0 * (1.0 - tau_sq*1.5) 
-            # guess_alpha = max(guess_alpha, 1.0)
-            # guess_r = 1.5 * (1.0 - tau_sq)
-
-            # Run Optimizer (Nelder-Mead is robust here)
-            # res = minimize(objective, [guess_alpha, guess_r], method='Nelder-Mead', tol=1e-2)
-
-
-            # Define bounds: alpha in [0.1, 5.0], r in [0.0, 2.0]
-            # This prevents the optimizer from looking at impossible negative values
-            bounds = [(0.1, 8), (0.0, 2.0)]
-
-            # Run Optimizer
-            # 'eps': 1e-4 tells it how big a step to take to calculate the slope
             res = minimize(
                 objective,
-                [guess_alpha, guess_r],
-                method='L-BFGS-B',
-                bounds=bounds,
-                options={'ftol': 1e-5, 'eps': 1e-4}
+                guess,
+                method='Nelder-Mead',
+                # tol: when to stop. 1e-4 is precise enough for plotting.
+                # maxfev: max iterations to prevent infinite loops.
+                options={'xatol': 1e-4, 'fatol': 1e-4, 'maxfev': 400}
             )
 
+            # 6. UPDATE WARM START
+            # The result of this step becomes the starting guess for the NEXT tau step.
+            # This ensures the optimizer follows the smooth lines in Fig 6.
+            current_guesses[n] = res.x
 
-            # res = minimize(
-            #     objective,
-            #     [guess_alpha, guess_r],
-            #     method='BFGS',
-            # )
+            # 7. Store Results
+            data[n]['tau'].append(tau_sq)
+            data[n]['fid'].append(1.0 - res.fun) # Convert loss back to fidelity
+            data[n]['alpha'].append(res.x[0])
+            data[n]['r'].append(res.x[1])
+
             # ADD THIS PRINT STATEMENT:
             print(f"n={n}, Tau={tau_sq:.2f} | Steps: {res.nit} | Evaluations: {res.nfev} | "
                   f"alpha: {res.x[0]:.4f} |  r: {res.x[1]:.4f} |  Fid: {1.0-res.fun:.4f}")
 
-            # Store Results
-            data[n]['tau'].append(tau_sq)
-            data[n]['fid'].append(1.0 - res.fun)
-            data[n]['alpha'].append(res.x[0])
-            data[n]['r'].append(res.x[1])
 
     # Save to JSON
     print("Saving data to 'fig6_data.json'...")
-    with open('fig6_data.json', 'w') as f:
+    file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fig6_data.json')
+    with open(file, 'w') as f:
         json.dump(data, f, indent=4)
     print("Done!")
     return data
-
 
 
 if __name__ == "__main__":
