@@ -12,6 +12,69 @@ import matplotlib.cm as cm
 import json
 
 
+
+def precompute_target_sqrts(cutoff_dim):
+    """
+    Generates the 4 target Squeezed Cat states used by the agent
+    and returns their matrix square roots.
+    
+    Targets:
+    1. Even Parity (Standard)
+    2. Odd Parity (Standard)
+    3. Even Parity (Rotated 90 deg)
+    4. Odd Parity (Rotated 90 deg)
+    """
+    alpha = 3.0
+    r = 1.38
+    
+    target_sqrts = []
+    
+    # We need a temporary engine to generate these static states
+    eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+    # eng = sf.Engine("bosonic")
+
+    # --- Define the 4 Programs ---
+    programs = []
+    
+    # 1. Rho Plus (Even)
+    p1 = sf.Program(1)
+    with p1.context as q:
+        ops.Catstate(alpha, p=0) | q[0]
+        ops.Sgate(r) | q[0]
+    programs.append(p1)
+
+    # 2. Rho Minus (Odd)
+    p2 = sf.Program(1)
+    with p2.context as q:
+        ops.Catstate(alpha, p=1) | q[0]
+        ops.Sgate(r) | q[0]
+    programs.append(p2)
+
+    # 3. Rho Plus Rotated
+    p3 = sf.Program(1)
+    with p3.context as q:
+        ops.Catstate(alpha, p=0) | q[0]
+        ops.Sgate(r) | q[0]
+        ops.Rgate(np.pi/2) | q[0]
+    programs.append(p3)
+
+    # 4. Rho Minus Rotated
+    p4 = sf.Program(1)
+    with p4.context as q:
+        ops.Catstate(alpha, p=1) | q[0]
+        ops.Sgate(r) | q[0]
+        ops.Rgate(np.pi/2) | q[0]
+    programs.append(p4)
+
+    # # --- Run and Compute Sqrt ---
+    print("Pre-computing target states...")
+    for prog in programs:
+        result = eng.run(prog)
+        dm = result.state.dm(cutoff=cutoff_dim)
+        target_sqrts.append(compute_matrix_sqrt(dm))
+        
+    return target_sqrts
+
 # ==========================================
 # PART 1: FAST PURE STATE MATH
 # ==========================================
