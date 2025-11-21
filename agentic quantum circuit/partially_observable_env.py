@@ -104,6 +104,10 @@ class PartiallyObservableQuantumEnv(QuantumCircuitEnv):
         
         # Extract the information we need from the info dict
         detected_photons = info.get('detected_photons', 0)
+
+        # Update the last action for the *next* step's observation
+        self._last_action = action
+        
         
         # Construct our new, partial observation
         observation = self._construct_observation(
@@ -112,8 +116,6 @@ class PartiallyObservableQuantumEnv(QuantumCircuitEnv):
             current_step=self.current_step
         )
         
-        # Update the last action for the *next* step's observation
-        self._last_action = action
-        
+
         # Return the results
         return observation, reward, terminated, truncated, info
