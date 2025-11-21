@@ -6,30 +6,47 @@ from sb3_contrib.common.recurrent.policies import RecurrentActorCriticPolicy
 
 class AsymmetricFeatureExtractor(BaseFeaturesExtractor):
     """
-    The internal network that performs the slicing.
-    It contains BOTH Actor and Critic networks.
+    Dynamic Feature Extractor that builds networks based on provided architecture.
     """
-    def __init__(self, observation_space: spaces.Box, blind_dim: int):
-        super().__init__(observation_space, features_dim=256)
+    def __init__(
+        self, 
+        observation_space: spaces.Box, 
+        blind_dim: int, 
+        features_dim: int = 256,
+        actor_arch: list = None,
+        critic_arch: list = None
+    ):
+        # Standard initialization with the target output size (must match LSTM size)
+        super().__init__(observation_space, features_dim=features_dim)
         
         self.blind_dim = blind_dim
         full_dim = observation_space.shape[0]
+
+        # Default architectures if none provided
+        if actor_arch is None: actor_arch = [64]
+        if critic_arch is None: critic_arch = [64]
+
+        # --- Build Actor Network (Blind) ---
+        self.actor_net = self._build_mlp(self.blind_dim, actor_arch, features_dim)
         
-        # --- Actor Network (Blind) ---
-        self.actor_net = nn.Sequential(
-            nn.Linear(self.blind_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 256),
-            nn.Tanh()
-        )
+        # --- Build Critic Network (Privileged) ---
+        self.critic_net = self._build_mlp(full_dim, critic_arch, features_dim)
+
+    def _build_mlp(self, input_dim, hidden_layers, output_dim):
+        """Helper to create a dynamic MLP."""
+        layers = []
+        last_dim = input_dim
         
-        # --- Critic Network (Privileged) ---
-        self.critic_net = nn.Sequential(
-            nn.Linear(full_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 256),
-            nn.Tanh()
-        )
+        for h_dim in hidden_layers:
+            layers.append(nn.Linear(last_dim, h_dim))
+            layers.append(nn.Tanh())
+            last_dim = h_dim
+        
+        # Final layer maps to the LSTM size (features_dim)
+        layers.append(nn.Linear(last_dim, output_dim))
+        layers.append(nn.Tanh())
+        
+        return nn.Sequential(*layers)
 
     def forward(self, observations: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
         # 1. Actor Slicing: Blind
@@ -72,16 +89,26 @@ class AsymmetricLstmPolicy(RecurrentActorCriticPolicy):
     ):
         # 1. Extract custom args
         blind_dim = kwargs.pop("blind_dim", None)
+        # We look for a dictionary 'extractor_arch' containing 'pi' and 'vf' lists
+        extractor_arch = kwargs.pop("extractor_arch", {})
+        
         if blind_dim is None:
             raise ValueError("AsymmetricLstmPolicy requires 'blind_dim'")
 
-        # 2. Setup Feature Extractor Class
+        # 2. Determine LSTM Size (needed to tell extractor how big the final output is)
+        # We check if user passed lstm_hidden_size, otherwise default to 256
+        lstm_hidden_size = kwargs.get("lstm_hidden_size", 256)
+
+        # 3. Configure Extractor
         kwargs["features_extractor_class"] = AsymmetricFeatureExtractor
-        kwargs["features_extractor_kwargs"] = dict(blind_dim=blind_dim)
+        kwargs["features_extractor_kwargs"] = dict(
+            blind_dim=blind_dim,
+            features_dim=lstm_hidden_size, # Output of extractor matches LSTM input
+            actor_arch=extractor_arch.get("pi", [64]), # Default [64]
+            critic_arch=extractor_arch.get("vf", [64]) # Default [64]
+        )
         
-        # 3. Force share_features_extractor=False
-        # This tells SB3 to create TWO instances of our extractor:
-        # self.pi_features_extractor AND self.vf_features_extractor
+        # 4. Force share_features_extractor=False
         super().__init__(
             observation_space, 
             action_space, 
@@ -90,11 +117,6 @@ class AsymmetricLstmPolicy(RecurrentActorCriticPolicy):
             **kwargs
         )
 
-        # 4. THE FIX: Wrap the extractors!
-        # Currently, both extractors return (Actor, Critic) tuples.
-        # This causes the crash. We wrap them so:
-        # - pi_features_extractor returns ONLY Actor Tensor
-        # - vf_features_extractor returns ONLY Critic Tensor
-        
+        # 5. Apply Wrappers
         self.pi_features_extractor = ExtractActor(self.pi_features_extractor)
         self.vf_features_extractor = ExtractCritic(self.vf_features_extractor)

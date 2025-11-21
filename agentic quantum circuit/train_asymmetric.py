@@ -73,12 +73,20 @@ def main():
 
     # --- 3. Setup Asymmetric Policy ---
     # We pass the BLIND_DIM to the policy so it knows where to slice.
+    EXTRACTOR_ARCH = dict(
+        pi=[128, 128],  # Actor: Input -> 128 -> 128 -> LSTM
+        vf=[256, 256]   # Critic: Input -> 256 -> 256 -> Linear (No LSTM)
+    )
+
     policy_kwargs = dict(
         blind_dim=BLIND_DIM,
         lstm_hidden_size=256,
         enable_critic_lstm=False,
         shared_lstm= False, # these two flags combined ake the critic memory less
         # net_arch=[], # We handled the architecture in the custom policy class
+
+         # Pass the architectures here
+        extractor_arch=EXTRACTOR_ARCH 
     )
 
     # --- Setup Paths ---
