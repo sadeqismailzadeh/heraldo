@@ -48,8 +48,8 @@ def main():
     temp_env = AsymmetricTrainingEnv(
         cutoff_dim=CUTOFF_DIM, 
         max_steps=MAX_STEPS, 
+        is_loss_channel=True,
         loss_channel=LOSS_CHANNEL,
-        is_loss_channel=True
     )
     BLIND_DIM = temp_env.blind_dim
     print(f"Detected Blind Dimension: {BLIND_DIM}")
@@ -74,7 +74,7 @@ def main():
     # --- 3. Setup Asymmetric Policy ---
     # We pass the BLIND_DIM to the policy so it knows where to slice.
     EXTRACTOR_ARCH = dict(
-        pi=[128, 128],  # Actor: Input -> 128 -> 128 -> LSTM
+        pi=[256, 256],  # Actor: Input -> 128 -> 128 -> LSTM
         vf=[256, 256]   # Critic: Input -> 256 -> 256 -> Linear (No LSTM)
     )
 
