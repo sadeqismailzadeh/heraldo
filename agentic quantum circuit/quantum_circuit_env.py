@@ -78,8 +78,8 @@ class QuantumCircuitEnv(gym.Env):
     """
     metadata = {"render_modes": [], "render_fps": 0}
     # agent can terminate
-    def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=False,
-                 is_loss_channel=False, loss_channel=0.99):
+    def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=True,
+                 is_loss_channel=False, loss_channel=1):
         """Initializes the quantum circuit environment.
 
         This method sets up the simulation parameters, pre-calculates the target
@@ -214,9 +214,12 @@ class QuantumCircuitEnv(gym.Env):
             Catstate(alpha, p=1) | q[0]
             Sgate(r) | q[0]
             Rgate(np.pi/2) | q[0]
-        ket = temp_eng.run(prog).state.ket()
+        final_state = temp_eng.run(prog).state
+        ket = final_state.ket()
+        assert final_state.is_pure
         targets.append(ket)
         
+        assert not np.any(targets == None)  , "Value should not be None" 
         return targets
 
     def _ket_to_observation(self, state_ket):
