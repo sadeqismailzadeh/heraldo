@@ -1,3 +1,7 @@
+# Note: the minimization is sensitive to cutoff_radius and specially initial guess at each transmisitivity.
+# thats why the results deviate from that of article
+# the landscape has lots of local minima so we feed the optmized value of previus transmisitivity as the guess of current transmisitivity
+
 # 1. Patch Scipy for compatibility
 import scipy.integrate
 if not hasattr(scipy.integrate, 'simps'):
@@ -31,6 +35,18 @@ def fidelity_pure_state(target_ket, state_ket):
     
     # Fidelity is magnitude squared
     return np.abs(overlap) ** 2
+
+def squared_norm_ket(state_ket):
+    """
+    Computes the squared norm (inner product with itself) of a quantum state vector.
+    For a properly normalized state, this should be 1.0.
+    Norm = <psi|psi> = sum(|psi_i|^2)
+    """
+    # Flatten ensures it's a 1D array
+    state_ket = np.asarray(state_ket, dtype=np.complex128).flatten()
+    
+    # Calculate inner product with itself
+    return np.real(np.vdot(state_ket, state_ket))
 
 # ==========================================
 # PART 2: EFFICIENT SIMULATION
@@ -85,7 +101,7 @@ def generate_target_ket(alpha_mag, r_mag, parity, cutoff, rotation=0):
 # ==========================================
 
 def run_fig6_fast():
-    CUTOFF = 50
+    CUTOFF = 35
     
     # Full range of photons as in Fig 6
     N_VALUES = range(1, 13)
@@ -113,6 +129,9 @@ def run_fig6_fast():
     for i, tau_sq in enumerate(TAU_SQ_VALUES):
         # 1. Run Circuit ONCE for this Tau to get joint state
         joint_ket = get_joint_state(tau_sq, CUTOFF)
+        
+        # Calculate norm of joint_ket
+        joint_norm_squared = squared_norm_ket(joint_ket)
         
         print(f"Processing Tau^2 = {tau_sq:.3f} ({i+1}/{len(TAU_SQ_VALUES)})")
         
@@ -178,6 +197,16 @@ def run_fig6_fast():
             # This ensures the optimizer follows the smooth lines in Fig 6.
             current_guesses[n] = res.x
 
+            # 7. Calculate squared norm of the generated target state
+            target_state = generate_target_ket(res.x[0], res.x[1], target_parity, CUTOFF)
+            norm_squared = squared_norm_ket(target_state)
+            
+            # Check for normalization warnings
+            if norm_squared < 0.98:
+                print(f"WARNING: Target state normalization low for n={n}, Tau={tau_sq:.3f}: {norm_squared:.4f}")
+            if joint_norm_squared < 0.98:
+                print(f"WARNING: Joint state normalization low for n={n}, Tau={tau_sq:.3f}: {joint_norm_squared:.4f}")
+            
             # 7. Store Results
             data[n]['tau'].append(tau_sq)
             data[n]['fid'].append(1.0 - res.fun) # Convert loss back to fidelity
@@ -186,7 +215,8 @@ def run_fig6_fast():
 
             # ADD THIS PRINT STATEMENT:
             print(f"n={n}, Tau={tau_sq:.2f} | Steps: {res.nit} | Evaluations: {res.nfev} | "
-                  f"alpha: {res.x[0]:.4f} |  r: {res.x[1]:.4f} |  Fid: {1.0-res.fun:.4f}")
+                  f"alpha: {res.x[0]:.4f} |  r: {res.x[1]:.4f} |  Fid: {1.0-res.fun:.4f} | "
+                  f"TargetNorm: {norm_squared:.4f} | JointNorm: {joint_norm_squared:.4f}")
 
 
     # Save to JSON

@@ -19,6 +19,7 @@ import strawberryfields as sf
 from strawberryfields import ops
 from scipy import linalg
 import matplotlib.cm as cm
+import os
 
 # ==========================================
 # PART 1: ROBUST MATH HELPERS (From Agent)
@@ -257,6 +258,9 @@ def plot_figure_4(x_axis, data_dict):
     fig.colorbar(sm, ax=ax, label="Number of photons (n)")
     
     plt.tight_layout()
+
+    plt.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "Figure_4.png"), dpi=300)
+    print("Saved to Figure_4.png")
     plt.show()
 
 # ==========================================

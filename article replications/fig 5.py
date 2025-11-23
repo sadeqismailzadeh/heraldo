@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import strawberryfields as sf
 from strawberryfields import ops
+import os
 
 # ==========================================
 # PART 1: MATH HELPERS
@@ -171,8 +172,10 @@ def plot_figure_5(x, y):
     ax.legend()
     
     plt.tight_layout()
-    plt.show()
 
+    plt.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "Figure_5.png"), dpi=300)
+    print("Saved to Figure_5.png")
+    plt.show()
 if __name__ == "__main__":
     x_vals, y_vals = calculate_average_fidelity()
     plot_figure_5(x_vals, y_vals)
