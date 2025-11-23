@@ -3,3 +3,4 @@
 **/__pycache__/
 *.0
 test/agentic quantum circuit/docs/_*
+*.png
