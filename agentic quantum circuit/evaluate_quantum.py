@@ -21,9 +21,7 @@ from matplotlib import cm
 from stable_baselines3 import PPO
 from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
 
-import strawberryfields as sf
-# temporary fix. it may cause crashes or silently produce incorrect results
-os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE" 
+import strawberryfields as sf 
 
 
 def main():
@@ -44,7 +42,7 @@ def main():
                             reward_power=REWARD_POWER,
                             tunable_r=True,
                             is_loss_channel=True,
-                            loss_channel=0.8)
+                            loss_channel=1)
 
     try:
         model = PPO.load(MODEL_PATH, env=env)
@@ -68,13 +66,15 @@ def main():
             
             measured_n = info.get('detected_photons', 'N/A')
             photon_loss = info.get('photon_loss', 'N/A')
+            fidelity = info.get('fidelity', 'N/A')
             print(
                 f"Step {env.current_step:2d}: "
                 # f"Action=[tau_1={np.cos(action[0]):.4f}, squeezing_phase={action[1]:.4f}], "
                 f"Action=[squeezing_r={action[0]:.4f},tau_1={np.cos(action[1]):.4f}, squeezing_phase={action[2]:.4f}], "
                 f"Measured_n={measured_n}, "
                 f"photon_loss={photon_loss}, "
-                f"Step Reward={reward:.6f}"
+                f"fidelity={fidelity:.4f}"
+                # f"Step Reward={reward:.6f}"
             )
             total_reward += reward
 

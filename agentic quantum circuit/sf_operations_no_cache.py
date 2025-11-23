@@ -84,7 +84,7 @@ def disable_fock_caching():
     ops.kerr = kerr_uncached
     ops.cross_kerr = cross_kerr_uncached
     
-    print("✅ Caching DISABLED for all Fock backend operations!")
+    print("Caching DISABLED for all Fock backend operations!")
     print("   Gates will be recomputed every time.")
     print("   Memory usage will stay constant - no buildup!")
 
