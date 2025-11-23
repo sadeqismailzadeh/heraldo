@@ -48,28 +48,6 @@ from thread_manager_callback import ThreadManagerCallback
 from metrics_callback import MetricsCallback
 from typing import Callable
 
-# TODO FOR SUPERVISOR: send spinx read the docs tutorial
-
-# TODO validity of no cache functions 
-# TODO train with tunable r, vacuum inital state
-# TODO termination with set full reflective action ask ai
-# TODO loss channel
-# TODO Map a full noise-phase diagram. Find noise thresholds where RL still performs like baselines?
-# TODO stable baseline zoo for hyperparameter tuning
-# TODO venv on ssd no cuda
-# TODO train folder metadata show env features
-# TODO assert for no env feature conflict
-# TODO possibility of no state agent with only shown measurements
-# TODO terminate give reward for passed steps (same total reward as truncate)
-# TODO SAC for losschannel but first test for normal case
-# TODO ideas from BSgate to optmize loss channel implementation
-# TODO symbolic fock
-# TODO new fock engine each step but passs dm
-# TODO loss channel optimized no parallel
-# TODO lower fock cut off as much as possible
-# TODO qutip insstead of strawberry fields
-# TODO super bonus 100x instead of 10x
-# TODO paralell env seed? 
 
 def linear_schedule(initial_value: float, end_value: float) -> Callable[[float], float]:
     """
@@ -93,7 +71,7 @@ def main():
     # Environment Parameters
     CUTOFF_DIM = 25
     MAX_STEPS = 10
-    REWARD_POWER = 5
+    REWARD_POWER = 2
     TUNABLE_R = True
 
     # Training Parameters
