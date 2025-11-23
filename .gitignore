@@ -4,3 +4,6 @@
 *.0
 test/agentic quantum circuit/docs/_*
 *.png
+article replications/fig6_data.json
+article replications/Nelder-Mead.html
+.vscode/settings.json
