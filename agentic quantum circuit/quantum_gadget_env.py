@@ -51,7 +51,7 @@ def db_to_r(db_value):
         return r_value
 
 
-class DisplacedLoopedGadgetEnv(QuantumCircuitEnv):
+class QuantumGadgetEnv(QuantumCircuitEnv):
     """
     Implements the full 'Modified Article 2' architecture with Time-Multiplexing
     and Displacement control.
@@ -63,7 +63,7 @@ class DisplacedLoopedGadgetEnv(QuantumCircuitEnv):
        It interacts with the loop, is measured, and the loop continues.
     """
 
-    def __init__(self, max_displacement=2.0, **kwargs):
+    def __init__(self, **kwargs):
         """
         Args:
             max_displacement (float): Maximum magnitude for the displacement alpha.
@@ -74,7 +74,7 @@ class DisplacedLoopedGadgetEnv(QuantumCircuitEnv):
         # Initialize parent
         super().__init__(**kwargs)
         
-        self.max_disp = max_displacement
+        self.max_disp = 2.0
         self.max_squeezing = db_to_r(10)
         
         # Default gadget parameters (Article 2 style) if none provided
@@ -84,14 +84,45 @@ class DisplacedLoopedGadgetEnv(QuantumCircuitEnv):
         # 1. Squeezing Magnitude (r)
         # 2. Beam Splitter Angle (theta)
         # 3. Squeezing Phase (phi_sq)
-        # 4. Displacement Magnitude (alpha_mag)  <-- NEW
-        # 5. Displacement Phase (alpha_phi)      <-- NEW
+        # 4. Displacement Magnitude (alpha_mag) 
+        # 5. Displacement Phase (alpha_phi)    
         self.action_space = spaces.Box(
             low=np.array([0.0, 0.0, -np.pi, 0.0, -np.pi]),
             high=np.array([self.max_squeezing, np.pi/2, np.pi, self.max_disp, np.pi]),
             shape=(5,),
             dtype=np.float32
         )
+
+    def _initialize_target_states(self):
+        """
+        Generates the Cubic Phase Resource State from Eq. (1) of Article 2.
+        Target = N * (|0> + i*a*sqrt(1.5)|1> + i*a|3>)
+        """
+
+        print("Target state is cubic Phase Resource State")
+        # Parameter 'a' from the paper (e.g., 0.3, 0.61, etc.)
+        # You should probably pass this in __init__, but hardcoding 0.61 is fine for testing.
+        a = 0.61
+
+        # 1. Define coefficients
+        c0 = 1.0 + 0j
+        c1 = 0.0 + 1j * a * np.sqrt(1.5) # i * a * sqrt(3/2)
+        c2 = 0.0 + 0j                    # No |2> component
+        c3 = 0.0 + 1j * a                # i * a
+
+        # 2. Construct vector
+        target_ket = np.zeros(self.cutoff_dim, dtype=np.complex128)
+        target_ket[0] = c0
+        target_ket[1] = c1
+        target_ket[2] = c2
+        target_ket[3] = c3
+
+        # 3. Normalize
+        norm = np.linalg.norm(target_ket)
+        target_ket = target_ket / norm
+
+        # Return as a list (standard format for your Env)
+        return [target_ket]
 
     def reset(self, seed=None, options=None):
         """
