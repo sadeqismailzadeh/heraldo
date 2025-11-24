@@ -34,5 +34,9 @@ class MetricsCallback(BaseCallback):
                 min_inner_product = info.get("min_inner_product")
                 if min_inner_product is not None:
                     self.logger.record_mean("quantum/min_inner_product", float(min_inner_product))
+
+                ng_score = info.get("ng_score")
+                if min_inner_product is not None:
+                    self.logger.record_mean("quantum/non_gaussianity", float(ng_score))
         
         return True  # Continue training
