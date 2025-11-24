@@ -62,6 +62,16 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
        One output is measured, the other enters the loop.
     2. STEP:  A FRESH ancilla is generated with Squeezing AND Displacement.
        It interacts with the loop, is measured, and the loop continues.
+
+    (Memory / Loop Mode)
+      q[0] (t-1) ═════════════════════════════════════════[ PNR ]═══(Classical Data n_t)
+                                                │        (Measure)
+                                                │         
+                                            [ VBS ] (θ_t)
+                                                │
+                                                │
+      q[1] (New) ════[ S(r,φ) ]═══[ D(α,φ) ]═══════════════> Becomes q[0] (t)
+       (Vacuum)      (Squeezing)  (Displacement)             (Feedback to Loop)
     """
 
     def __init__(self, **kwargs):
@@ -78,10 +88,25 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         self.max_disp = 2.0
         self.max_squeezing = db_to_r(10)
 
-        self.non_gaussian_weight = 0.6
-
+        
+        self.target_kets = self._initialize_target_states()
         self._precompute_quadrature_operators()
         
+        
+        self.target_ng_scores = []
+        print("\n--- Target State Analysis ---")
+        for i, ket in enumerate(self.target_kets):
+            score = self.compute_non_gaussianity(ket)
+            self.target_ng_scores.append(score)
+            
+            # Identify the label for the print
+            labels = ["0 deg", "90 deg", "180 deg", "270 deg"]
+            print(f"Target {i} ({labels[i]}): NG Score = {score:.5f}")
+            
+        # We just take the score of the first one as the reference for rewards
+        self.target_ng_score = self.target_ng_scores[0]
+        print("-----------------------------\n")
+
         # Default gadget parameters (Article 2 style) if none provided
 
         # --- REDEFINE ACTION SPACE ---
@@ -97,6 +122,71 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
             shape=(5,),
             dtype=np.float32
         )
+
+    
+    def compute_non_gaussianity2(self, state_ket):
+        """
+        Computes non-Gaussianity based on the entropy of the reference Gaussian state.
+        For pure states: NG > 0 implies the state is non-Gaussian.
+        """
+        # 1. Get Covariance Matrix (2x2 for single mode) from SF backend
+        # Note: check your SF version, usually state.cov() works. 
+        # If using Fock backend, this computes 2nd moments from the Fock distribution.
+        cov = self.compute_covariance(state_ket) 
+        
+        # 2. Calculate Determinant (Symplectic eigenvalue squared)
+        det_cov = np.linalg.det(cov)
+        
+        # 3. For vacuum/squeezed/coherent, det_cov approx 1.0.
+        # For cubic phase/cat states, det_cov > 1.0.
+        # We use log to scale it nicely.
+        ng_score = np.log(det_cov) 
+        
+        # Clip negative noise (numerical precision errors can give 0.999)
+        return max(0.0, ng_score)
+    
+    def compute_covariance(self, ket):
+        """
+        Computes the 2x2 Covariance Matrix for a given state vector (ket)
+        using pre-computed sparse matrices.
+        
+        Returns:
+            cov_matrix (2x2 np.array): [[Var(X), Cov(X,P)], [Cov(P,X), Var(P)]]
+        """
+        # Ensure ket is complex for correct math
+        ket = ket.astype(np.complex128)
+        
+        # Helper for expectation value <O> = <psi|O|psi>
+        def expect_sparse(sparse_op):
+            op_psi = sparse_op.dot(ket) 
+            return np.real(np.vdot(ket, op_psi))
+
+        # 1. First Moments (Means)
+        mu_x = expect_sparse(self.x_op_sparse)
+        mu_p = expect_sparse(self.p_op_sparse)
+
+        # 2. Second Moments
+        x2 = expect_sparse(self.x2_sparse)
+        p2 = expect_sparse(self.p2_sparse)
+        
+        # Expectation of Anti-commutator <XP + PX>
+        xp_plus_px = expect_sparse(self.xp_plus_px_sparse)
+
+        # 3. Calculate Variances and Covariance
+        # Var(X) = <X^2> - <X>^2
+        var_x = x2 - mu_x**2
+        var_p = p2 - mu_p**2
+        
+        # Cov(X, P) = 0.5 * <XP + PX> - <X><P>
+        cov_xp = 0.5 * xp_plus_px - (mu_x * mu_p)
+
+        # 4. Construct Matrix
+        cov_matrix = np.array([
+            [var_x, cov_xp],
+            [cov_xp, var_p]
+        ])
+        
+        return cov_matrix
 
 
     def _precompute_quadrature_operators(self):
@@ -127,156 +217,129 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         self.x3_sparse = self.x2_sparse.dot(self.x_op_sparse)
         self.x4_sparse = self.x2_sparse.dot(self.x2_sparse)
 
+        # P Operator (Note the 1j)
+        # We use P because the target state has 'i' coefficients
+        self.p_op_sparse = 1j * (self.a_dag_op_sparse - self.a_op_sparse) / np.sqrt(2)
+        
+        # Pre-compute Powers of P
+        self.p2_sparse = self.p_op_sparse.dot(self.p_op_sparse)
+        self.p3_sparse = self.p2_sparse.dot(self.p_op_sparse)
+        self.p4_sparse = self.p2_sparse.dot(self.p2_sparse)
+
+
+        # Pre-compute operators needed for the off-diagonal terms of Covariance
+        # XP and PX
+        self.xp_sparse = self.x_op_sparse.dot(self.p_op_sparse)
+        self.px_sparse = self.p_op_sparse.dot(self.x_op_sparse)
+        
+        # Anti-commutator {X, P} = XP + PX
+        # We use this for the covariance element C_xp
+        self.xp_plus_px_sparse = self.xp_sparse + self.px_sparse
+
     def compute_non_gaussianity(self, state_ket):
         """
-        Computes Non-Gaussianity using sparse matrix multiplication.
+        Computes Non-Gaussianity by summing the Negentropy proxies (Skew/Kurtosis)
+        of both the Position (X) and Momentum (P) quadratures.
         """
         # Ensure complex128 for precision
         ket = state_ket.astype(np.complex128)
-        ket_conj = np.conj(ket)
 
         # Helper for expectation value <O> = <psi|O|psi>
-        # sparse_matrix.dot(vector) returns a dense vector
         def expect_sparse(sparse_op):
-            # 1. Sparse Matrix x Vector -> Vector (Fast)
             op_psi = sparse_op.dot(ket) 
-            # 2. Vector dot Vector -> Scalar
             return np.real(np.vdot(ket, op_psi))
 
-        # 1. Calculate Raw Moments <X^n> directly using precomputed sparse matrices
-        m1_raw = expect_sparse(self.x_op_sparse)
-        m2_raw = expect_sparse(self.x2_sparse)
-        m3_raw = expect_sparse(self.x3_sparse)
-        m4_raw = expect_sparse(self.x4_sparse)
+        def get_quadrature_score(m1_op, m2_op, m3_op, m4_op):
+            # 1. Raw Moments
+            m1 = expect_sparse(m1_op)
+            m2 = expect_sparse(m2_op)
+            m3 = expect_sparse(m3_op)
+            m4 = expect_sparse(m4_op)
 
-        # 2. Convert to Central Moments (Standard Statistics Formulas)
-        # This is faster than centering the matrix itself.
-        
-        # Variance: E[X^2] - E[X]^2
-        var = m2_raw - m1_raw**2
-        
-        if var < 1e-6: return 0.0
+            # 2. Central Moments
+            # Variance: E[X^2] - E[X]^2
+            var = m2 - m1**2
+            
+            # Safety check for highly squeezed states (avoid division by zero)
+            if var < 1e-6: 
+                return 0.0
 
-        sigma = np.sqrt(var)
-        
-        # Skewness: (E[X^3] - 3*mu*sigma^2 - mu^3) / sigma^3
-        # Simplified central moment formula: E[(X-mu)^3]
-        moment3_central = m3_raw - 3*m1_raw*m2_raw + 2*(m1_raw**3)
-        skewness = moment3_central / (sigma**3)
+            sigma = np.sqrt(var)
+            
+            # 3rd Central Moment (Skewness numerator): E[(X-mu)^3]
+            # = m3 - 3*mu*m2 + 2*mu^3
+            moment3_central = m3 - 3*m1*m2 + 2*(m1**3)
+            
+            # 4th Central Moment (Kurtosis numerator): E[(X-mu)^4]
+            # = m4 - 4*mu*m3 + 6*mu^2*m2 - 3*mu^4
+            moment4_central = m4 - 4*m1*m3 + 6*(m1**2)*m2 - 3*(m1**4)
 
-        # Kurtosis: E[(X-mu)^4]
-        moment4_central = m4_raw - 4*m1_raw*m3_raw + 6*(m1_raw**2)*m2_raw - 3*(m1_raw**4)
-        excess_kurtosis = (moment4_central / (var**2)) - 3.0
+            # 3. Normalized Cumulants
+            skewness = moment3_central / (sigma**3)
+            excess_kurtosis = (moment4_central / (var**2)) - 3.0
 
-        # 3. Return Score
-        return np.abs(skewness) + 0.1 * np.abs(excess_kurtosis)
+            # Return absolute deviation from Gaussian (0.0)
+            return np.abs(skewness) + 0.1 * np.abs(excess_kurtosis)
 
+        # --- Calculate Score for Position (X) ---
+        score_x = get_quadrature_score(
+            self.x_op_sparse, self.x2_sparse, self.x3_sparse, self.x4_sparse
+        )
 
-    def _precompute_quadrature_operators2(self):
-        """
-        Pre-computes the X quadrature operator in the Fock basis for fast moment calculation.
-        X = (a + a_dag) / sqrt(2)
-        """
-        # Creation and Annihilation operators
-        # a |n> = sqrt(n) |n-1>
-        dim = self.cutoff_dim
-        
-        # Diagonals for creation/annihilation
-        sqrt_n = np.sqrt(np.arange(1, dim))
-        
-        # Construct 'a' matrix (upper diagonal)
-        self.a_op = np.zeros((dim, dim), dtype=np.float64)
-        np.fill_diagonal(self.a_op[:, 1:], sqrt_n)
-        
-        # Construct 'a_dag' matrix (lower diagonal)
-        self.a_dag_op = self.a_op.T
-        
-        # Construct X operator
-        self.x_op = (self.a_op + self.a_dag_op) / np.sqrt(2)
+        # --- Calculate Score for Momentum (P) ---
+        score_p = get_quadrature_score(
+            self.p_op_sparse, self.p2_sparse, self.p3_sparse, self.p4_sparse
+        )
 
-    def compute_non_gaussianity2(self, state_ket):
-        """
-        Computes a 'Non-Gaussianity Score' based on Skewness and Kurtosis of the X quadrature.
-        Gaussian states will score ~0. Non-Gaussian states will score > 0.
-        """
-        # Ensure pure state density matrix for expectation values: rho = |psi><psi|
-        # But we can do vector multiplication <psi|Op|psi> which is faster.
-        ket = state_ket.astype(np.complex128)
-        
-        # Helper for expectation value <O> = <psi|O|psi>
-        def expect(op_matrix):
-            # op_matrix is real symmetric, ket is complex
-            # result = dot(conj(ket), dot(op, ket))
-            return np.real(np.vdot(ket, op_matrix.dot(ket)))
-
-        # 1. Calculate Moments of X
-        # We need <X>, <X^2>, <X^3>, <X^4>
-        
-        # <X>
-        mu = expect(self.x_op)
-        
-        # Center the operator: X_centered = X - mu*I
-        # It's faster to compute moments and correct them, but for stability:
-        x_centered = self.x_op - np.eye(self.cutoff_dim) * mu
-        
-        # Calculate centered moments
-        x2_op = x_centered.dot(x_centered)
-        var = expect(x2_op) # Variance (<X^2>)
-        
-        x3_op = x2_op.dot(x_centered)
-        m3 = expect(x3_op)  # 3rd Central Moment
-        
-        x4_op = x2_op.dot(x2_op)
-        m4 = expect(x4_op)  # 4th Central Moment
-        
-        # 2. Calculate Skewness and Kurtosis
-        # Skewness = m3 / sigma^3
-        # Kurtosis = m4 / sigma^4 - 3
-        
-        sigma = np.sqrt(var)
-        if sigma < 1e-6: return 0.0 # Avoid division by zero for unphysical states
-        
-        skewness = m3 / (sigma ** 3)
-        excess_kurtosis = (m4 / (var ** 2)) - 3.0
-        
-        # 3. Combine into a Score
-        # For Cubic Phase states (Article 2), Skewness is the dominant feature.
-        # For Cat states, Kurtosis is dominant.
-        # We sum absolute values to reward ANY non-Gaussianity.
-        score = np.abs(skewness) + 0.1 * np.abs(excess_kurtosis)
-        
-        return score
-
+        # Summing them ensures we catch the non-Gaussianity regardless of rotation
+        return score_x + score_p
+    
     def _initialize_target_states(self):
         """
-        Generates the Cubic Phase Resource State from Eq. (1) of Article 2.
-        Target = N * (|0> + i*a*sqrt(1.5)|1> + i*a|3>)
+        Generates the Cubic Phase Resource State and 3 rotated variants.
+        Variants:
+        1. Standard (0 rad)
+        2. Momentum Gate (pi/2 rad)
+        3. Negative Strength Gate (pi rad)
+        4. Inverse Momentum Gate (3pi/2 rad)
         """
+        print("Initializing 4 Cardinal Cubic Phase Target States...")
+        
+        # Parameter 'a' from Article 2 (e.g., 0.61)
+        a = 0.61 
+        cutoff = self.cutoff_dim
 
-        print("Target state is cubic Phase Resource State")
-        # Parameter 'a' from the paper (e.g., 0.3, 0.61, etc.)
-        # You should probably pass this in __init__, but hardcoding 0.61 is fine for testing.
-        a = 0.61
+        # --- 1. Construct the Base State (0 degrees) ---
+        # Target = N * (|0> + i*a*sqrt(1.5)|1> + i*a|3>)
+        base_ket = np.zeros(cutoff, dtype=np.complex128)
+        base_ket[0] = 1.0 + 0j
+        base_ket[1] = 0.0 + 1j * a * np.sqrt(1.5)
+        base_ket[3] = 0.0 + 1j * a
+        
+        # Normalize
+        norm = np.linalg.norm(base_ket)
+        base_ket = base_ket / norm
 
-        # 1. Define coefficients
-        c0 = 1.0 + 0j
-        c1 = 0.0 + 1j * a * np.sqrt(1.5) # i * a * sqrt(3/2)
-        c2 = 0.0 + 0j                    # No |2> component
-        c3 = 0.0 + 1j * a                # i * a
+        targets = []
+        
+        # --- 2. Generate Rotated Variants ---
+        # Angles: 0, 90, 180, 270 degrees
+        rotation_angles = [0.0, np.pi/2, np.pi, 3*np.pi/2]
+        
+        # Create vector of photon numbers [0, 1, 2, ..., cutoff-1]
+        n_vec = np.arange(cutoff)
 
-        # 2. Construct vector
-        target_ket = np.zeros(self.cutoff_dim, dtype=np.complex128)
-        target_ket[0] = c0
-        target_ket[1] = c1
-        target_ket[2] = c2
-        target_ket[3] = c3
+        for theta in rotation_angles:
+            # The rotation operator R(theta) adds phase e^(-i * n * theta) to Fock state |n>
+            # We construct a phase vector to multiply element-wise with the base ket
+            phase_factors = np.exp(1j * n_vec * theta)
+            
+            # Apply rotation
+            rotated_ket = base_ket * phase_factors
+            
+            targets.append(rotated_ket)
 
-        # 3. Normalize
-        norm = np.linalg.norm(target_ket)
-        target_ket = target_ket / norm
-
-        # Return as a list (standard format for your Env)
-        return [target_ket]
+        return targets
 
     def reset(self, seed=None, options=None):
         """
@@ -355,50 +418,50 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         max_fidelity = np.max(fidelities)
     
 
-        # 2. Calculate NG Score
-        ng_score = self.compute_non_gaussianity(self.current_ket)
+        # 2. Compute Current Non-Gaussianity
+        current_ng_score = self.compute_non_gaussianity(self.current_ket)
         
-        # 3. Define Parameters for the Multiplier
-        # Lambda: Strength of the effect. 1.0 means NG can double or nullify the reward.
-        ng_weight = 1.0 
+        # 3. NEW MULTIPLIER LOGIC (Gaussian RBF)
+        # We want a function that is 1.0 when current == target
+        # And approaches 0.01 when distance is large.
+        min_mult = 0
+        max_mult = 0.5
         
-        # Threshold: Below this = Penalty, Above this = Bonus
-        # 0.2 is a good baseline for "Definitely not Gaussian"
-        ng_threshold = 0.2 
+        norm_diff = (current_ng_score - self.target_ng_score) / self.target_ng_score 
         
-        # 4. Calculate the Proportional Multiplier
-        # Logic: Multiplier = 1 + weight * (Score - Threshold)
-        # Example: Score=0.0 (Vacuum) -> Mult = 1 + 1*(-0.2) = 0.8 (20% Penalty)
-        # Example: Score=0.5 (Target) -> Mult = 1 + 1*(0.3)  = 1.3 (30% Bonus)
-        ng_multiplier = 1.0 + ng_weight * (ng_score - ng_threshold)
+        self.ng_width = 1
+        # The exponential term ranges from 0 to 1
+        bell_curve = np.exp(-(norm_diff**2)/(2 * self.ng_width**2))
         
-        # Safety Clip: Don't let penalty go below 0 (negative rewards can be unstable)
-        # We ensure the multiplier is at least 0.1 (10% of original fidelity)
-        ng_multiplier = max(0.1, ng_multiplier)
+        # ng_multiplier = min_mult + (max_mult - min_mult) * bell_curve
+        ng_multiplier = 1
 
         # 5. Final Reward Calculation
-        fid_term = max_fidelity ** self.reward_power
-        reward = fid_term * ng_multiplier
+        reward = (max_fidelity ) ** self.reward_power  * ng_multiplier
 
 
-
+        if current_ng_score < 1e-3:
+            reward = -0.1
 
         # 5. Termination Logic
         terminated = False
         truncated = self.current_step >= self.max_steps
         
+        terminal_bonus = 0
         if truncated:
-             # Add terminal bonus
-             terminal_bonus = 0
-             if max_fidelity > 0.0:
-                 terminal_bonus += (max_fidelity ** self.reward_power) * 10 * ng_multiplier
-             
-             fidelity_threshold = 0.9
-             if max_fidelity > fidelity_threshold:
-                 excess = (max_fidelity - fidelity_threshold) / (1 - fidelity_threshold)
-                 terminal_bonus += (excess ** self.reward_power) * 100 * ng_multiplier
-             
-             reward += terminal_bonus
+            if current_ng_score > 1e-3:
+                # Add terminal bonus
+                if max_fidelity > 0.0:
+                    terminal_bonus += ((max_fidelity ) ** self.reward_power) * 10  * ng_multiplier
+                
+                fidelity_threshold = 0.9
+                if max_fidelity > fidelity_threshold:
+                    excess = (max_fidelity - fidelity_threshold) / (1 - fidelity_threshold)
+                    terminal_bonus += ((excess) ** self.reward_power) * 100  * ng_multiplier
+                
+                reward += terminal_bonus
+            else: 
+                reward += -1
 
         # Info
         encoded_result = result.samples[0][0]
@@ -408,7 +471,7 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
             'detected_photons': detected,
             'total_photons': lost + detected,
             'fidelity': max_fidelity,
-            'ng_score': ng_score
+            'ng_score': current_ng_score
         }
         
         if truncated:
