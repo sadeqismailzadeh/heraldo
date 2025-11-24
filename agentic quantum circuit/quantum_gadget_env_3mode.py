@@ -17,7 +17,7 @@ from strawberryfields.ops import *
 from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, decode_measurement_result
 
 # Import the parent class
-from quantum_circuit_env import fidelity_pure_state
+from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
 from quantum_gadget_env import QuantumGadgetEnv, db_to_r
 
 class ThreeModeGadgetEnv(QuantumGadgetEnv):
@@ -64,7 +64,7 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
         # BS3 (Top-Mid):           [theta, phi] (2)
 
 
-        print("3 mode circcuit is being used")
+        print("3 mode circuit is being used")
         
         # Limits
         r_max = db_to_r(10)
@@ -105,7 +105,7 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
         and let the agent's first step define the first gadget in the stack.
         """
         # Call grandparent reset (skipping the parent's specific 2-mode init)
-        super(gym.Env, self).reset(seed=seed)
+        super(QuantumCircuitEnv, self).reset(seed=seed)
         
         # Initialize Engine
         self.eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
@@ -260,16 +260,18 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
         # Decode custom MonitoredLoss encoding if used
         lost1, n1 = decode_measurement_result(raw_samples[0]) # q2
         lost2, n2 = decode_measurement_result(raw_samples[1]) # q1
-        
+
         info = {
-            'measured_photons_top': n1,
-            'measured_photons_mid': n2,
+            'photon_loss': lost1 + lost2,
+            'detected_photons': n1+n2,
+            'total_photons': lost1 + lost2 + n1+n2,
             'fidelity': max_fidelity,
             'ng_score': current_ng_score
         }
-
+        
         if truncated:
             info['terminal_bonus'] = terminal_bonus
             info['final_ket'] = self.current_ket
+            info['min_inner_product'] = self.min_inner_product
 
         return observation, reward, terminated, truncated, info
