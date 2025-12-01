@@ -26,3 +26,20 @@ learn reqrd signal fron neural network rather than human fed reward
 go on the path of highest probability.
 make a measurement that goes on the path of highest probability but evaluate in mixed state
 a circuit with threshold detector?
+-goal based agent. sees the target and optimize for target
+-three mode circuit of sabapathy
+-alternating fidlity when loop is closed investigate
+non gaussionality reward only if the fidelity is over 0.9
+stable baseline3 ppo goes for gpu when model loaded
+imperfect device, controls are noisy e.g. agent want r=1.21 device is r=1.20
+fidelity guesser agent, how good is my state is? 
+articles regatding reward shaping for fidelity
+- with lower db e.g. db=7
+- start from optimal post select parameters found in the original article
+- beam splitter phase for two mode gadget
+- visualize the postselected circuit wigner funcrion for myself
+-- penalty for not chaning the state if fidelity is low
+- GBS analogy
+- fid per step present
+- reward shaping techniques
+-- normalize action
