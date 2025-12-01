@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 # ============= CONFIGURATION =============
-log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train_AAC", "RecurrentPPO_1")
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train", "PPO_1")
 LOG_DIR = log_dir  # Path to your TensorBoard log directory
 OUTPUT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tensorboard_data.csv")  # Output CSV file name
 
