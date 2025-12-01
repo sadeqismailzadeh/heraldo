@@ -49,22 +49,27 @@ def main():
 
     # --- Run Evaluation Episodes and Collect Fidelities ---
     fidelities = []
+    fid_per_steps = []
     pbar = tqdm(range(N_EPISODES))
     for episode in pbar:
         obs, info = env.reset()
         terminated, truncated = False, False
-
+        total_steps = 0
         while not (terminated or truncated):
             # Use the deterministic policy for evaluation
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
+            total_steps += 1
 
         # --- Collect Final Fidelity ---
         final_fidelity = info.get('fidelity', 0.0)
         fidelities.append(final_fidelity)
 
+        fid_per_step = final_fidelity / total_steps
+        fid_per_steps.append(fid_per_step)
+
         # --- Update Progress Bar with Running Average ---
-        running_avg = np.mean(fidelities)
+        running_avg = np.mean(fid_per_steps)
         pbar.set_description(f"Avg: {running_avg:.4f}")
 
     # --- Compute and Output Average ---
