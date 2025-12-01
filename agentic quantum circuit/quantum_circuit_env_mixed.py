@@ -451,8 +451,8 @@ class QuantumCircuitEnv(gym.Env):
         # The 'info' dictionary is the standard place for diagnostic information.
         # result.samples[0][0] holds the measured photon number from q[0].
         info = {
-                'measured_photons': result.samples[0][0],
-                'max_fidelity': max_fidelity  # It's good practice to log this
+                'detected_photons': result.samples[0][0],
+                'fidelity': max_fidelity  # It's good practice to log this
                 }
         
         if truncated:
