@@ -20,6 +20,7 @@ from matplotlib import cm
 
 from stable_baselines3 import PPO
 from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+# from quantum_circuit_env_mixed import QuantumCircuitEnv
 
 import strawberryfields as sf 
 
@@ -41,7 +42,7 @@ def main():
                             max_steps=MAX_STEPS,
                             reward_power=REWARD_POWER,
                             tunable_r=True,
-                            is_loss_channel=True,
+                            is_loss_channel=False,
                             loss_channel=1)
 
     try:
@@ -70,7 +71,7 @@ def main():
             print(
                 f"Step {env.current_step:2d}: "
                 # f"Action=[tau_1={np.cos(action[0]):.4f}, squeezing_phase={action[1]:.4f}], "
-                f"Action=[squeezing_r={action[0]:.4f},tau_1={np.cos(action[1]):.4f}, squeezing_phase={action[2]:.4f}], "
+                f"Action=[squeezing_r={action[0]:.4f},tau_1={np.cos(action[1]):.4f}], "
                 f"Measured_n={measured_n}, "
                 f"photon_loss={photon_loss}, "
                 f"fidelity={fidelity:.4f}"
@@ -83,13 +84,13 @@ def main():
         print(f"Total Steps: {env.current_step}")
         print(f"Total Reward: {total_reward:.4f}")
 
-        final_ket = env.current_ket
-        final_fidelities = np.array([fidelity_pure_state(final_ket, target_ket) for target_ket in env.target_kets])
-        best_fidelity = np.max(final_fidelities)
-        best_target_index = np.argmax(final_fidelities)
+        # final_ket = env.current_ket
+        # final_fidelities = np.array([fidelity_pure_state(final_ket, target_ket) for target_ket in env.target_kets])
+        # best_fidelity = np.max(final_fidelities)
+        # best_target_index = np.argmax(final_fidelities)
 
-        print(f"Final State Fidelity vs Target States: {[f'{f:.4f}' for f in final_fidelities]}")
-        print(f"BEST FIDELITY: {best_fidelity:.4f} (with Target #{best_target_index})")
+        # print(f"Final State Fidelity vs Target States: {[f'{f:.4f}' for f in final_fidelities]}")
+        # print(f"BEST FIDELITY: {best_fidelity:.4f} (with Target #{best_target_index})")
 
         # Generate and display the Wigner function plot
         final_state = env.current_state
@@ -104,7 +105,7 @@ def main():
         ax.contourf(xvec, xvec, W, 60, cmap=cm.RdBu, norm=nrm)
         
         fig.colorbar(cm.ScalarMappable(norm=nrm, cmap=cm.RdBu), ax=ax)
-        plt.title(f"Episode {episode+1} - Final State Wigner Function\nBest Fidelity: {best_fidelity:.4f}", fontsize=14)
+        plt.title(f"Episode {episode+1} - Final State Wigner Function\nBest Fidelity: {fidelity:.4f}", fontsize=14)
         plt.xlabel("q", fontsize=12)
         plt.ylabel("p", fontsize=12)
         plt.grid(True, linestyle='--')

@@ -69,6 +69,7 @@ def main():
             measured_n = info.get('detected_photons', 'N/A')
             photon_loss = info.get('photon_loss', 'N/A')
             fidelity = info.get('fidelity', 'N/A')
+            ng_score = info.get('ng_score', 'N/A')
             print(
                 f"Step {env.current_step:2d}: "
                 f"Action=[r={action[0]:.4f},  phi_sq={action[2]:.4f}, tau={np.cos(action[1]):.4f}, alpha_mag={action[3]:.4f}, alpha_phi={action[4]:.4f}], "
@@ -111,7 +112,8 @@ def main():
         X, P = np.meshgrid(xvec, pvec)
         c = ax1.pcolormesh(X, P, W, cmap='RdBu', shading='auto', vmin=-np.max(np.abs(W)), vmax=np.max(np.abs(W)))
         fig.colorbar(c, ax=ax1, label='W(x, p)')
-        ax1.set_title(f"Wigner Function")
+
+        ax1.set_title(f"Wigner Function (Fidelity: {fidelity:.4f} ng_score: {ng_score:.4f})")
         ax1.set_xlabel("x (Position)")
         ax1.set_ylabel("p (Momentum)")
         ax1.set_aspect('equal')
@@ -119,6 +121,8 @@ def main():
         # Add grid lines to see the center
         ax1.axhline(0, color='black', linestyle='--', alpha=0.3)
         ax1.axvline(0, color='black', linestyle='--', alpha=0.3)
+
+            
 
         # Plot 2: Fock Distribution
         ax2.bar(range(cutoff_dim), probs, color='teal', alpha=0.7, edgecolor='black')
