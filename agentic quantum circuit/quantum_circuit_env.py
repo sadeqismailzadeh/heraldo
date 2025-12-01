@@ -79,7 +79,7 @@ class QuantumCircuitEnv(gym.Env):
     metadata = {"render_modes": [], "render_fps": 0}
     # agent can terminate
     def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=True,
-                 is_loss_channel=False, loss_channel=1):
+                 is_loss_channel=False, loss_channel=1, initial_fidelity_threshold=0.70):
         """Initializes the quantum circuit environment.
 
         This method sets up the simulation parameters, pre-calculates the target
@@ -115,6 +115,9 @@ class QuantumCircuitEnv(gym.Env):
         self.is_loss_channel=is_loss_channel
         self.loss_channel=loss_channel
 
+         # --- CURRICULUM PARAMETERS ---
+        # D(v): The current difficulty level defined by target fidelity
+        self.target_fidelity = initial_fidelity_threshold 
 
         # --- Strawberry Fields Engine ---
         self.eng = None # Will be initialized in reset()
@@ -148,9 +151,9 @@ class QuantumCircuitEnv(gym.Env):
         if self.tunable_r:
             # 3D action space: agent controls squeezing_r, BS angle, and phase
             self.action_space = spaces.Box(
-                low=np.array([0.0, 0.0, -np.pi]),
-                high=np.array([self.max_squeezing, np.pi/2, np.pi]),
-                shape=(3,),
+                low=np.array([-self.max_squeezing, 0.0]),
+                high=np.array([self.max_squeezing, np.pi/2]),
+                shape=(2,),
                 dtype=np.float32
             )
         else:
@@ -261,6 +264,21 @@ class QuantumCircuitEnv(gym.Env):
         
         return self._obs_buffer.copy()
 
+    def _calculate_log_reward(self, fidelity):
+        """
+        Helper to calculate the specific Log Reward value for a given fidelity.
+        Used for both the current step and the bonus calculation. 
+        """
+        # 1. Get parameters based on the paper's piecewise function
+        # 2. Calculate Log Error
+        # prevent log(0) with a tiny epsilon
+        infidelity = max(1.0 - fidelity, 1e-3)
+        log_val = - np.log10(infidelity) / 3
+        power_val = fidelity**2
+        # 3. Compute Reward
+        reward =  power_val + log_val
+        return reward
+
     def reset(self, seed=None, options=None):
         """Resets the environment to its initial state.
 
@@ -316,6 +334,7 @@ class QuantumCircuitEnv(gym.Env):
         # Calculate inner product of state with itself (should be ~1 for normalized states)
         inner_product = np.abs(np.vdot(self.current_ket, self.current_ket))
         self.min_inner_product = min(self.min_inner_product, inner_product)
+        self.past_ket = self.current_ket
         
         return observation, {}
 
@@ -347,14 +366,14 @@ class QuantumCircuitEnv(gym.Env):
         # 1. Unpack and clip the agent's action based on tunable_r setting
         if self.tunable_r:
             # 3D action: [squeezing_r, BS_angle, squeezing_phase]
-            squeezing_r = np.clip(action[0], 0, self.max_squeezing)
+            squeezing_r = np.clip(action[0], -self.max_squeezing, self.max_squeezing)
             theta_1 = np.clip(action[1], 0, np.pi/2)
-            squeezing_phase = np.clip(action[2], -np.pi, np.pi)
+            squeezing_phase = 0
         else:
             # 2D action: [BS_angle, squeezing_phase], squeezing_r is fixed
             squeezing_r = self.max_squeezing
-            theta_1 = np.clip(action[0], 0, np.pi/2)
-            squeezing_phase = np.clip(action[1], -np.pi, np.pi)
+            theta_1 = np.clip(action[1], 0, np.pi/2)
+            squeezing_phase = np.clip(action[0], -np.pi, np.pi)
 
         # 2. Build the Strawberry Fields program for one step
         prog = sf.Program(2)
@@ -395,30 +414,53 @@ class QuantumCircuitEnv(gym.Env):
         # 5. Calculate the reward by computing fidelities for all target states
         fidelities = np.array([fidelity_pure_state(target_ket, self.current_ket) 
                                for target_ket in self.target_kets])
-        max_fidelity = np.max(fidelities)
-        reward = max_fidelity ** self.reward_power
+        fidelity = np.max(fidelities)
+        
+        
+        # 5. SMART EPISODE LOGIC (Definition 3 in paper)
+        # Terminate if max steps reached OR current performance surpasses target fidelity
+        # 2. Calculate Immediate Step Reward
 
-        # 6. Check for termination/truncation
-        # The episode ends when the maximum number of steps is reached
-       
+        # 3. Check Termination
         terminated = False
+        target_fidelity = 0.98
+        hit_target = (fidelity >  target_fidelity)
+        
+        max_reward = self._calculate_log_reward(target_fidelity)
+        reward = self._calculate_log_reward(fidelity)
+        reward -= max_reward
+
+        self_fidelity = fidelity_pure_state(self.past_ket, self.current_ket)
+        if self_fidelity > 0.95:
+            reward -= max_reward
+
+        self.past_ket = self.current_ket
+
+        if hit_target:
+            reward += 10
+            terminated = True
+        
         truncated = self.current_step >= self.max_steps
+        # if truncated and not hit_target:
+        #     reward -= 2
 
-        # # Add a large, shaped bonus on the final step of the episode.
-        terminal_bonus = 0
-
-        if truncated:
-            terminal_bonus += (max_fidelity ** self.reward_power) * 10
-
-            fidelity_threshold = 0.9
-            # Your proposed bonus function:
-            excess_fidelity = max(max_fidelity - fidelity_threshold, 0)
-            # Rescale the excess from [0, 0.1] to [0, 1]
-            rescaled_excess = excess_fidelity / (1 - fidelity_threshold)
-            # Apply non-linear shaping and final scaling
-            terminal_bonus += (rescaled_excess ** self.reward_power) * 100
+        # # 4. TARGET-BASED COMPLETION BONUS
+        # if hit_target:
+        #     # A. Determine the "Value" of the Target
+        #     # We calculate what the reward IS at exactly the target threshold.
+        #     # This standardizes the bonus relative to the difficulty.
+        #     target_value = self._calculate_log_reward(self.target_fidelity)
             
-            reward += terminal_bonus
+        #     # B. The "Big Win" Bonus (10x the target value)
+        #     big_win_bonus = 10.0
+            
+        #     # C. The "Time Savings" Bonus (simulate getting the target value for the rest of time)
+        #     steps_remaining = self.max_steps - self.current_step
+        #     time_saving_bonus = steps_remaining 
+            
+        #     # Total Bonus added to the current step
+        #     reward += (big_win_bonus + time_saving_bonus)
+
 
         
         # The 'info' dictionary is the standard place for diagnostic information.
@@ -428,14 +470,21 @@ class QuantumCircuitEnv(gym.Env):
         info = {
             'photon_loss': lost_photons,
             'detected_photons': detected_photons,
+            'is_success': hit_target, # Flag for Curriculum Manager
             'total_photons': lost_photons + detected_photons,
-            'fidelity': max_fidelity
+            'fidelity': fidelity
         }
         
         if truncated:
-            info['terminal_bonus'] = terminal_bonus
+            info['terminal_bonus'] = 0
             info['final_ket'] = self.current_ket
             info['min_inner_product'] = self.min_inner_product
+        
+        if terminated or truncated:
+            info['is_success'] = hit_target
+            info['curriculum_difficulty'] = self.target_fidelity
+            # Helpful for debugging:
+            info['episode_len'] = self.current_step 
 
         return observation, reward, terminated, truncated, info
 
