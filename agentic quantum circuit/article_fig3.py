@@ -32,70 +32,70 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+# from quantum_gadget_env import QuantumGadgetEnv, fidelity_pure_state
+# from quantum_circuit_env_mixed import QuantumCircuitEnv
 
 # --- Configuration ---
 
-# Simulation Parameters (MUST match the training environment)
+# Simulation Parameters
 CUTOFF_DIM = 25
 MAX_STEPS = 50
 REWARD_POWER = 2 
 
 # Evaluation Parameters
-NUM_EPISODES_TO_COLLECT = 1250  # Total episodes for statistics
-N_ENVS = 4                      # Number of parallel environments
+NUM_EPISODES_TO_COLLECT = 1250
+N_ENVS = 4
 
 # --- EDIT THIS: Path to the trained model ---
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ppo_quantum_circuit.zip")
 
-# Analysis Parameters
-SUCCESS_FIDELITY_THRESHOLD = 0.90 
-
 def plot_results(fidelities, photons, episode_lengths, steps_between_resets):
-    """Replicate the paper's Figure 3 layout for collected episode statistics."""
+    """Replicate the paper's Figure 3 layout."""
     print("\n--- Generating Plots (Replicating Figure 3 Layout) ---")
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7))
-    fig.suptitle("Evaluation Results (Replication of Paper's Figure 3)", fontsize=16, y=0.98)
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+    fig.suptitle(f"Evaluation Results (N={len(fidelities)})", fontsize=16, y=0.98)
     
     # (a) Output State Fidelity
     ax = axes[0, 0]
-    ax.hist(fidelities, bins=50, range=(0.0, 1.0), color='tab:blue', edgecolor='black')
+    ax.hist(fidelities, bins=50, range=(0.0, 1.0), color='#1f77b4', edgecolor='black', alpha=0.7)
     ax.set_title("(a) Output State Fidelity")
-    ax.set_xlabel("Output state fidelity")
+    ax.set_xlabel("Fidelity")
     ax.set_ylabel("Episode count")
-    ax.grid(True, linestyle='--')
-    
-    # (c) Steps per Episode, with Resets
-    ax = axes[0, 1]
-    ax.hist(episode_lengths, bins=50, range=(0, MAX_STEPS), color='tab:green', edgecolor='black')
-    ax.set_title("(c) Steps per Episode, with Resets")
-    ax.set_xlabel("Number of steps")
-    ax.set_ylabel("Episode count")
-    ax.grid(True, linestyle='--')
+    ax.grid(True, linestyle='--', alpha=0.5)
     
     # (b) Total Detected Photons per Episode
     ax = axes[1, 0]
-    ax.hist(photons, bins=60, range=(0, 120), color='tab:orange', edgecolor='black')
-    ax.set_title("(b) Total Detected Photons per Episode")
+    # Log scale helps visualize the spread if there are many resets
+    ax.hist(photons, bins=50, range=(0, 100), color="#ff7f0e", edgecolor='black', alpha=0.7)
+    ax.set_title("(b) Total Detected Photons (per Episode)")
     ax.set_xlabel("Detected photon number")
     ax.set_ylabel("Episode count")
-    ax.grid(True, linestyle='--')
+    ax.grid(True, linestyle='--', alpha=0.5)
+
+    # (c) Steps per Episode, with Resets
+    # This is the raw length of the episode until termination or max_steps
+    ax = axes[0, 1]
+    ax.hist(episode_lengths, bins=MAX_STEPS, range=(0, MAX_STEPS), color="#2ca02c", edgecolor='black', alpha=0.7)
+    ax.set_title("(c) Total Steps per Episode (With Resets)")
+    ax.set_xlabel("Number of steps")
+    ax.set_ylabel("Episode count")
+    ax.grid(True, linestyle='--', alpha=0.5)
     
     # (d) Steps per Episode, Between Resets
+    # This shows the length of the *successful* sequence
     ax = axes[1, 1]
-    ax.hist(steps_between_resets, bins=50, range=(0, MAX_STEPS), color='tab:red', edgecolor='black')
-    ax.set_title("(d) Steps per Episode, Between Resets")
-    ax.set_xlabel("Number of steps (between resets)")
+    ax.hist(steps_between_resets, bins=MAX_STEPS, range=(0, MAX_STEPS), color='#d62728', edgecolor='black', alpha=0.7)
+    ax.set_title("(d) Steps in Final Sequence (Since Last Reset)")
+    ax.set_xlabel("Number of steps")
     ax.set_ylabel("Episode count")
-    ax.grid(True, linestyle='--')
+    ax.grid(True, linestyle='--', alpha=0.5)
     
-    fig.tight_layout()
+    plt.tight_layout()
     plt.show()
 
 def main():
-    """Evaluate the policy in parallel and summarize outcomes for Figure 3."""
     print("--- Starting Parallel Evaluation ---")
     
-    print(f"Creating {N_ENVS} parallel environments...")
     env = make_vec_env(
         QuantumCircuitEnv,
         n_envs=N_ENVS,
@@ -103,91 +103,107 @@ def main():
             cutoff_dim=CUTOFF_DIM,
             max_steps=MAX_STEPS,
             reward_power=REWARD_POWER,
-            tunable_r=False,
-            is_loss_channel=True,
-            loss_channel=1 # Make sure this matches your trained model
+            tunable_r=True, # Article 1 usually assumes fixed r=1.38, agent controls theta
+            is_loss_channel=False,
+            loss_channel=1 
         ),
-        vec_env_cls=SubprocVecEnv,
-        vec_env_kwargs=dict(start_method='spawn')
+        vec_env_cls=SubprocVecEnv
     )
 
-    print(f"Loading trained model from '{MODEL_PATH}'...")
     if not os.path.exists(MODEL_PATH):
-        print(f"Error: Trained model not found at '{MODEL_PATH}'")
-        print("Please edit the MODEL_PATH variable in this script.")
+        print(f"Error: Model not found at {MODEL_PATH}")
         return
 
     model = PPO.load(MODEL_PATH, env=env)
 
-    # Data storage for completed episodes
-    fidelities = []
-    episode_lengths = []
-    steps_between_resets = []
-    photons_between_resets = []
+    # --- STORAGE ---
+    # Global results
+    final_fidelities = []
+    total_steps_data = []       # For Fig 3(c)
+    segment_steps_data = []     # For Fig 3(d)
+    total_photons_data = []     # For Fig 3(b)
 
-    # Trackers for ongoing episodes in each parallel environment
-    is_reset = np.zeros(N_ENVS, dtype=bool)
-    current_episode_steps = np.zeros(N_ENVS, dtype=int)
-    last_reset_step = np.zeros(N_ENVS, dtype=int)
-    current_segment_photons = np.zeros(N_ENVS, dtype=int)
+    # Per-environment trackers
+    # Tracks total steps in the current episode (Fig 3c)
+    current_total_steps = np.zeros(N_ENVS, dtype=int)
+    # Tracks steps since the last "Reset" action (Fig 3d)
+    current_segment_steps = np.zeros(N_ENVS, dtype=int)
+    # Tracks total photons accumulated in the episode
+    current_total_photons = np.zeros(N_ENVS, dtype=int)
     
     obs = env.reset()
     
-    with tqdm(total=NUM_EPISODES_TO_COLLECT, desc="Collecting Episodes") as pbar:
-        while len(fidelities) < NUM_EPISODES_TO_COLLECT:
+    with tqdm(total=NUM_EPISODES_TO_COLLECT, desc="Evaluating") as pbar:
+        while len(final_fidelities) < NUM_EPISODES_TO_COLLECT:
             actions, _ = model.predict(obs, deterministic=True)
             new_obs, rewards, dones, infos = env.step(actions)
 
             for i in range(N_ENVS):
-                current_episode_steps[i] += 1
+                # 1. Update Photon Counts
+                n_photons = infos[i].get('detected_photons', 0)
                 
-                measured_photons = infos[i].get('detected_photons', 0)
-                current_segment_photons[i] += 0 if is_reset[i] else measured_photons
+                # 2. Analyze Action for "Reset" vs "Hold" vs "Build"
+                # Action[0] is Theta. Transmissivity tau = cos(theta)^2
+                theta = actions[i][1]
+                transmissivity = np.cos(theta)**2
                 
-                # Check for the agent's "reset" action (high transmissivity)
-                theta_1 = actions[i][0]
-                vbs1_transmissivity = np.cos(theta_1)**2
-                
-                if vbs1_transmissivity <= 0.01 and not is_reset[i]:
-                    is_reset[i] = True                
-                    last_reset_step[i] = current_episode_steps[i]
-                
-                if dones[i]:
-                    # Episode finished, collect final data
-                    final_info = infos[i]
-                    final_ket = final_info.get('final_ket')
-                    if final_ket is not None:
-                        target_kets =  env.get_attr('target_kets')[0]
-                        final_fidelities = np.array([fidelity_pure_state(final_ket, target_ket) for target_ket in target_kets])
-                        fidelities.append(np.max(final_fidelities))
-                    else:
-                        fidelities.append(0.0)
+                # Thresholds
+                RESET_THRESHOLD = 0.95  # tau approx 1 (Flush loop)
+                HOLD_THRESHOLD = 0.05   # tau approx 0 (Trap light / Stop)
+
+                if transmissivity > RESET_THRESHOLD:
+                    # --- RESET ACTION ---
+                    # Agent discards state. Reset segment counter.
+                    current_segment_steps[i] = 0
                     
-                    episode_lengths.append(current_episode_steps[i])
-                    steps_between_resets.append(last_reset_step[i])
-                    photons_between_resets.append(current_segment_photons[i])
+                elif transmissivity < HOLD_THRESHOLD:
+                    # --- HOLD ACTION ---
+                    # Agent is happy and freezing the state.
+                    # Do NOT increment the segment counter. 
+                    # (It effectively "stopped" building the state here)
+                    pass
+                    
+                else:
+                    # --- BUILD ACTION ---
+                    # Agent is actively mixing/measuring.
+                    # Increment the counter for the current attempt.
+                    current_segment_steps[i] += 1
+                    current_total_steps[i] += 1
+                    current_total_photons[i] += n_photons
                 
-                    # Reset trackers for this environment
-                    current_episode_steps[i] = 0
-                    last_reset_step[i] = 0
-                    current_segment_photons[i] = 0
-                    is_reset[i] = False                  
+
+                # 3. Handle Episode Termination
+                if dones[i]:
+                    # Extract Final Fidelity
+                    fid = infos[i].get('fidelity')
+                    # Access target kets from the env object (wrapped in VecEnv)
+                    # Note: get_attr returns a list of attributes from all envs
+                    if fid is not None:
+                        final_fidelities.append(fid)
+                    else:
+                        final_fidelities.append(0.0)
+                    
+                    # Store Statistics
+                    total_steps_data.append(current_total_steps[i])
+                    segment_steps_data.append(current_segment_steps[i])
+                    total_photons_data.append(current_total_photons[i])
+                    
+                    # Reset Trackers for this environment
+                    current_total_steps[i] = 0
+                    current_segment_steps[i] = 0
+                    current_total_photons[i] = 0
+                    
                     pbar.update(1)
             
             obs = new_obs
 
     env.close()
-
-    print("\n--- Evaluation Complete ---")
-    fidelities = np.array(fidelities)
-    successful_episodes = np.sum(fidelities >= SUCCESS_FIDELITY_THRESHOLD)
-    success_rate = (successful_episodes / len(fidelities)) * 100
     
-    print(f"Total Episodes Collected: {len(fidelities)}")
-    print(f"Average Final Fidelity: {np.mean(fidelities):.4f}")
-    print(f"Success Rate (Fidelity >= {SUCCESS_FIDELITY_THRESHOLD}): {success_rate:.2f}%")
+    # --- RESULTS ---
+    final_fidelities = np.array(final_fidelities)
+    print(f"Average Fidelity: {np.mean(final_fidelities):.4f}")
     
-    plot_results(fidelities, photons_between_resets, episode_lengths, steps_between_resets)
+    plot_results(final_fidelities, total_photons_data, total_steps_data, segment_steps_data)
 
 if __name__ == '__main__':
     main()
