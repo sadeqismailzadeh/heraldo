@@ -86,7 +86,7 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         super().__init__(**kwargs)
         
         self.max_disp = 2.0
-        self.max_squeezing = db_to_r(10)
+        self.max_squeezing = db_to_r(8)
 
         
         self.target_kets = self._initialize_target_states()
@@ -424,44 +424,25 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         # 3. NEW MULTIPLIER LOGIC (Gaussian RBF)
         # We want a function that is 1.0 when current == target
         # And approaches 0.01 when distance is large.
-        min_mult = 0
-        max_mult = 0.5
-        
-        norm_diff = (current_ng_score - self.target_ng_score) / self.target_ng_score 
-        
-        self.ng_width = 1
-        # The exponential term ranges from 0 to 1
-        bell_curve = np.exp(-(norm_diff**2)/(2 * self.ng_width**2))
-        
-        # ng_multiplier = min_mult + (max_mult - min_mult) * bell_curve
-        ng_multiplier = 1
-
-        # 5. Final Reward Calculation
-        reward = (max_fidelity ) ** self.reward_power  * ng_multiplier
 
 
-        if current_ng_score < 1e-3:
-            reward = -0.1
+        # 5. Final Reward Calculation 
+        reward = self._calculate_log_reward(max_fidelity) / 10 if (current_ng_score > self.target_ng_score/5)  else 0
 
-        # 5. Termination Logic
-        terminated = False
+        # 3. Check Termination
+
+        hit_target = (max_fidelity >  0.96)  
+        # --- 6. TERMINATION ---
+        terminated = hit_target
+        if  terminated:
+            reward += 1  + (self.max_steps - self.current_step) * 0.1
         truncated = self.current_step >= self.max_steps
-        
-        terminal_bonus = 0
-        if truncated:
-            if current_ng_score > 1e-3:
-                # Add terminal bonus
-                if max_fidelity > 0.0:
-                    terminal_bonus += ((max_fidelity ) ** self.reward_power) * 10  * ng_multiplier
-                
-                fidelity_threshold = 0.9
-                if max_fidelity > fidelity_threshold:
-                    excess = (max_fidelity - fidelity_threshold) / (1 - fidelity_threshold)
-                    terminal_bonus += ((excess) ** self.reward_power) * 100  * ng_multiplier
-                
-                reward += terminal_bonus
-            else: 
-                reward += -1
+
+        reward *= 10
+
+        # if truncated:
+        #     if current_ng_score < self.target_ng_score/5:
+        #         reward = -1
 
         # Info
         encoded_result = result.samples[0][0]
@@ -475,7 +456,7 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         }
         
         if truncated:
-            info['terminal_bonus'] = terminal_bonus
+            # info['terminal_bonus'] = terminal_bonus
             info['final_ket'] = self.current_ket
             info['min_inner_product'] = self.min_inner_product
 

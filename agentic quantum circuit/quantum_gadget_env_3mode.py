@@ -51,7 +51,7 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
       q[0] (Old) ══════════════════════▲══════════════════════════> Loops to Next Step
     """
 
-    def __init__(self, tunable_bs_phase = False,**kwargs):
+    def __init__(self, tunable_bs_phase = True,**kwargs):
         super().__init__(**kwargs)
         self.tunable_bs_phase = tunable_bs_phase
         
@@ -67,7 +67,7 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
         print("3 mode circuit is being used")
         
         # Limits
-        r_max = db_to_r(10)
+        r_max = db_to_r(8)
         d_max = 2.0
         pi = np.pi
         
@@ -229,29 +229,15 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
         # Simple multiplier for now
         ng_multiplier = 1.0 # bell_curve if you want strict NG enforcement
         
-        reward = (max_fidelity ** self.reward_power) * ng_multiplier
-        
-        # Penalize vacuum/failure
-        if current_ng_score < 1e-3:
-            reward -= 0.1
-
+        # reward = (max_fidelity ** self.reward_power) * ng_multiplier
+        reward = 0
+        hit_target = True if (max_fidelity > 0.96 and current_ng_score > self.target_ng_score/5)  else False
         # --- 6. TERMINATION ---
-        terminated = False
+        terminated = hit_target
+        if  terminated:
+            reward = 1
         truncated = self.current_step >= self.max_steps
         
-        terminal_bonus = 0
-        if truncated:
-            # Significant bonus for hitting high fidelity at the end
-            if max_fidelity > 0.0:
-                terminal_bonus += (max_fidelity ** self.reward_power) * 10
-            
-            # "Super Bonus" for exceeding thresholds
-            fidelity_threshold = 0.95
-            if max_fidelity > fidelity_threshold:
-                excess = (max_fidelity - fidelity_threshold) / (1 - fidelity_threshold)
-                terminal_bonus += (excess ** self.reward_power) * 100
-            
-            reward += terminal_bonus
 
         # --- 7. INFO ---
         # Extract measurement results for diagnostics
@@ -270,7 +256,7 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
         }
         
         if truncated:
-            info['terminal_bonus'] = terminal_bonus
+            # info['terminal_bonus'] = terminal_bonus
             info['final_ket'] = self.current_ket
             info['min_inner_product'] = self.min_inner_product
 
