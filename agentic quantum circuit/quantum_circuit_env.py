@@ -72,7 +72,7 @@ class QuantumCircuitEnv(gym.Env):
         target_dms (list): A list of target density matrices.
         target_sqrts (list): A list of the square roots of the target density matrices.
         observation_space (gym.spaces.Box): The observation space for the environment.
-        action_space (gym.spaces.Box): The action space for the environment.
+        action_space (gym.spaces.Box): The normalized action space in [-1, 1] for the environment.
         current_step (int): The current step in the episode.
         current_dm (np.ndarray): The current density matrix of the system.
     """
@@ -142,28 +142,26 @@ class QuantumCircuitEnv(gym.Env):
             low=-1.0, high=1.0, shape=(obs_size,), dtype=np.float32
         )
 
-        # ACTION SPACE: Depends on tunable_r setting
-        # If tunable_r=True: [squeezing_r, BS_angle, squeezing_phase] (3D)
-        # If tunable_r=False: [BS_angle, squeezing_phase] (2D)
-        # Squeezing 'r' is between 0 and 2.
+        # ACTION SPACE: Normalized to [-1, 1] for all dimensions
+        # Internally denormalized to original ranges
+        # If tunable_r=True: [squeezing_r, BS_angle]
+        # If tunable_r=False: [squeezing_phase, BS_angle]
+        # Squeezing 'r' is between -max_squeezing and max_squeezing (when tunable).
         # BS angle is between 0 (perfectly transparent) and pi/2 (perfect mirror).
-        # Squeezing phase is between -pi and pi.
+        # Squeezing phase is between -pi and pi (when tunable).
+        self.action_ranges = {
+            'squeezing_r': (-self.max_squeezing, self.max_squeezing),
+            'theta_1': (0, np.pi/2),
+            'squeezing_phase': (-np.pi, np.pi)
+        }
         if self.tunable_r:
-            # 3D action space: agent controls squeezing_r, BS angle, and phase
-            self.action_space = spaces.Box(
-                low=np.array([-self.max_squeezing, 0.0]),
-                high=np.array([self.max_squeezing, np.pi/2]),
-                shape=(2,),
-                dtype=np.float32
-            )
+            self.action_keys = ['squeezing_r', 'theta_1']
         else:
-            # 2D action space: squeezing_r is fixed, agent controls BS angle and phase only
-            self.action_space = spaces.Box(
-                low=np.array([0.0, -np.pi]),
-                high=np.array([np.pi/2, np.pi]),
-                shape=(2,),
-                dtype=np.float32
-            )
+            self.action_keys = ['squeezing_phase', 'theta_1']
+
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(len(self.action_keys),), dtype=np.float32
+        )
         
         # Internal state of the environment
         self.current_step = 0
@@ -264,6 +262,33 @@ class QuantumCircuitEnv(gym.Env):
         
         return self._obs_buffer.copy()
 
+    def _denormalize_action(self, action):
+        """Denormalize action from [-1, 1] to original ranges.
+
+        This method performs a linear transformation to scale normalized actions
+        back to their physical ranges for use in the quantum circuit operations.
+        The transformation is: f(x) = a*x + b, where f(-1) = low and f(1) = high.
+        Solving: a = (high - low)/2, b = (high + low)/2
+        Thus: f(x) = (high - low)/2 * x + (high + low)/2
+        Which simplifies to: low + (x + 1) * (high - low) / 2
+
+        Designed to be reusable and overridable in derived environment classes.
+
+        Args:
+            action (np.ndarray): Normalized action array in [-1, 1].
+
+        Returns:
+            np.ndarray: Denormalized action array in original ranges.
+        """
+        denorm_action = np.zeros_like(action, dtype=np.float32)
+        for i, key in enumerate(self.action_keys):
+            low, high = self.action_ranges[key]
+            # Linear transformation: f(x) = a*x + b with f(-1)=low, f(1)=high
+            a = (high - low) / 2
+            b = (high + low) / 2
+            denorm_action[i] = a * action[i] + b
+        return denorm_action
+
     def _calculate_log_reward(self, fidelity):
         """
         Helper to calculate the specific Log Reward value for a given fidelity.
@@ -345,7 +370,7 @@ class QuantumCircuitEnv(gym.Env):
         the state, and calculates the reward.
 
         Args:
-            action (np.ndarray): The control parameters for the squeezing and
+            action (np.ndarray): The normalized control parameters in [-1, 1] for the squeezing and
                 beam-splitter operations, as determined by the `tunable_r` setting.
 
         Returns:
@@ -363,7 +388,10 @@ class QuantumCircuitEnv(gym.Env):
         """
         self.current_step += 1
 
-        # 1. Unpack and clip the agent's action based on tunable_r setting
+        # 1. Denormalize action from [-1, 1] to original ranges
+        action = self._denormalize_action(action)
+
+        # 2. Unpack and clip the agent's action based on tunable_r setting
         if self.tunable_r:
             # 3D action: [squeezing_r, BS_angle, squeezing_phase]
             squeezing_r = np.clip(action[0], -self.max_squeezing, self.max_squeezing)
