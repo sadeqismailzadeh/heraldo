@@ -75,11 +75,6 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
             MonitoredLossMeasureFock(self.loss_channel) | q[0]
         return prog
 
-    def reset(self, seed=None, options=None):
-        """Resets the environment, initializing the loop mode to vacuum."""
-        obs, info = super().reset(seed=seed, options=options)
-        self.past_fidelity = 0.0
-        return obs, info
 
     def _build_step_program(self, action):
         """Builds the Strawberry Fields program for one step."""
@@ -117,8 +112,8 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
         target_fidelity = 0.95
         hit_target = (fidelity > target_fidelity)
 
-        max_reward = self._calculate_log_reward(target_fidelity)
-        reward = self._calculate_log_reward(fidelity)
+        max_reward = self._calculate_reward(target_fidelity)
+        reward = self._calculate_reward(fidelity)
         reward -= max_reward
         
         current_ng_score = self.compute_non_gaussianity(self.current_ket)

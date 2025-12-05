@@ -136,8 +136,8 @@ class QuantumCircuitEnv(BaseQuantumEnv):
         """Calculates the reward and determines if the episode should terminate."""
         terminated = False
         hit_target = (fidelity > self.target_fidelity_threshold)
-        max_reward = self._calculate_log_reward(self.target_fidelity_threshold)
-        reward = self._calculate_log_reward(fidelity)
+        max_reward = self._calculate_reward(self.target_fidelity_threshold)
+        reward = self._calculate_reward(fidelity)
         reward -= max_reward
 
         self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)

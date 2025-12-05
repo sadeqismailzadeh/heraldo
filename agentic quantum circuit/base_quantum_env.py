@@ -213,7 +213,7 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
 
         return denorm_action
 
-    def _calculate_log_reward(self, fidelity):
+    def _calculate_reward(self, fidelity):
         """Calculates a logarithmic reward based on infidelity."""
         infidelity = max(1.0 - fidelity, 1e-5)
         log_val = -np.log10(infidelity)
@@ -232,6 +232,10 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
         self.current_state = self.eng.run(prog).state
         self.current_ket = self._get_current_ket(self.current_state)
         self.past_ket = self.current_ket
+
+        fidelity = self._calculate_fidelity(self.current_ket)
+        self.past_fidelity = fidelity
+
 
         return self._ket_to_observation(self.current_ket), {}
 
