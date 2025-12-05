@@ -50,6 +50,7 @@ def main():
     # --- Run Evaluation Episodes and Collect Fidelities ---
     fidelities = []
     fid_per_steps = []
+    total_steps_list = []
     pbar = tqdm(range(N_EPISODES))
     for episode in pbar:
         obs, info = env.reset()
@@ -68,8 +69,9 @@ def main():
         fid_per_step = final_fidelity / total_steps
         fid_per_steps.append(fid_per_step)
 
+        total_steps_list.append(total_steps)
         # --- Update Progress Bar with Running Average ---
-        running_avg = np.mean(fid_per_steps)
+        running_avg = np.mean(total_steps_list)
         pbar.set_description(f"Avg: {running_avg:.4f}")
 
     # --- Compute and Output Average ---
