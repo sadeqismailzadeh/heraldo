@@ -64,6 +64,8 @@ def main():
             # Use the deterministic policy for evaluation
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
+
+            action=env._denormalize_action(action)
             
             measured_n = info.get('detected_photons', 'N/A')
             photon_loss = info.get('photon_loss', 'N/A')

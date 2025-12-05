@@ -39,7 +39,7 @@ def main():
     MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ppo_quantum_circuit.zip")
 
     # --- Environment and Model Setup ---
-    env = ThreeModeGadgetEnv(cutoff_dim=CUTOFF_DIM,
+    env = QuantumGadgetEnv(cutoff_dim=CUTOFF_DIM,
                            max_steps=MAX_STEPS,
                            reward_power=REWARD_POWER,
                            tunable_r=True,
@@ -65,17 +65,21 @@ def main():
             # Use the deterministic policy for evaluation
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
+
+            action=env._denormalize_action(action)
             
             measured_n = info.get('detected_photons', 'N/A')
             photon_loss = info.get('photon_loss', 'N/A')
             fidelity = info.get('fidelity', 'N/A')
             ng_score = info.get('ng_score', 'N/A')
+            self_fidelity = info.get('self_fidelity', 'N/A')
             print(
                 f"Step {env.current_step:2d}: "
-                f"Action=[r={action[0]:.4f},  phi_sq={action[2]:.4f}, tau={np.cos(action[1]):.4f}, alpha_mag={action[3]:.4f}, alpha_phi={action[4]:.4f}], "
+                f"Action=[r={action[0]:.4f},  phi_sq={action[1]:.4f}, tau={np.cos(action[2]):.4f}, phi={(action[3]):.4f}, alpha_mag={action[4]:.4f}, alpha_phi={action[5]:.4f}]"
                 f"Measured_n={measured_n}, "
                 f"photon_loss={photon_loss}, "
-                f"fidelity={fidelity:.4f}"
+                f"fidelity={fidelity:.4f}, "
+                f"self_fidelity={self_fidelity:.4f}, "
             )
             total_reward += reward
 
@@ -100,7 +104,7 @@ def main():
         # --- 5. CALCULATE FOCK PROBABILITIES ---
 
         ket = state.ket()
-        probs = np.abs(ket[:,0, 0])**2
+        probs = np.abs(ket[:,0])**2
         probs = probs.flatten().real
 
         # --- 6. PLOTTING ---
