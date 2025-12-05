@@ -91,6 +91,9 @@ def plot_results(fidelities, photons, episode_lengths, steps_between_resets):
     ax.grid(True, linestyle='--', alpha=0.5)
     
     plt.tight_layout()
+    # save the figure
+    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fig3.png")
+    plt.savefig(file_path, dpi=300, bbox_inches='tight')
     plt.show()
 
 def main():
@@ -137,14 +140,16 @@ def main():
         while len(final_fidelities) < NUM_EPISODES_TO_COLLECT:
             actions, _ = model.predict(obs, deterministic=True)
             new_obs, rewards, dones, infos = env.step(actions)
-
+            
             for i in range(N_ENVS):
                 # 1. Update Photon Counts
                 n_photons = infos[i].get('detected_photons', 0)
                 
                 # 2. Analyze Action for "Reset" vs "Hold" vs "Build"
                 # Action[0] is Theta. Transmissivity tau = cos(theta)^2
-                theta = actions[i][1]
+                denorm_action = env.env_method('_denormalize_action', actions[i], indices=[i])[0]
+                theta = denorm_action[1]
+
                 transmissivity = np.cos(theta)**2
                 
                 # Thresholds
