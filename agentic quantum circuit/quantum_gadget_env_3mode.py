@@ -17,7 +17,7 @@ from strawberryfields.ops import *
 from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, decode_measurement_result
 
 # Import the parent class
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state, fidelity_max_rotation
 from quantum_gadget_env import QuantumGadgetEnv, db_to_r
 
 class ThreeModeGadgetEnv(QuantumGadgetEnv):
@@ -54,49 +54,47 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
     def __init__(self, tunable_bs_phase = True,**kwargs):
         super().__init__(**kwargs)
         self.tunable_bs_phase = tunable_bs_phase
-        
-        # --- REDEFINE ACTION SPACE ---
-        # The agent controls 14 parameters per step:
-        # Ancilla 1 (Middle - q1): [r, phi_r, alpha, phi_a] (4)
-        # Ancilla 2 (Top - q2):    [r, phi_r, alpha, phi_a] (4)
-        # BS1 (Top-Mid):           [theta, phi] (2)
-        # BS2 (Mid-Loop):          [theta, phi] (2)
-        # BS3 (Top-Mid):           [theta, phi] (2)
-
 
         print("3 mode circuit is being used")
-        
+
         # Limits
-        r_max = db_to_r(8)
-        d_max = 2.0
-        pi = np.pi
-        
-       # Base limits for Ancillas (Always 8 parameters)
-        # [r1, pr1, a1, pa1, r2, pr2, a2, pa2]
-        base_low  = [0.0, -pi, 0.0, -pi, 0.0, -pi, 0.0, -pi]
-        base_high = [r_max, pi, d_max, pi, r_max, pi, d_max, pi]
+        self.r_max = db_to_r(8)
+        self.d_max = 2.0
+        self.pi_val = np.pi
+
+        # Action ranges for normalization
+        self.action_ranges = {
+            'r1': (0.0, self.r_max),
+            'pr1': (-self.pi_val, self.pi_val),
+            'a1': (0.0, self.d_max),
+            'pa1': (-self.pi_val, self.pi_val),
+            'r2': (0.0, self.r_max),
+            'pr2': (-self.pi_val, self.pi_val),
+            'a2': (0.0, self.d_max),
+            'pa2': (-self.pi_val, self.pi_val),
+        }
 
         if self.tunable_bs_phase:
-            # 14 Actions: Ancillas (8) + 3 Pairs of (theta, phi)
-            # BS params: [th1, ph1, th2, ph2, th3, ph3]
-            bs_low  = [0.0, -pi, 0.0, -pi, 0.0, -pi]
-            bs_high = [pi/2, pi, pi/2, pi, pi/2, pi]
-            shape_dim = 14
+            self.action_ranges.update({
+                'th1': (0.0, self.pi_val/2),
+                'ph1': (-self.pi_val, self.pi_val),
+                'th2': (0.0, self.pi_val/2),
+                'ph2': (-self.pi_val, self.pi_val),
+                'th3': (0.0, self.pi_val/2),
+                'ph3': (-self.pi_val, self.pi_val),
+            })
         else:
-            # 11 Actions: Ancillas (8) + 3 Thetas (Phases fixed to 0)
-            # BS params: [th1, th2, th3]
-            bs_low  = [0.0, 0.0, 0.0]
-            bs_high = [pi/2, pi/2, pi/2]
-            shape_dim = 11
+            self.action_ranges.update({
+                'th1': (0.0, self.pi_val/2),
+                'th2': (0.0, self.pi_val/2),
+                'th3': (0.0, self.pi_val/2),
+            })
+
+        self.action_keys = list(self.action_ranges.keys())
 
         self.action_space = spaces.Box(
-            low=np.array(base_low + bs_low, dtype=np.float32),
-            high=np.array(base_high + bs_high, dtype=np.float32),
-            shape=(shape_dim,),
-            dtype=np.float32
+            low=-1.0, high=1.0, shape=(len(self.action_keys),), dtype=np.float32
         )
-
-
 
     def reset(self, seed=None, options=None):
         """
@@ -123,30 +121,50 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
         # Extract Observation (Mode 0)
         self.current_ket = self.current_state.ket()[:, 0, 0]  # Single mode ket
         observation = self._ket_to_observation(self.current_ket)
+
+        self.past_ket = self.current_ket
+
+        fidelities = np.array([fidelity_max_rotation(target, self.current_ket) 
+                               for target in self.target_kets])
+        fidelity = np.max(fidelities)
+
+        self.past_fidelity = fidelity
         
         return observation, {}
 
     def step(self, action):
         self.current_step += 1
-        
-         # --- 1. UNPACK ACTIONS ---
-        
+
+        # Denormalize action from [-1, 1] to original ranges
+        action = self._denormalize_action(action)
+
+         # --- 1. UNPACK ACTIONS WITH CLIPPING ---
+
         # Ancillas are always the first 8 indices
-        r1, pr1, a1, pa1 = action[0:4]
-        r2, pr2, a2, pa2 = action[4:8]
-        
+        r1 = np.clip(action[0], 0.0, self.r_max)
+        pr1 = np.clip(action[1], -self.pi_val, self.pi_val)
+        a1 = np.clip(action[2], 0.0, self.d_max)
+        pa1 = np.clip(action[3], -self.pi_val, self.pi_val)
+        r2 = np.clip(action[4], 0.0, self.r_max)
+        pr2 = np.clip(action[5], -self.pi_val, self.pi_val)
+        a2 = np.clip(action[6], 0.0, self.d_max)
+        pa2 = np.clip(action[7], -self.pi_val, self.pi_val)
+
         # Logic branching for Beam Splitters
         if self.tunable_bs_phase:
             # Unpack both Theta and Phi from action vector
-            th1, ph1 = action[8:10]
-            th2, ph2 = action[10:12]
-            th3, ph3 = action[12:14]
+            th1 = np.clip(action[8], 0.0, self.pi_val/2)
+            ph1 = np.clip(action[9], -self.pi_val, self.pi_val)
+            th2 = np.clip(action[10], 0.0, self.pi_val/2)
+            ph2 = np.clip(action[11], -self.pi_val, self.pi_val)
+            th3 = np.clip(action[12], 0.0, self.pi_val/2)
+            ph3 = np.clip(action[13], -self.pi_val, self.pi_val)
         else:
             # Unpack only Theta; fix Phi to 0.0
-            th1 = action[8]
-            th2 = action[9]
-            th3 = action[10]
-            
+            th1 = np.clip(action[8], 0.0, self.pi_val/2)
+            th2 = np.clip(action[9], 0.0, self.pi_val/2)
+            th3 = np.clip(action[10], 0.0, self.pi_val/2)
+
             ph1 = 0.0
             ph2 = 0.0
             ph3 = 0.0
@@ -170,19 +188,22 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
             
             # --- Optical Interaction Sequence ---
             # 1. Top mixes with Middle
-            BSgate(th1, ph1) | (q[2], q[1])
+            BSgate(th1, ph1) | (q[0], q[1])
             
             # 2. Middle mixes with Loop (The Memory Interaction)
             # Note: q[0] enters from the "left" (history)
-            BSgate(th2, ph2) | (q[1], q[0])
+            BSgate(th2, ph2) | (q[1], q[2])
             
             # 3. Top mixes with Middle again
-            BSgate(th3, ph3) | (q[2], q[1])
+            BSgate(th3, ph3) | (q[0], q[1])
             
             # --- Measurements ---
             # Measure the two ancillas
-            MonitoredLossMeasureFock(self.loss_channel) | q[2]
+            MonitoredLossMeasureFock(self.loss_channel) | q[0]
             MonitoredLossMeasureFock(self.loss_channel) | q[1]
+
+            # --- LOOP RECYCLE (SWAP) ---
+            BSgate(np.pi/2, 0) | (q[0], q[2])
             
             # q[0] is NOT measured; it loops to the next step.
 
@@ -213,29 +234,40 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
         self.min_inner_product = min(self.min_inner_product, inner)
 
         # B. Fidelity to Cubic Phase Target
-        fidelities = np.array([fidelity_pure_state(target, self.current_ket) 
+        fidelities = np.array([fidelity_max_rotation(target, self.current_ket) 
                                for target in self.target_kets])
-        max_fidelity = np.max(fidelities)
+        fidelity = np.max(fidelities)
 
-        # C. Non-Gaussianity Score
+
+
+
         current_ng_score = self.compute_non_gaussianity(self.current_ket)
+
+        terminated = False
+        target_fidelity = 0.95
+        hit_target = (fidelity >  target_fidelity)
         
-        # D. Combined Reward
-        # We use the same multiplier logic as the parent class
-        norm_diff = (current_ng_score - self.target_ng_score) / (self.target_ng_score + 1e-9)
-        ng_width = 1.0
-        bell_curve = np.exp(-(norm_diff**2)/(2 * ng_width**2))
+        max_reward = self._calculate_log_reward(target_fidelity)
+        reward = self._calculate_log_reward(fidelity)
+        reward -= max_reward
+
+        if current_ng_score < 1:
+            reward -= max_reward
+
+        self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
+        if self_fidelity > 0.95:
+            reward -= max_reward
+        self.past_ket = self.current_ket
+
+
+        if abs(fidelity - self.past_fidelity) < 0.05:
+            reward -= max_reward
+        self.past_fidelity = fidelity
+
+        if hit_target:
+            reward += 10 * max_reward
+            terminated = True
         
-        # Simple multiplier for now
-        ng_multiplier = 1.0 # bell_curve if you want strict NG enforcement
-        
-        # reward = (max_fidelity ** self.reward_power) * ng_multiplier
-        reward = 0
-        hit_target = True if (max_fidelity > 0.96 and current_ng_score > self.target_ng_score/5)  else False
-        # --- 6. TERMINATION ---
-        terminated = hit_target
-        if  terminated:
-            reward = 1
         truncated = self.current_step >= self.max_steps
         
 
@@ -251,8 +283,9 @@ class ThreeModeGadgetEnv(QuantumGadgetEnv):
             'photon_loss': lost1 + lost2,
             'detected_photons': n1+n2,
             'total_photons': lost1 + lost2 + n1+n2,
-            'fidelity': max_fidelity,
-            'ng_score': current_ng_score
+            'fidelity': fidelity,
+            'ng_score': current_ng_score,
+            'is_success': hit_target, # Flag for Curriculum Manager
         }
         
         if truncated:

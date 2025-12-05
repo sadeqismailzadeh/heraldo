@@ -31,8 +31,9 @@ from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fo
 patch_fock_backend()
 
 # Import your original, fully observable environment
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state, fidelity_max_rotation
 
+# TODO clip on step use boundaries defiend on init
 
 def db_to_r(db_value):
         """
@@ -110,17 +111,30 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         # Default gadget parameters (Article 2 style) if none provided
 
         # --- REDEFINE ACTION SPACE ---
+        # Normalized to [-1, 1] for all dimensions, denormalized internally
         # The agent now controls 5 parameters per step:
         # 1. Squeezing Magnitude (r)
         # 2. Beam Splitter Angle (theta)
         # 3. Squeezing Phase (phi_sq)
-        # 4. Displacement Magnitude (alpha_mag) 
-        # 5. Displacement Phase (alpha_phi)    
+        # 4. Displacement Magnitude (alpha_mag)
+        # 5. Displacement Phase (alpha_phi)
+        self.action_ranges = {
+            'squeezing_r': (0, self.max_squeezing),
+            'squeezing_phase': (-np.pi, np.pi),
+            'theta_1': (0, np.pi/2),
+            'phi_1': (-np.pi, np.pi),
+            'displacement_magnitude': (0, self.max_disp),
+            'displacement_phase': (-np.pi, np.pi)
+        }
+        self.action_keys = ['squeezing_r', 
+                            'squeezing_phase', 
+                            'theta_1', 
+                            'phi_1', 
+                            'displacement_magnitude',
+                            'displacement_phase']
+
         self.action_space = spaces.Box(
-            low=np.array([0.0, 0.0, -np.pi, 0.0, -np.pi]),
-            high=np.array([self.max_squeezing, np.pi/2, np.pi, self.max_disp, np.pi]),
-            shape=(5,),
-            dtype=np.float32
+            low=-1.0, high=1.0, shape=(6,), dtype=np.float32
         )
 
     
@@ -306,7 +320,7 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         print("Initializing 4 Cardinal Cubic Phase Target States...")
         
         # Parameter 'a' from Article 2 (e.g., 0.61)
-        a = 0.61 
+        a = 0.61
         cutoff = self.cutoff_dim
 
         # --- 1. Construct the Base State (0 degrees) ---
@@ -324,8 +338,9 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         
         # --- 2. Generate Rotated Variants ---
         # Angles: 0, 90, 180, 270 degrees
-        rotation_angles = [0.0, np.pi/2, np.pi, 3*np.pi/2]
-        
+        # rotation_angles = [0.0, np.pi/2, np.pi, 3*np.pi/2]
+        rotation_angles = [0.0]
+
         # Create vector of photon numbers [0, 1, 2, ..., cutoff-1]
         n_vec = np.arange(cutoff)
 
@@ -367,6 +382,14 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         # Inner product check
         inner = np.abs(np.vdot(self.current_ket, self.current_ket))
         self.min_inner_product = min(self.min_inner_product, inner)
+        self.past_ket = self.current_ket
+
+        fidelities = np.array([fidelity_max_rotation(target, self.current_ket) 
+                               for target in self.target_kets])
+        fidelity = np.max(fidelities)
+
+        self.past_fidelity = fidelity
+
 
         return observation, {}
 
@@ -376,13 +399,17 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         """
         self.current_step += 1
 
-        # 1. Unpack 5D Action
+        # 1. Denormalize action from [-1, 1] to original ranges
+        action = self._denormalize_action(action)
+
+        # 2. Unpack 5D Action
         # [r, theta, phi_sq, alpha_mag, alpha_phi]
         r_val = np.clip(action[0], 0, self.max_squeezing)
-        theta_val = np.clip(action[1], 0, np.pi/2)
-        phi_sq_val = np.clip(action[2], -np.pi, np.pi)
-        alpha_mag = np.clip(action[3], 0, self.max_disp)
-        alpha_phi = np.clip(action[4], -np.pi, np.pi)
+        phi_sq_val = np.clip(action[1], -np.pi, np.pi)
+        theta_val = np.clip(action[2], 0, np.pi/2)
+        phi_val = np.clip(action[3], -np.pi, np.pi)
+        alpha_mag = np.clip(action[4], 0, self.max_disp)
+        alpha_phi = np.clip(action[5], -np.pi, np.pi)
 
         # 2. Build Circuit
         prog = sf.Program(2)
@@ -395,7 +422,7 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
 
             # --- INTERACTION ---
             # q[0] is the Loop State, q[1] is the Fresh Ancilla
-            BSgate(theta_val, 0) | (q[0], q[1])
+            BSgate(theta_val, phi_val) | (q[0], q[1])
 
             # --- MEASUREMENT ---
             MonitoredLossMeasureFock(self.loss_channel) | q[0]
@@ -413,9 +440,9 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
         inner = np.abs(np.vdot(self.current_ket, self.current_ket))
         self.min_inner_product = min(self.min_inner_product, inner)
 
-        fidelities = np.array([fidelity_pure_state(target, self.current_ket) 
+        fidelities = np.array([fidelity_max_rotation(target, self.current_ket) 
                                for target in self.target_kets])
-        max_fidelity = np.max(fidelities)
+        fidelity = np.max(fidelities)
     
 
         # 2. Compute Current Non-Gaussianity
@@ -427,22 +454,32 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
 
 
         # 5. Final Reward Calculation 
-        reward = self._calculate_log_reward(max_fidelity) / 10 if (current_ng_score > self.target_ng_score/5)  else 0
+        terminated = False
+        target_fidelity = 0.95
+        hit_target = (fidelity >  target_fidelity)
+        
+        max_reward = self._calculate_log_reward(target_fidelity)
+        reward = self._calculate_log_reward(fidelity)
+        reward -= max_reward
 
-        # 3. Check Termination
+        if current_ng_score < 1:
+            reward -= max_reward
 
-        hit_target = (max_fidelity >  0.96)  
-        # --- 6. TERMINATION ---
-        terminated = hit_target
-        if  terminated:
-            reward += 1  + (self.max_steps - self.current_step) * 0.1
+        self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
+        if self_fidelity > 0.95:
+            reward -= max_reward
+        self.past_ket = self.current_ket
+
+
+        if abs(fidelity - self.past_fidelity) < 0.05:
+            reward -= max_reward
+        self.past_fidelity = fidelity
+
+        if hit_target:
+            reward += 10 * max_reward
+            terminated = True
+        
         truncated = self.current_step >= self.max_steps
-
-        reward *= 10
-
-        # if truncated:
-        #     if current_ng_score < self.target_ng_score/5:
-        #         reward = -1
 
         # Info
         encoded_result = result.samples[0][0]
@@ -451,8 +488,10 @@ class QuantumGadgetEnv(QuantumCircuitEnv):
             'photon_loss': lost,
             'detected_photons': detected,
             'total_photons': lost + detected,
-            'fidelity': max_fidelity,
-            'ng_score': current_ng_score
+            'fidelity': fidelity,
+            'ng_score': current_ng_score,
+            'is_success': hit_target, # Flag for Curriculum Manager
+            'self_fidelity': self_fidelity
         }
         
         if truncated:
