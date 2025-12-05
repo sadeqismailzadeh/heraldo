@@ -78,6 +78,9 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
 
     def _build_step_program(self, action):
         """Builds the Strawberry Fields program for one step."""
+        for i, key in enumerate(self.action_keys):
+            low, high = self.action_ranges[key]
+            action[i] = np.clip(action[i], low, high)
         r1, pr1, a1, pa1, r2, pr2, a2, pa2 = action[:8]
         
         if self.tunable_bs_phase:

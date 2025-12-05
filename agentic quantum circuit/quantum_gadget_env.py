@@ -64,12 +64,15 @@ class QuantumGadgetEnv(BaseQuantumEnv):
 
     def _build_step_program(self, action):
         """Builds the Strawberry Fields program for one step."""
-        r_val = np.clip(action[0], 0, self.max_squeezing)
-        phi_sq_val = np.clip(action[1], -np.pi, np.pi)
-        theta_val = np.clip(action[2], 0, np.pi/2)
-        phi_val = np.clip(action[3], -np.pi, np.pi)
-        alpha_mag = np.clip(action[4], 0, self.max_disp)
-        alpha_phi = np.clip(action[5], -np.pi, np.pi)
+        for i, key in enumerate(self.action_keys):
+            low, high = self.action_ranges[key]
+            action[i] = np.clip(action[i], low, high)
+        r_val = action[0]
+        phi_sq_val = action[1]
+        theta_val = action[2]
+        phi_val = action[3]
+        alpha_mag = action[4]
+        alpha_phi = action[5]
 
         prog = sf.Program(2)
         with prog.context as q:
