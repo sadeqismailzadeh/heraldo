@@ -39,14 +39,22 @@ os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
+from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList, BaseCallback
+from stable_baselines3.common.vec_env import VecNormalize, VecMonitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 
 from quantum_circuit_env import QuantumCircuitEnv
+from quantum_gadget_env import QuantumGadgetEnv
+from quantum_gadget_env_3mode import ThreeModeGadgetEnv
+from quantum_gadget_env_seeded import SeededQuantumGadgetEnv
+
 from thread_manager_callback import ThreadManagerCallback
 from metrics_callback import MetricsCallback
 from typing import Callable
+from curriculum_callback import CurriculumCallback 
+import torch
+
 
 
 def linear_schedule(initial_value: float, end_value: float) -> Callable[[float], float]:
@@ -65,25 +73,33 @@ def linear_schedule(initial_value: float, end_value: float) -> Callable[[float],
 
     return func
 
+
+
+
 def main():
     """Configures the environment, resumes if possible, and launches PPO training."""
     # --- Configuration ---
     # Environment Parameters
-    CUTOFF_DIM = 25
-    MAX_STEPS = 10
-    REWARD_POWER = 2
+    CUTOFF_DIM = 15
+    MAX_STEPS = 50
+    REWARD_POWER = 55
     TUNABLE_R = True
+    INITIAL_DIFFICULTY = 0.70 # Start easy
 
     # Training Parameters
     N_ENVS = 4  # Number of parallel environments
-    TARGET_TIMESTEPS = 10_000_000  # Total steps for the entire training run
+    TARGET_TIMESTEPS = 20_000_000  # Total steps for the entire training run
     CHECKPOINT_FREQ = 20_000  # Save a checkpoint every N steps
 
     # PPO Hyperparameters
-    POLICY_KWARGS = dict(net_arch=dict(pi=[256, 256], vf=[256, 256]))
-    LEARNING_RATE = 3e-4
-    N_STEPS_PER_UPDATE = 2048*2
-    BATCH_SIZE = 64*2
+    POLICY_KWARGS = dict(
+        net_arch=dict(pi=[256, 256], vf=[256, 256]),
+        optimizer_class=torch.optim.Adam,
+        activation_fn=torch.nn.Tanh)
+    # LEARNING_RATE = 3e-4
+    LEARNING_RATE = linear_schedule(3e-4, 1e-5)
+    N_STEPS_PER_UPDATE = 2048 * 2 * 2
+    BATCH_SIZE = 128 * 4 * 2
     N_EPOCHS = 10
     GAMMA = 0.99
     GAE_LAMBDA = 0.95
@@ -96,8 +112,8 @@ def main():
 
     # --- Setup Parallel Environments ---
     print(f"Using {N_ENVS} parallel environments.")
-    env = make_vec_env(
-        QuantumCircuitEnv,
+    vec_env = make_vec_env(
+        ThreeModeGadgetEnv,
         n_envs=N_ENVS,
         env_kwargs=dict(
             cutoff_dim=CUTOFF_DIM,
@@ -110,6 +126,9 @@ def main():
         vec_env_cls=SubprocVecEnv,
         vec_env_kwargs=dict(start_method='spawn') # 'spawn' is safer for cross-platform
     )
+
+    env = VecNormalize(vec_env, norm_obs=False, gamma=GAMMA, norm_reward=True, clip_reward=10.0)
+
 
     # --- Auto-Resume Logic ---
     latest_checkpoint = None
@@ -130,10 +149,16 @@ def main():
             print(f"✅ Found latest checkpoint: {os.path.basename(latest_checkpoint)}")
         except (ValueError, AttributeError):
             print("⚠️ Could not parse step count from checkpoint names. Starting fresh.")
+            latest_checkpoint = None
 
     # --- Create or Load Model ---
     if latest_checkpoint:
         print("\n--- RESUMING TRAINING ---")
+        # Load the saved VecNormalize statistics
+        stats_path = latest_checkpoint.replace('.zip', '_vec_normalize.pkl')
+        if os.path.exists(stats_path):
+            env = VecNormalize.load(stats_path, env)
+            print(f"Loaded VecNormalize stats from {stats_path}")
         model = PPO.load(latest_checkpoint, env=env)
 
         
@@ -166,6 +191,7 @@ def main():
             gae_lambda=GAE_LAMBDA,
             ent_coef=ENT_COEF,
             verbose=1,
+            # use_sde=True,
             device='cpu',
             tensorboard_log=log_dir
         )
@@ -184,6 +210,13 @@ def main():
     num_cpus = 4
     thread_manager_callback = ThreadManagerCallback(rollout_threads=1, update_threads=num_cpus, verbose=1)
     metrics_callback = MetricsCallback(verbose=1)
+
+    # NEW: Instantiate Curriculum Manager
+    curriculum_callback = CurriculumCallback(
+        success_threshold=0.7, 
+        max_difficulty=0.9999,
+        verbose=1
+    )
 
     callback_list = CallbackList([checkpoint_callback, thread_manager_callback, metrics_callback])
 
@@ -206,6 +239,11 @@ def main():
     final_model_path = os.path.join(log_dir, f"{model_prefix}_final.zip")
     model.save(final_model_path)
     print(f"\n✅ Final model saved to: {final_model_path}")
+
+    # Don't forget to save the VecNormalize statistics when saving the agent
+    stats_path = os.path.join(log_dir, "vec_normalize.pkl")
+    env.save(stats_path)
+    print(f"VecNormalize stats saved to: {stats_path}")
 
 if __name__ == "__main__":
     main()
