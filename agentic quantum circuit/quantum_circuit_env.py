@@ -52,6 +52,43 @@ def fidelity_pure_state(target_ket, state_ket):
     
     return np.clip(fidelity, 0.0, 1.0)
 
+def fidelity_max_rotation(target_ket, state_ket, n_fft=2048):
+    """
+    Calculates the maximum fidelity between state_ket and target_ket 
+    optimizing over any global phase space rotation z-rotation R(phi).
+    
+    Args:
+        target_ket (np.ndarray): Target state vector (Fock basis).
+        state_ket (np.ndarray): Current state vector (Fock basis).
+        n_fft (int): Resolution of the angle search. Higher = more accurate.
+                    2048 is usually plenty for cutoff_dim ~ 25.
+    
+    Returns:
+        float: The maximum achievable fidelity.
+    """
+    # Ensure inputs are 1D arrays
+    t = np.asarray(target_ket, dtype=np.complex128).flatten()
+    s = np.asarray(state_ket, dtype=np.complex128).flatten()
+    
+    # Pad to matching lengths if necessary
+    max_len = max(len(t), len(s))
+    if len(t) < max_len: t = np.pad(t, (0, max_len - len(t)))
+    if len(s) < max_len: s = np.pad(s, (0, max_len - len(s)))
+
+    # 1. Calculate the element-wise product: h[n] = s[n]* . t[n]
+    # We conjugate s and not t (or vice versa), the magnitude result is the same.
+    h = np.conj(s) * t
+    
+    # 2. Use FFT to compute sum(h[n] * e^{-i*n*phi}) for discrete phi
+    # Zero-padding (n_fft > len(h)) interpolates the spectrum, effectively
+    # searching more angles for a finer resolution.
+    fft_values = np.fft.fft(h, n=n_fft)
+    
+    # 3. The Fidelity is the square of the maximum magnitude of the overlap
+    max_overlap = np.max(np.abs(fft_values))
+    
+    return np.clip(max_overlap**2, 0.0, 1.0)
+
 
 class QuantumCircuitEnv(gym.Env):
     """A gymnasium environment for a quantum optical circuit.
@@ -124,7 +161,7 @@ class QuantumCircuitEnv(gym.Env):
 
         # --- Pre-calculate Target States (Reward States) ---
         print("Pre-calculating target state kets...")
-        self.target_kets = self._initialize_target_states()
+        self.target_kets = self._initialize_target_states_no_rotate()
         print("Target state kets initialized.")
         
         # --- Pre-allocate observation buffer for efficiency ---
@@ -167,6 +204,30 @@ class QuantumCircuitEnv(gym.Env):
         self.current_step = 0
         self.current_ket = None  # This will hold the state vector of mode 0
         self.min_inner_product = 1.0  # Track minimum inner product during episode
+
+
+    def _initialize_target_states_no_rotate(self):
+        alpha = 3.0
+        r = 1.38
+        targets = []
+
+        temp_eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
+        
+        # Target 1: Even Parity (Cat+)
+        prog = sf.Program(1)
+        with prog.context as q:
+            Catstate(alpha, p=0) | q[0]
+            Sgate(r) | q[0]
+        targets.append(temp_eng.run(prog).state.ket())
+        
+        # Target 2: Odd Parity (Cat-)
+        prog = sf.Program(1)
+        with prog.context as q:
+            Catstate(alpha, p=1) | q[0]
+            Sgate(r) | q[0]
+        targets.append(temp_eng.run(prog).state.ket())
+
+        return targets
 
     def _initialize_target_states(self):
         """Generates and caches the target squeezed-cat states.
@@ -222,6 +283,8 @@ class QuantumCircuitEnv(gym.Env):
         
         assert not np.any(targets == None)  , "Value should not be None" 
         return targets
+    
+    
 
     def _ket_to_observation(self, state_ket):
         """Converts a pure state ket into an observation vector.
@@ -297,12 +360,14 @@ class QuantumCircuitEnv(gym.Env):
         # 1. Get parameters based on the paper's piecewise function
         # 2. Calculate Log Error
         # prevent log(0) with a tiny epsilon
-        infidelity = max(1.0 - fidelity, 1e-3)
-        log_val = - np.log10(infidelity) / 3
-        power_val = fidelity**2
+        infidelity = max(1.0 - fidelity, 1e-5)
+        log_val = - np.log10(infidelity)
+        power_val = fidelity
         # 3. Compute Reward
-        reward =  power_val + log_val
+        reward =  power_val * log_val
         return reward
+
+   
 
     def reset(self, seed=None, options=None):
         """Resets the environment to its initial state.
@@ -440,8 +505,9 @@ class QuantumCircuitEnv(gym.Env):
         self.min_inner_product = min(self.min_inner_product, inner_product)
 
         # 5. Calculate the reward by computing fidelities for all target states
-        fidelities = np.array([fidelity_pure_state(target_ket, self.current_ket) 
+        fidelities = np.array([fidelity_max_rotation(target_ket, self.current_ket) 
                                for target_ket in self.target_kets])
+    
         fidelity = np.max(fidelities)
         
         
@@ -451,21 +517,21 @@ class QuantumCircuitEnv(gym.Env):
 
         # 3. Check Termination
         terminated = False
-        target_fidelity = 0.98
+        target_fidelity = 0.9
         hit_target = (fidelity >  target_fidelity)
         
         max_reward = self._calculate_log_reward(target_fidelity)
         reward = self._calculate_log_reward(fidelity)
         reward -= max_reward
 
-        self_fidelity = fidelity_pure_state(self.past_ket, self.current_ket)
+        self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
         if self_fidelity > 0.95:
             reward -= max_reward
 
         self.past_ket = self.current_ket
 
         if hit_target:
-            reward += 10
+            reward += 10 * max_reward
             terminated = True
         
         truncated = self.current_step >= self.max_steps
