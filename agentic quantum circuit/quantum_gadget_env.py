@@ -44,6 +44,12 @@ class QuantumGadgetEnv(BaseQuantumEnv):
         base_ket /= np.linalg.norm(base_ket)
         return [base_ket]
 
+    def _calculate_fidelity(self, state_ket):
+        """Calculates the max fidelity over all target states, optimizing for phase."""
+        fidelities = np.array([fidelity_max_rotation(target, state_ket) 
+                               for target in self.target_kets])
+        return np.max(fidelities)
+
     def _build_reset_program(self):
         """Builds the Strawberry Fields program for the initial state."""
         # Start with vacuum and let the first step create the state

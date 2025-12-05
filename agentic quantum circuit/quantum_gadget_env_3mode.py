@@ -61,6 +61,12 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
         """Extracts the ket of the primary mode from the 3-mode state."""
         return state.ket()[:, 0, 0]
 
+    def _calculate_fidelity(self, state_ket):
+        """Calculates the max fidelity over all target states, optimizing for phase."""
+        fidelities = np.array([fidelity_max_rotation(target, state_ket) 
+                               for target in self.target_kets])
+        return np.max(fidelities)
+
     def _build_reset_program(self):
         """Builds the Strawberry Fields program for the initial state."""
         # Initialize Loop q[0] as Vacuum

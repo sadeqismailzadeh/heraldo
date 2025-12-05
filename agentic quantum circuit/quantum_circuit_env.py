@@ -1,8 +1,6 @@
 """Custom Gymnasium environment that simulates a squeezed-cat generation circuit."""
-
 # 1. Import the module we need to patch
 import scipy.integrate
-
 # 2. Check if the patch is needed to avoid errors
 if not hasattr(scipy.integrate, 'simps'):
     print("Monkey patching scipy.integrate: 'simps' not found. Pointing to 'simpson'.")
@@ -10,466 +8,167 @@ if not hasattr(scipy.integrate, 'simps'):
     scipy.integrate.simps = scipy.integrate.simpson
 else:
     print("'simps' already exists in scipy.integrate. No patch needed.")
-
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-
 # Import Strawberry Fields
 import strawberryfields as sf
 from strawberryfields import ops
 from strawberryfields.ops import Sgate, BSgate, MeasureFock, Catstate, Rgate
-
-
 # disable caching to save memory for large cutoff dims
 from sf_operations_no_cache import disable_fock_caching
-disable_fock_caching() 
-
+disable_fock_caching()
 # optimized loss channel
 from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, decode_measurement_result
 patch_fock_backend()
-
 # --- Pure State Fidelity Function ---
 def fidelity_pure_state(target_ket, state_ket):
     """Return fidelity between two pure states.
-    
     For two pure states |φ⟩ and |ψ⟩, the fidelity is:
     F(|φ⟩, |ψ⟩) = |⟨φ|ψ⟩|²
-    
     Args:
         target_ket (np.ndarray): Target state vector.
         state_ket (np.ndarray): Current state vector.
-    
     Returns:
         float: Clipped fidelity value in [0, 1].
     """
     target_ket = np.asarray(target_ket, dtype=np.complex128).flatten()
     state_ket = np.asarray(state_ket, dtype=np.complex128).flatten()
-    
     # Fidelity: F = |⟨φ|ψ⟩|²
     overlap = np.vdot(target_ket, state_ket)  # ⟨φ|ψ⟩
     fidelity = np.abs(overlap) ** 2
-    
     return np.clip(fidelity, 0.0, 1.0)
-
 def fidelity_max_rotation(target_ket, state_ket, n_fft=2048):
     """
-    Calculates the maximum fidelity between state_ket and target_ket 
+    Calculates the maximum fidelity between state_ket and target_ket
     optimizing over any global phase space rotation z-rotation R(phi).
-    
     Args:
         target_ket (np.ndarray): Target state vector (Fock basis).
         state_ket (np.ndarray): Current state vector (Fock basis).
         n_fft (int): Resolution of the angle search. Higher = more accurate.
                     2048 is usually plenty for cutoff_dim ~ 25.
-    
     Returns:
         float: The maximum achievable fidelity.
     """
     # Ensure inputs are 1D arrays
     t = np.asarray(target_ket, dtype=np.complex128).flatten()
     s = np.asarray(state_ket, dtype=np.complex128).flatten()
-    
     # Pad to matching lengths if necessary
     max_len = max(len(t), len(s))
     if len(t) < max_len: t = np.pad(t, (0, max_len - len(t)))
     if len(s) < max_len: s = np.pad(s, (0, max_len - len(s)))
-
     # 1. Calculate the element-wise product: h[n] = s[n]* . t[n]
     # We conjugate s and not t (or vice versa), the magnitude result is the same.
     h = np.conj(s) * t
-    
     # 2. Use FFT to compute sum(h[n] * e^{-i*n*phi}) for discrete phi
     # Zero-padding (n_fft > len(h)) interpolates the spectrum, effectively
     # searching more angles for a finer resolution.
     fft_values = np.fft.fft(h, n=n_fft)
-    
     # 3. The Fidelity is the square of the maximum magnitude of the overlap
     max_overlap = np.max(np.abs(fft_values))
-    
     return np.clip(max_overlap**2, 0.0, 1.0)
-
-
 from base_quantum_env import BaseQuantumEnv, fidelity_max_rotation
-
-
-
-
-
-
-
-
 class QuantumCircuitEnv(BaseQuantumEnv):
-
-
     """A gymnasium environment for a quantum optical circuit.
-
-
-
-
-
     This environment simulates the quantum optical circuit described in the paper.
-
-
     The agent's goal is to control the circuit parameters to generate a target
-
-
     squeezed cat state.
-
-
     """
-
-
     def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=True,
-
-
                  is_loss_channel=False, loss_channel=1, initial_fidelity_threshold=0.70, **kwargs):
-
-
         """Initializes the quantum circuit environment."""
-
-
         self.tunable_r = tunable_r
-
-
-        self.max_squeezing = 1.38 
-
-
+        self.max_squeezing = 1.38
         self.reward_power = reward_power
-
-
         self.target_fidelity_threshold = initial_fidelity_threshold
-
-
         super().__init__(cutoff_dim=cutoff_dim, max_steps=max_steps, loss_channel=loss_channel)
-
-
-    
-
-
     def _define_action_space(self):
-
-
         """Defines the action space for the environment."""
-
-
         self.action_ranges = {
-
-
             'squeezing_r': (-self.max_squeezing, self.max_squeezing),
-
-
             'theta_1': (0, np.pi/2),
-
-
             'squeezing_phase': (-np.pi, np.pi)
-
-
         }
-
-
         if self.tunable_r:
-
-
             self.action_keys = ['squeezing_r', 'theta_1']
-
-
         else:
-
-
             self.action_keys = ['squeezing_phase', 'theta_1']
-
-
-
-
-
         self.action_space = spaces.Box(
-
-
             low=-1.0, high=1.0, shape=(len(self.action_keys),), dtype=np.float32
-
-
         )
-
-
-
-
-
     def _initialize_target_states(self):
-
-
         """Generates and caches the target squeezed-cat states."""
-
-
         print("Pre-calculating target state kets for QuantumCircuitEnv...")
-
-
         alpha = 3.0
-
-
         r = 1.38
-
-
         targets = []
-
-
-
-
-
         temp_eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
-
-
-        
-
-
         # Target 1: Even Parity (Cat+)
-
-
         prog = sf.Program(1)
-
-
         with prog.context as q:
-
-
             Catstate(alpha, p=0) | q[0]
-
-
             Sgate(r) | q[0]
-
-
         targets.append(temp_eng.run(prog).state.ket())
-
-
-        
-
-
         # Target 2: Odd Parity (Cat-)
-
-
         prog = sf.Program(1)
-
-
         with prog.context as q:
-
-
             Catstate(alpha, p=1) | q[0]
-
-
             Sgate(r) | q[0]
-
-
         targets.append(temp_eng.run(prog).state.ket())
-
-
-
-
-
         return targets
-
-
-
-
-
-        def _build_reset_program(self):
-
-
-
-
-
+    def _calculate_fidelity(self, state_ket):
+        """Calculates the max fidelity over all target states, optimizing for phase."""
+        fidelities = np.array([fidelity_max_rotation(target, state_ket)
+                                for target in self.target_kets])
+        return np.max(fidelities)
+    def _build_reset_program(self):
             """Builds the Strawberry Fields program for the initial state."""
-
-
-
-
-
             prog = sf.Program(2)
-
-
-
-
-
             with prog.context as q:
-
-
-
-
-
                 Sgate(self.max_squeezing) | q[0]
-
-
-
-
-
             return prog
-
-
-
-
-
-    
-
-
-    
-
-
     def _get_current_ket(self, state):
-
-
         """Extracts the ket of the primary mode from the state."""
-
-
         full_ket = state.ket()
-
-
         # The state of mode 0 is the slice where mode 1 is in vacuum
-
-
         return full_ket[:, 0]
-
-
-
-
-
     def _build_step_program(self, action):
-
-
         """Builds the Strawberry Fields program for one step."""
-
-
         if self.tunable_r:
-
-
             squeezing_r = np.clip(action[0], -self.max_squeezing, self.max_squeezing)
-
-
             theta_1 = np.clip(action[1], 0, np.pi/2)
-
-
             squeezing_phase = 0
-
-
         else:
-
-
             squeezing_r = self.max_squeezing
-
-
             theta_1 = np.clip(action[1], 0, np.pi/2)
-
-
             squeezing_phase = np.clip(action[0], -np.pi, np.pi)
-
-
-
-
-
         prog = sf.Program(2)
-
-
         with prog.context as q:
-
-
             Sgate(squeezing_r, squeezing_phase) | q[1]
-
-
             BSgate(theta_1, 0) | (q[0], q[1])
-
-
             MonitoredLossMeasureFock(self.loss_channel) | q[0]
-
-
             BSgate(np.pi/2, 0) | (q[0], q[1])
-
-
-        
-
-
         return prog
-
-
-
-
-
     def _calculate_reward_and_termination(self, fidelity, result):
-
-
         """Calculates the reward and determines if the episode should terminate."""
-
-
         terminated = False
-
-
         hit_target = (fidelity > self.target_fidelity_threshold)
-
-
-        
-
-
         max_reward = self._calculate_log_reward(self.target_fidelity_threshold)
-
-
         reward = self._calculate_log_reward(fidelity)
-
-
         reward -= max_reward
-
-
-
-
-
         self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
-
-
         if self_fidelity > 0.95:
-
-
             reward -= max_reward
-
-
-
-
-
         if hit_target:
-
-
             reward += 10 * max_reward
-
-
             terminated = True
-
-
-        
-
-
         encoded_result = result.samples[0][0]
-
-
         lost_photons, detected_photons = decode_measurement_result(encoded_result)
-
-
         info = {
-
-
             'photon_loss': lost_photons,
-
-
             'detected_photons': detected_photons,
-
-
             'is_success': hit_target,
-
-
             'total_photons': lost_photons + detected_photons,
-
-
             'fidelity': fidelity
-
-
         }
-
-
-        
-
-
         return reward, terminated, info
-
