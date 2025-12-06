@@ -20,6 +20,9 @@ from matplotlib import cm
 
 from stable_baselines3 import PPO
 from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from stable_baselines3.common.vec_env import VecNormalize
+from quantum_cubic_env import CubicPhaseEnv
+from stable_baselines3.common.env_util import make_vec_env
 # from quantum_circuit_env_mixed import QuantumCircuitEnv
 
 import strawberryfields as sf 
@@ -29,7 +32,7 @@ def main():
     """Runs the main evaluation loop."""
     # --- Configuration ---
     # IMPORTANT: Environment parameters MUST match those used during training.
-    CUTOFF_DIM = 25
+    CUTOFF_DIM = 31
     MAX_STEPS = 50
     REWARD_POWER = 2
     NUM_EPISODES = 10 # Number of episodes to run
@@ -38,14 +41,33 @@ def main():
     MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ppo_quantum_circuit.zip")
 
     # --- Environment and Model Setup ---
-    env = QuantumCircuitEnv(cutoff_dim=CUTOFF_DIM,
-                            max_steps=MAX_STEPS,
-                            reward_power=REWARD_POWER,
-                            tunable_r=True,
-                            is_loss_channel=False,
-                            loss_channel=1)
+    # env = CubicPhaseEnv(cutoff_dim=CUTOFF_DIM,
+    #                         max_steps=MAX_STEPS,
+    #                         reward_power=REWARD_POWER,
+    #                         tunable_r=True,
+    #                         is_loss_channel=False,
+    #                         loss_channel=1)
 
     try:
+        stats_path = MODEL_PATH.replace('.zip', '_vecnormalize.pkl')
+        # vec_env = make_vec_env(env, n_envs=1)
+        env = make_vec_env(
+            CubicPhaseEnv,
+            n_envs=1,
+            env_kwargs=dict(
+                cutoff_dim=CUTOFF_DIM,
+                max_steps=MAX_STEPS,
+                reward_power=REWARD_POWER,
+                is_loss_channel=False, 
+                loss_channel=1
+            ),
+        )
+        env = VecNormalize.load(stats_path, env)
+        #  do not update them at test time
+        env.training = False
+        # reward normalization is not needed at test time
+        env.norm_reward = False
+
         model = PPO.load(MODEL_PATH, env=env)
     except FileNotFoundError:
         print(f"Error: Trained model not found at '{MODEL_PATH}'")
@@ -53,33 +75,35 @@ def main():
         exit()
 
     # --- Run Evaluation Episodes ---
+    obs = env.reset()
+    terminated, truncated = False, False
     for episode in range(NUM_EPISODES):
         print(f"\n{'='*20} Starting Evaluation Episode {episode + 1} {'='*20}")
         
-        obs, info = env.reset()
-        terminated, truncated = False, False
+
         total_reward = 0
         
-        while not (terminated or truncated):
+        while not dones[0]:
             # Use the deterministic policy for evaluation
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
+            actions, _ = model.predict(obs, deterministic=True)
+            new_obs, rewards, dones, infos = env.step(action)
 
+            denorm_action = env.env_method('_denormalize_action', actions[0], indices=[0])[0]
             action=env._denormalize_action(action)
             
-            measured_n = info.get('detected_photons', 'N/A')
-            photon_loss = info.get('photon_loss', 'N/A')
-            fidelity = info.get('fidelity', 'N/A')
+            measured_n = infos[0].get('detected_photons', 'N/A')
+            photon_loss = infos[0].get('photon_loss', 'N/A')
+            fidelity = infos[0].get('fidelity', 'N/A')
             print(
                 f"Step {env.current_step:2d}: "
                 # f"Action=[tau_1={np.cos(action[0]):.4f}, squeezing_phase={action[1]:.4f}], "
-                f"Action=[squeezing_r={action[0]:.4f},tau_1={np.cos(action[1]):.4f}], "
+                f"Action=[squeezing_r={denorm_action[0]:.4f},tau_1={np.cos(denorm_action[1]):.4f}], "
                 f"Measured_n={measured_n}, "
                 f"photon_loss={photon_loss}, "
                 f"fidelity={fidelity:.4f}"
                 # f"Step Reward={reward:.6f}"
             )
-            total_reward += reward
+            total_reward += rewards[0]
 
         # --- Post-Episode Analysis and Visualization ---
         print(f"\n--- Episode {episode + 1} Finished ---")
