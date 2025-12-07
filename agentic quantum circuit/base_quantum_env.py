@@ -111,7 +111,7 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
     """
     metadata = {"render_modes": [], "render_fps": 0}
 
-    def __init__(self, cutoff_dim=25, max_steps=10, loss_channel=1.0, **kwargs):
+    def __init__(self, cutoff_dim=25, max_steps=10, loss_channel=1.0, initial_target_fidelity=0.8, **kwargs):
         super().__init__()
 
         # --- Core Environment Parameters ---
@@ -143,8 +143,19 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
         # --- Target States (to be defined by subclass) ---
         self.target_kets = self._initialize_target_states()
 
+        self.target_fidelity = initial_target_fidelity
+
         # --- Precompute operators for optional metrics ---
         self._precompute_quadrature_operators()
+
+    def set_difficulty(self, fidelity):
+        """
+        Explicit setter for curriculum learning.
+        This ensures the attribute is updated within the subprocess.
+        """
+        self.target_fidelity = float(fidelity)
+        # Return the value so the callback knows the update happened
+        return self.target_fidelity
 
     @abc.abstractmethod
     def _define_action_space(self):
@@ -232,6 +243,9 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
         self.current_state = self.eng.run(prog).state
         self.current_ket = self._get_current_ket(self.current_state)
         self.past_ket = self.current_ket
+
+        inner_product = np.abs(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
 
         fidelity = self._calculate_fidelity(self.current_ket)
         self.past_fidelity = fidelity
