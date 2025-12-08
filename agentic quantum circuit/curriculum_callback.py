@@ -25,6 +25,19 @@ class CurriculumCallback(BaseCallback):
         # Temporary storage for the current rollout
         self.rollout_successes = []
 
+    def _update_env_difficulty(self):
+        """Helper to push changes to workers and verify they happened."""
+        try:
+            # env_method calls the function on every parallel environment
+            updated_values = self.training_env.env_method("set_difficulty", self.current_difficulty)
+            
+            fmt_values = [f"{v:.3f}" for v in updated_values]
+            if self.verbose > 0:
+                # updated_values is a list containing the return value from each worker
+                print(f"   [Curriculum] Synced Env Difficulties: {fmt_values}")
+        except Exception as e:
+            print(f"   [Curriculum] Error updating environments: {e}")
+
     def _on_training_start(self) -> None:
         """
         Runs once when model.learn() is called.
@@ -44,9 +57,8 @@ class CurriculumCallback(BaseCallback):
             if self.verbose > 0:
                 print(f"No curriculum save found. Starting at: {self.current_difficulty:.4f}")
 
-        # 2. FORCE the environment to update immediately
-        # This overrides whatever default the environment was created with in main.py
-        self.training_env.set_attr("target_fidelity", self.current_difficulty)
+        # USE env_method HERE
+        self._update_env_difficulty()
 
     def _on_step(self) -> bool:
         """Collect success flags from finished episodes."""
@@ -86,8 +98,8 @@ class CurriculumCallback(BaseCallback):
             
         self.current_difficulty = min(self.current_difficulty, self.max_difficulty)
 
-        # 2. Update Environments
-        self.training_env.set_attr("target_fidelity", self.current_difficulty)
+        # 2. Update Environments using the Helper Method
+        self._update_env_difficulty()
         
         # 3. SAVE the new state to JSON
         with open(self.save_path, "w") as f:
