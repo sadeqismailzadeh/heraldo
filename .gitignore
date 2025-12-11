@@ -8,3 +8,4 @@ article replications/fig6_data.json
 article replications/Nelder-Mead.html
 .vscode/settings.json
 *.pkl
+**/curriculum_state.json
