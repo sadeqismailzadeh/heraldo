@@ -3,9 +3,10 @@ from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
 class MetricsCallback(BaseCallback):
     """Logs mean photon loss per step and mean final fidelity per rollout."""
-    
+
     def __init__(self, verbose: int = 0):
         super().__init__(verbose)
+        self.rollout_min = float('inf')  # Track minimum min_inner_product per rollout
     
     def _on_step(self) -> bool:
         """
@@ -59,6 +60,8 @@ class MetricsCallback(BaseCallback):
                 min_inner_product = info.get("min_inner_product")
                 if min_inner_product is not None:
                     self.logger.record_mean("quantum/min_inner_product", float(min_inner_product))
+                    # Track for rollout minimum
+                    self.rollout_min = min(self.rollout_min, float(min_inner_product))
 
                 ng_score = info.get("ng_score", 0)
                 if min_inner_product is not None:
@@ -73,3 +76,13 @@ class MetricsCallback(BaseCallback):
                     self.logger.record_mean("rollout/success_rate_rollout", float(is_success))
         
         return True  # Continue training
+
+    def _on_rollout_end(self) -> None:
+        """
+        Called at the end of each rollout.
+        - Records the minimum min_inner_product across the entire rollout.
+        """
+        if self.rollout_min != float('inf'):
+            self.logger.record("quantum/min_inner_product_over_rollout", self.rollout_min)
+            # Reset for next rollout
+            self.rollout_min = float('inf')
