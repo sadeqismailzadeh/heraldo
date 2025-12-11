@@ -29,9 +29,11 @@ os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
 from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from quantum_cubic_env import CubicPhaseEnv
+
 # from quantum_gadget_env import QuantumGadgetEnv, fidelity_pure_state
 # from quantum_circuit_env_mixed import QuantumCircuitEnv
 
@@ -98,7 +100,7 @@ def plot_results(fidelities, photons, episode_lengths, steps_between_resets):
 
 def main():
     print("--- Starting Parallel Evaluation ---")
-    
+
     env = make_vec_env(
         QuantumCircuitEnv,
         n_envs=N_ENVS,
@@ -108,10 +110,18 @@ def main():
             reward_power=REWARD_POWER,
             tunable_r=True, # Article 1 usually assumes fixed r=1.38, agent controls theta
             is_loss_channel=False,
-            loss_channel=1 
+            loss_channel=1,
+            initial_target_fidelity=0.94,
         ),
         vec_env_cls=SubprocVecEnv
     )
+    
+    # Load VecNormalize stats if available
+    stats_path = MODEL_PATH.replace('.zip', '_vecnormalize.pkl')
+    if os.path.exists(stats_path):
+        env = VecNormalize.load(stats_path, env)
+        env.training = False
+        env.norm_reward = False
 
     if not os.path.exists(MODEL_PATH):
         print(f"Error: Model not found at {MODEL_PATH}")

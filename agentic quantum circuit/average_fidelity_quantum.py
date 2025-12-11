@@ -14,7 +14,10 @@ import numpy as np
 from tqdm import tqdm
 
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import VecNormalize
+from stable_baselines3.common.env_util import make_vec_env
 from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from quantum_cubic_env import CubicPhaseEnv
 
 import strawberryfields as sf
 
@@ -33,19 +36,34 @@ def main():
     MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ppo_quantum_circuit.zip")
 
     # --- Environment and Model Setup ---
-    env = QuantumCircuitEnv(cutoff_dim=CUTOFF_DIM,
-                            max_steps=MAX_STEPS,
-                            reward_power=REWARD_POWER,
-                            tunable_r=True,
-                            is_loss_channel=True,
-                            loss_channel=1)
+    env = make_vec_env(
+        QuantumCircuitEnv,
+        n_envs=1,
+        env_kwargs=dict(
+            cutoff_dim=CUTOFF_DIM,
+            max_steps=MAX_STEPS,
+            reward_power=REWARD_POWER,
+            tunable_r=True,
+            is_loss_channel=True,
+            loss_channel=1,
+            initial_target_fidelity=0.95,
+        ),
+    )
 
     try:
+        stats_path = MODEL_PATH.replace('.zip', '_vecnormalize.pkl')
+        env = VecNormalize.load(stats_path, env)
+        env.training = False
+        env.norm_reward = False
         model = PPO.load(MODEL_PATH, env=env)
-    except FileNotFoundError:
-        print(f"Error: Trained model not found at '{MODEL_PATH}'")
-        print("Please specify the correct model path using --model_path.")
-        exit()
+    except FileNotFoundError as e:
+        if 'vecnormalize' in str(e) or not os.path.exists(MODEL_PATH):
+            print(f"Error: Trained model or VecNormalize stats not found at '{MODEL_PATH}' or '{stats_path}'")
+            print("Please specify the correct model path.")
+            exit()
+        else:
+            print(f"VecNormalize stats not found at '{stats_path}', loading model without VecNormalize.")
+            model = PPO.load(MODEL_PATH, env=env)
 
     # --- Run Evaluation Episodes and Collect Fidelities ---
     fidelities = []
@@ -53,17 +71,18 @@ def main():
     total_steps_list = []
     pbar = tqdm(range(N_EPISODES))
     for episode in pbar:
-        obs, info = env.reset()
-        terminated, truncated = False, False
+        obs = env.reset()
+        done = False
         total_steps = 0
-        while not (terminated or truncated):
+        while not done:
             # Use the deterministic policy for evaluation
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
+            actions, _ = model.predict(obs, deterministic=True)
+            obs, rewards, dones, infos = env.step(actions)
+            done = dones[0]
             total_steps += 1
 
         # --- Collect Final Fidelity ---
-        final_fidelity = info.get('fidelity', 0.0)
+        final_fidelity = infos[0].get('fidelity', 0.0)
         fidelities.append(final_fidelity)
 
         fid_per_step = final_fidelity / total_steps
@@ -71,7 +90,7 @@ def main():
 
         total_steps_list.append(total_steps)
         # --- Update Progress Bar with Running Average ---
-        running_avg = np.mean(total_steps_list)
+        running_avg = np.mean(fidelities)
         pbar.set_description(f"Avg: {running_avg:.4f}")
 
     # --- Compute and Output Average ---

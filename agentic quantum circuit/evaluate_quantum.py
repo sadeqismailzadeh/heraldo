@@ -56,9 +56,8 @@ def main():
     """Runs the main evaluation loop."""
     # --- Configuration ---
     # IMPORTANT: Environment parameters MUST match those used during training.
-    CUTOFF_DIM = 31
+    CUTOFF_DIM = 25
     MAX_STEPS = 50
-    REWARD_POWER = 2
     NUM_EPISODES = 10 # Number of episodes to run
 
     # --- EDIT THIS: Path to the trained model ---
@@ -76,14 +75,14 @@ def main():
         stats_path = MODEL_PATH.replace('.zip', '_vecnormalize.pkl')
         # vec_env = make_vec_env(env, n_envs=1)
         env = make_vec_env(
-            CubicPhaseEnv,
+            QuantumCircuitEnv,
             n_envs=1,
             env_kwargs=dict(
                 cutoff_dim=CUTOFF_DIM,
                 max_steps=MAX_STEPS,
-                reward_power=REWARD_POWER,
                 is_loss_channel=False, 
-                loss_channel=1
+                loss_channel=1,
+                initial_target_fidelity=0.96,
             ),
         )
         env = VecNormalize.load(stats_path, env)
@@ -119,7 +118,8 @@ def main():
             fidelity = infos[0].get('fidelity', 'N/A')
             print(
                 f"Step {step:2d}: "
-                f"Action=[squeezing_r={denorm_action[0]:.4f},tau_1={np.cos(denorm_action[1]):.4f}], "
+                f"Action=[squeezing_r={denorm_action[0]:.4f},tau_1={np.cos(denorm_action[1]):.4f}] "
+                # f"Action=[squeezing_r={denorm_action[0]:.4f},tau_1={np.cos(denorm_action[1]):.4f},alpha={(denorm_action[2]):.4f}] "
                 f"Measured_n={measured_n}, "
                 f"photon_loss={photon_loss}, "
                 f"fidelity={fidelity:.4f}"
