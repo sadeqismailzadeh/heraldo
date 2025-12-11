@@ -10,7 +10,7 @@ class CurriculumCallback(BaseCallback):
     """
     def __init__(self, 
                  log_dir: str, 
-                 success_threshold: float = 0.3, 
+                 success_threshold: float = 0.7, 
                  max_difficulty: float = 0.999, 
                  initial_difficulty: float = 0.80, # Default if no save file found
                  verbose: int = 1):
@@ -91,10 +91,16 @@ class CurriculumCallback(BaseCallback):
 
     def _upgrade_difficulty(self):
         # 1. Math for new difficulty
-        if self.current_difficulty < 0.99:
-            self.current_difficulty += 0.01
-        else:
+        if self.current_difficulty < 0.92:
+            self.current_difficulty += 0.005
+        elif self.current_difficulty < 0.97:  
+            self.current_difficulty += 0.0025
+        elif self.current_difficulty < 0.98:  
             self.current_difficulty += 0.001
+        elif self.current_difficulty < 0.99:  
+            self.current_difficulty += 0.0005
+        else:
+            self.current_difficulty += 0.0001
             
         self.current_difficulty = min(self.current_difficulty, self.max_difficulty)
 
