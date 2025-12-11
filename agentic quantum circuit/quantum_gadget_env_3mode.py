@@ -14,10 +14,13 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
     def __init__(self, tunable_bs_phase=True, cutoff_dim=25, max_steps=10, **kwargs):
         self.tunable_bs_phase = tunable_bs_phase
         self.r_max = db_to_r(8)
-        self.d_max = 2.0
+        self.d_max = 1
         self.pi_val = np.pi
-        self.past_fidelity = 0.0
         super().__init__(cutoff_dim=cutoff_dim, max_steps=max_steps, **kwargs)
+
+        self.target_ng_score =self.compute_non_gaussianity(self.target_kets[0])
+        print(f"target ng = {self.target_ng_score:.2f}")
+
         print("3 mode circuit is being used")
 
     def _define_action_space(self):
@@ -101,7 +104,16 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
             BSgate(th1, ph1) | (q[0], q[1])
             BSgate(th2, ph2) | (q[1], q[2])
             BSgate(th3, ph3) | (q[0], q[1])
-            
+
+
+        self.current_state = self.eng.run(prog).state
+        self.current_ket =self.current_state.ket()
+        inner_product = np.real(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
+ 
+
+        prog = sf.Program(3)
+        with prog.context as q:
             # Measurements and Swap
             MonitoredLossMeasureFock(self.loss_channel) | q[0]
             MonitoredLossMeasureFock(self.loss_channel) | q[1]
@@ -112,28 +124,29 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
     def _calculate_reward_and_termination(self, fidelity, result):
         """Calculates the reward and determines if the episode should terminate."""
         terminated = False
-        target_fidelity = 0.95
-        hit_target = (fidelity > target_fidelity)
-
+        target_fidelity = self.target_fidelity
+        
         max_reward = self._calculate_reward(target_fidelity)
         reward = self._calculate_reward(fidelity)
         reward -= max_reward
         
         current_ng_score = self.compute_non_gaussianity(self.current_ket)
-        if current_ng_score < 1:
-            reward -= max_reward
+        # if current_ng_score < self.target_ng_score/4:
+        #     reward -= max_reward
 
         self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
         if self_fidelity > 0.95:
             reward -= max_reward
         
-        if abs(fidelity - self.past_fidelity) < 0.05:
-            reward -= max_reward
-        self.past_fidelity = fidelity
+        # if abs(fidelity - self.past_fidelity) < 0.05:
+        #     reward -= max_reward
+        # self.past_fidelity = fidelity
 
+        hit_target = (fidelity > target_fidelity) and (current_ng_score > self.target_ng_score / 3)
         if hit_target:
             reward += 10 * max_reward
             terminated = True
+    
 
         raw_samples = result.samples[0]
         lost1, n1 = decode_measurement_result(raw_samples[0])
@@ -146,6 +159,8 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
             'fidelity': fidelity,
             'ng_score': current_ng_score,
             'is_success': hit_target,
+            'self_fidelity': self_fidelity,
+            'target_fidelity': self.target_fidelity
         }
         
         return reward, terminated, info

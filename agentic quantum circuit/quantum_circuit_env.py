@@ -30,7 +30,7 @@ patch_fock_backend()
 
 
 
-from base_quantum_env import BaseQuantumEnv, fidelity_max_rotation
+from base_quantum_env import BaseQuantumEnv, fidelity_max_rotation, fidelity_pure_state
 
 
 class QuantumCircuitEnv(BaseQuantumEnv):
@@ -42,14 +42,14 @@ class QuantumCircuitEnv(BaseQuantumEnv):
     """
 
     def __init__(self, cutoff_dim=25, max_steps=10, reward_power=2, tunable_r=True,
-                 is_loss_channel=False, loss_channel=1, initial_fidelity_threshold=0.70, **kwargs):
+                 is_loss_channel=False, loss_channel=1, initial_target_fidelity=0.9, **kwargs):
         """Initializes the quantum circuit environment."""
         self.tunable_r = tunable_r
         self.max_squeezing = 1.38
         self.reward_power = reward_power
-        self.target_fidelity_threshold = initial_fidelity_threshold
 
-        super().__init__(cutoff_dim=cutoff_dim, max_steps=max_steps, loss_channel=loss_channel)
+        super().__init__(cutoff_dim=cutoff_dim, max_steps=max_steps, loss_channel=loss_channel, 
+                         initial_target_fidelity=initial_target_fidelity)
 
     def _define_action_space(self):
         """Defines the action space for the environment."""
@@ -128,15 +128,25 @@ class QuantumCircuitEnv(BaseQuantumEnv):
         with prog.context as q:
             Sgate(squeezing_r, squeezing_phase) | q[1]
             BSgate(theta_1, 0) | (q[0], q[1])
+
+
+        self.current_state = self.eng.run(prog).state
+        self.current_ket =self.current_state.ket()
+        inner_product = np.real(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
+        
+        prog = sf.Program(2)
+        with prog.context as q:
             MonitoredLossMeasureFock(self.loss_channel) | q[0]
             BSgate(np.pi/2, 0) | (q[0], q[1])
         return prog
 
     def _calculate_reward_and_termination(self, fidelity, result):
         """Calculates the reward and determines if the episode should terminate."""
+        
         terminated = False
-        hit_target = (fidelity > self.target_fidelity_threshold)
-        max_reward = self._calculate_reward(self.target_fidelity_threshold)
+        hit_target = (fidelity > self.target_fidelity)
+        max_reward = self._calculate_reward(self.target_fidelity)
         reward = self._calculate_reward(fidelity)
         reward -= max_reward
 
@@ -156,7 +166,8 @@ class QuantumCircuitEnv(BaseQuantumEnv):
             'detected_photons': detected_photons,
             'is_success': hit_target,
             'total_photons': lost_photons + detected_photons,
-            'fidelity': fidelity
+            'fidelity': fidelity,
+            'target_fidelity': self.target_fidelity
         }
 
         return reward, terminated, info

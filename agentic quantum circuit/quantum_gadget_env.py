@@ -1,7 +1,7 @@
 import numpy as np
 import strawberryfields as sf
 from gymnasium import spaces
-from strawberryfields.ops import Sgate, Dgate, BSgate
+from strawberryfields.ops import Sgate, Dgate, BSgate, MeasureFock
 
 from base_quantum_env import BaseQuantumEnv, fidelity_max_rotation, db_to_r, MonitoredLossMeasureFock, decode_measurement_result
 
@@ -12,10 +12,13 @@ class QuantumGadgetEnv(BaseQuantumEnv):
     """
 
     def __init__(self, cutoff_dim=25, max_steps=10, **kwargs):
-        self.max_disp = 2.0
+        self.max_disp = 1
         self.max_squeezing = db_to_r(8)
-        self.past_fidelity = 0.0
+        
         super().__init__(cutoff_dim=cutoff_dim, max_steps=max_steps, **kwargs)
+
+        self.target_ng_score =self.compute_non_gaussianity(self.target_kets[0])
+        print(f"target ng = {self.target_ng_score:.2f}")
 
     def _define_action_space(self):
         """Defines the action space for the 2-mode gadget."""
@@ -25,7 +28,9 @@ class QuantumGadgetEnv(BaseQuantumEnv):
             'theta_1': (0, np.pi/2),
             'phi_1': (-np.pi, np.pi),
             'displacement_magnitude': (0, self.max_disp),
-            'displacement_phase': (-np.pi, np.pi)
+            'displacement_phase': (-np.pi, np.pi),
+            'displacement_magnitude2': (0, self.max_disp),
+            'displacement_phase2': (-np.pi, np.pi)
         }
         self.action_keys = list(self.action_ranges.keys())
         self.action_space = spaces.Box(
@@ -73,12 +78,24 @@ class QuantumGadgetEnv(BaseQuantumEnv):
         phi_val = action[3]
         alpha_mag = action[4]
         alpha_phi = action[5]
+        alpha_mag2 = action[6]
+        alpha_phi2 = action[7]
 
         prog = sf.Program(2)
         with prog.context as q:
             Sgate(r_val, phi_sq_val) | q[1]
             Dgate(alpha_mag, alpha_phi) | q[1]
             BSgate(theta_val, phi_val) | (q[0], q[1])
+            Dgate(alpha_mag2, alpha_phi2) | q[0]
+        
+
+        self.current_state = self.eng.run(prog).state
+        self.current_ket =self.current_state.ket()
+        inner_product = np.real(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
+
+        prog = sf.Program(2)
+        with prog.context as q:    
             MonitoredLossMeasureFock(self.loss_channel) | q[0]
             BSgate(np.pi/2, 0) | (q[0], q[1])
         return prog
@@ -86,25 +103,25 @@ class QuantumGadgetEnv(BaseQuantumEnv):
     def _calculate_reward_and_termination(self, fidelity, result):
         """Calculates the reward and determines if the episode should terminate."""
         terminated = False
-        target_fidelity = 0.95
-        hit_target = (fidelity > target_fidelity)
-
+        target_fidelity = self.target_fidelity
+        
         max_reward = self._calculate_reward(target_fidelity)
         reward = self._calculate_reward(fidelity)
         reward -= max_reward
         
         current_ng_score = self.compute_non_gaussianity(self.current_ket)
-        if current_ng_score < 1:
-            reward -= max_reward
+        # if current_ng_score < self.target_ng_score/4:
+        #     reward -= max_reward
 
         self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
         if self_fidelity > 0.95:
             reward -= max_reward
         
-        if abs(fidelity - self.past_fidelity) < 0.05:
-            reward -= max_reward
-        self.past_fidelity = fidelity
+        # if abs(fidelity - self.past_fidelity) < 0.05:
+        #     reward -= max_reward
+        # self.past_fidelity = fidelity
 
+        hit_target = (fidelity > target_fidelity) and (current_ng_score > self.target_ng_score / 3)
         if hit_target:
             reward += 10 * max_reward
             terminated = True
@@ -118,7 +135,8 @@ class QuantumGadgetEnv(BaseQuantumEnv):
             'fidelity': fidelity,
             'ng_score': current_ng_score,
             'is_success': hit_target,
-            'self_fidelity': self_fidelity
+            'self_fidelity': self_fidelity,
+            'target_fidelity': self.target_fidelity
         }
         
         return reward, terminated, info
