@@ -1,22 +1,11 @@
-validity of no cache functions 
-train with tunable r, vacuum inital state
 termination with set full reflective action ask ai
 loss channel
 Map a full noise-phase diagram. Find noise thresholds where RL still performs like baselines?
 stable baseline zoo for hyperparameter tuning
-venv on ssd no cuda
 train folder metadata show env features
 assert for no env feature conflict
-possibility of no state agent with only shown measurements
-terminate give reward for passed steps (same total reward as truncate)
-SAC for losschannel but first test for normal case
-ideas from BSgate to optmize loss channel implementation
-symbolic fock
 new fock engine each step but passs dm
-loss channel optimized no parallel
 lower fock cut off as much as possible
-qutip insstead of strawberry fields
-super bonus 100x instead of 10x
 paralell env seed? 
 Do is specifically need to give POMDP the past action? or it does that automatically?
 can i set the length of momoey in pomdp or it is done automatically?
@@ -26,20 +15,14 @@ learn reqrd signal fron neural network rather than human fed reward
 go on the path of highest probability.
 make a measurement that goes on the path of highest probability but evaluate in mixed state
 a circuit with threshold detector?
--goal based agent. sees the target and optimize for target
--three mode circuit of sabapathy
--alternating fidlity when loop is closed investigate
-non gaussionality reward only if the fidelity is over 0.9
-stable baseline3 ppo goes for gpu when model loaded
 imperfect device, controls are noisy e.g. agent want r=1.21 device is r=1.20
 fidelity guesser agent, how good is my state is? 
 articles regatding reward shaping for fidelity
 - with lower db e.g. db=7
 - start from optimal post select parameters found in the original article
 - beam splitter phase for two mode gadget
-- visualize the postselected circuit wigner funcrion for myself
--- penalty for not chaning the state if fidelity is low
-- GBS analogy
 - fid per step present
-- reward shaping techniques
--- normalize action
+- phase agnostic fidelity
+- measurement device analogous to apply kerr gate?
+- check inner product before measurement
+- make sure sb3 handels different seed for vectorized envs (minor: if strawberryfields uses that seed)
