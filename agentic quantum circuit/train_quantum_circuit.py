@@ -45,9 +45,10 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 
 from quantum_circuit_env import QuantumCircuitEnv
+from quantum_cubic_env import CubicPhaseEnv
 from quantum_gadget_env import QuantumGadgetEnv
 from quantum_gadget_env_3mode import ThreeModeGadgetEnv
-from quantum_gadget_env_seeded import SeededQuantumGadgetEnv
+# from quantum_gadget_env_seeded import SeededQuantumGadgetEnv
 
 from thread_manager_callback import ThreadManagerCallback
 from metrics_callback import MetricsCallback
@@ -80,15 +81,14 @@ def main():
     """Configures the environment, resumes if possible, and launches PPO training."""
     # --- Configuration ---
     # Environment Parameters
-    CUTOFF_DIM = 15
+    CUTOFF_DIM = 25
     MAX_STEPS = 50
-    REWARD_POWER = 55
     TUNABLE_R = True
-    INITIAL_DIFFICULTY = 0.70 # Start easy
+    INITIAL_DIFFICULTY = 0.75 # Start easy
 
     # Training Parameters
     N_ENVS = 4  # Number of parallel environments
-    TARGET_TIMESTEPS = 20_000_000  # Total steps for the entire training run
+    TARGET_TIMESTEPS = 30_000_000  # Total steps for the entire training run
     CHECKPOINT_FREQ = 20_000  # Save a checkpoint every N steps
 
     # PPO Hyperparameters
@@ -96,10 +96,10 @@ def main():
         net_arch=dict(pi=[256, 256], vf=[256, 256]),
         optimizer_class=torch.optim.Adam,
         activation_fn=torch.nn.Tanh)
-    # LEARNING_RATE = 3e-4
-    LEARNING_RATE = linear_schedule(3e-4, 1e-5)
-    N_STEPS_PER_UPDATE = 2048 * 2 * 2
-    BATCH_SIZE = 128 * 4 * 2
+    LEARNING_RATE = 3e-4
+    # LEARNING_RATE = linear_schedule(3e-4, 1e-5)
+    N_STEPS_PER_UPDATE = 2048 
+    BATCH_SIZE = 128 * 2
     N_EPOCHS = 10
     GAMMA = 0.99
     GAE_LAMBDA = 0.95
@@ -113,21 +113,21 @@ def main():
     # --- Setup Parallel Environments ---
     print(f"Using {N_ENVS} parallel environments.")
     vec_env = make_vec_env(
-        ThreeModeGadgetEnv,
+        QuantumCircuitEnv,
         n_envs=N_ENVS,
         env_kwargs=dict(
             cutoff_dim=CUTOFF_DIM,
             max_steps=MAX_STEPS,
-            reward_power=REWARD_POWER,
             tunable_r=TUNABLE_R,
             is_loss_channel=False, 
-            loss_channel=1
+            loss_channel=1,
+            initial_target_fidelity=INITIAL_DIFFICULTY
         ),
         vec_env_cls=SubprocVecEnv,
         vec_env_kwargs=dict(start_method='spawn') # 'spawn' is safer for cross-platform
     )
 
-    env = VecNormalize(vec_env, norm_obs=False, gamma=GAMMA, norm_reward=True, clip_reward=10.0)
+    
 
 
     # --- Auto-Resume Logic ---
@@ -155,9 +155,10 @@ def main():
     if latest_checkpoint:
         print("\n--- RESUMING TRAINING ---")
         # Load the saved VecNormalize statistics
-        stats_path = latest_checkpoint.replace('.zip', '_vec_normalize.pkl')
+        stats_filename = f"{model_prefix}_vecnormalize_{current_steps}_steps.pkl"
+        stats_path = os.path.join(log_dir, stats_filename)
         if os.path.exists(stats_path):
-            env = VecNormalize.load(stats_path, env)
+            env = VecNormalize.load(stats_path, vec_env)
             print(f"Loaded VecNormalize stats from {stats_path}")
         model = PPO.load(latest_checkpoint, env=env)
 
@@ -178,6 +179,8 @@ def main():
 
         print(f"Model loaded. Resuming from {current_steps} timesteps.")
     else:
+        env = VecNormalize(vec_env, norm_obs=False, gamma=GAMMA, norm_reward=True, clip_reward=10.0)
+
         print("\n--- STARTING NEW TRAINING ---")
         model = PPO(
             "MlpPolicy",
@@ -213,12 +216,14 @@ def main():
 
     # NEW: Instantiate Curriculum Manager
     curriculum_callback = CurriculumCallback(
-        success_threshold=0.7, 
-        max_difficulty=0.9999,
+        log_dir=log_dir,                  # <--- Pass the log directory here
+        success_threshold=0.6, 
+        max_difficulty=0.99,
+        initial_difficulty=INITIAL_DIFFICULTY, # <--- Use your constant from top of script
         verbose=1
     )
 
-    callback_list = CallbackList([checkpoint_callback, thread_manager_callback, metrics_callback])
+    callback_list = CallbackList([checkpoint_callback, thread_manager_callback, metrics_callback, curriculum_callback])
 
     # --- Train the Agent ---
     remaining_timesteps = TARGET_TIMESTEPS - current_steps
