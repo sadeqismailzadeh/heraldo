@@ -6,13 +6,13 @@ from stable_baselines3.common.callbacks import BaseCallback
 class CurriculumCallback(BaseCallback):
     """
     Manages the curriculum difficulty.
-    Saves the current difficulty to a JSON file so it persists across restarts.
+    Accumulates episodes over up to 2 rollouts if episode count < 100.
     """
     def __init__(self,
                  log_dir: str,
                  success_threshold: float = 0.7,
                  max_difficulty: float = 0.999,
-                 initial_difficulty: float = 0.80, # Default if no save file found
+                 initial_difficulty: float = 0.80,
                  verbose: int = 1):
         super(CurriculumCallback, self).__init__(verbose)
         self.log_dir = log_dir
@@ -22,9 +22,12 @@ class CurriculumCallback(BaseCallback):
         self.max_difficulty = max_difficulty
         self.current_difficulty = initial_difficulty
 
-        # Temporary storage for the current rollout
+        # Temporary storage for the current rollout(s)
         self.rollout_successes = []
         self.rollout_fidelities = []
+        
+        # New: Track how many rollouts we have accumulated
+        self.rollouts_accumulated = 0
 
     def _update_env_difficulty(self):
         """Helper to push changes to workers and verify they happened."""
@@ -92,20 +95,30 @@ class CurriculumCallback(BaseCallback):
 
     def _on_rollout_end(self) -> None:
         """Evaluate performance and update difficulty if needed."""
-        if len(self.rollout_successes) == 0:
-            return
+        self.rollouts_accumulated += 1
+        num_episodes = len(self.rollout_successes)
 
-        success_rate = np.mean(self.rollout_successes) if len(self.rollout_successes) > 0 else 0
+        # --- LOGIC CHANGE STARTS HERE ---
+        # 1. If we have 100+ episodes, evaluate immediately.
+        # 2. If we have accumulated 2 rollouts, evaluate immediately (regardless of count).
+        # 3. Otherwise, return and keep accumulating data in the next rollout.
+        if num_episodes < 100:
+            if self.verbose > 0:
+                print(f"   [Curriculum] Accumulating... (Eps: {num_episodes}, Rollouts: {self.rollouts_accumulated})")
+            return 
+        # -------------------------------
+
+        success_rate = np.mean(self.rollout_successes)
 
         if self.verbose > 0:
             print(f"   [Curriculum] Target: {self.current_difficulty:.4f} | "
-                  f"Batch Success: {success_rate:.2%} ({len(self.rollout_successes)} eps)")
+                  f"Batch Success: {success_rate:.2%} ({num_episodes} eps over {self.rollouts_accumulated} rollouts)")
 
         # Log curriculum metrics
         self.logger.record("curriculum/current_target", self.current_difficulty)
         self.logger.record("curriculum/current_target_success", success_rate)
 
-        # Always calculate and log next target metrics
+        # Next target metrics
         next_diff = self._calculate_next_difficulty()
         self.logger.record("curriculum/next_target", next_diff)
         next_success_rate = np.mean([f >= next_diff for f in self.rollout_fidelities]) if len(self.rollout_fidelities) > 0 else 0
@@ -117,6 +130,7 @@ class CurriculumCallback(BaseCallback):
 
         self.rollout_successes = []
         self.rollout_fidelities = []
+        self.rollouts_accumulated = 0
 
     def _upgrade_difficulty(self):
         # 1. Calculate new difficulty
