@@ -42,13 +42,13 @@ class CurriculumCallback(BaseCallback):
     def _calculate_next_difficulty(self):
         """Calculate the next difficulty level."""
         if self.current_difficulty < 0.92:
-            increment = 0.005
+            increment = 0.005 * 2
         elif self.current_difficulty < 0.97:
-            increment = 0.0025
+            increment = 0.0025 * 2
         elif self.current_difficulty < 0.98:
-            increment = 0.001
+            increment = 0.001 * 2
         elif self.current_difficulty < 0.99:
-            increment = 0.0005
+            increment = 0.0005 * 2
         else:
             increment = 0.0001
         return min(self.current_difficulty + increment, self.max_difficulty)
