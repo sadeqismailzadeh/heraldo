@@ -10,17 +10,6 @@ import numba
 from numba import jit
 import time
 
-import scipy.integrate
-if not hasattr(scipy.integrate, 'simps'):
-    scipy.integrate.simps = scipy.integrate.simpson
-
-import strawberryfields as sf
-from strawberryfields.ops import *
-import numpy as np
-import numba
-from numba import jit
-import time
-
 # -----------------------------------------------------------------------------
 # OPTIMIZED JIT-COMPILED CORE FUNCTIONS
 # -----------------------------------------------------------------------------
@@ -263,7 +252,8 @@ def revert_patch():
 
 
 def verify_correctness(theta_phi_pairs=[(np.pi/4, np.pi/6), (np.pi/3, 0), (np.pi, np.pi/7), (np.pi/2, np.pi/6), (np.pi/5, np.pi/9),
-                                        (np.pi/9, np.pi/12), (2*np.pi/15, np.pi/7), (2*np.pi/3, np.pi/16) , (7*np.pi/5, 11*np.pi/7)],
+                                        (np.pi/9, np.pi/12), (2*np.pi/15, np.pi/7), (2*np.pi/3, np.pi/16) , (7*np.pi/5, 11*np.pi/7),
+                                        (np.pi/2, 0)],
                        truncs=[10, 15], n_modes_list=[2, 3]):
     """
     Verify that the patched beamsplitter produces identical results to the original.
@@ -313,7 +303,7 @@ def verify_correctness(theta_phi_pairs=[(np.pi/4, np.pi/6), (np.pi/3, 0), (np.pi
     revert_patch()
 
 
-def run_dynamic_benchmark(truncs=[10, 20, 30, 40, 50, 60], 
+def run_dynamic_benchmark(truncs=[10, 15, 20, 30, 40, 50, 60], 
                           n_modes_list=[2], 
                           num_random_runs=10):
     """
