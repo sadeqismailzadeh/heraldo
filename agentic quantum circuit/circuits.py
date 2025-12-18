@@ -1,13 +1,24 @@
-"""Circuit implementations implementing the CircuitContext interface."""
+"""Circuit implementations implementing the updated CircuitContext interface."""
 
+# 1. Import the module we need to patch
+import scipy.integrate
+
+# 2. Check if the patch is needed to avoid errors
+if not hasattr(scipy.integrate, 'simps'):
+    print("Monkey patching scipy.integrate: 'simps' not found. Pointing to 'simpson'.")
+    # 3. Create the 'simps' attribute and point it to the existing 'simpson' function.
+    scipy.integrate.simps = scipy.integrate.simpson
+else:
+    print("'simps' already exists in scipy.integrate. No patch needed.")
+    
+    
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 import strawberryfields as sf
-from strawberryfields.ops import Sgate, Dgate, BSgate, Vgate
+from strawberryfields.ops import *
 
 from quantum_modules import CircuitContext
-
 
 class GKPCircuit(CircuitContext):
     """
@@ -20,49 +31,50 @@ class GKPCircuit(CircuitContext):
     4. Displacement Angle (arg(alpha))
     5. Beamsplitter Transmissivity (theta)
     """
-    
     def __init__(self, max_sq_r=1.38, max_disp_mag=2.5):
         self.max_sq_r = max_sq_r
         self.max_disp_mag = max_disp_mag
-    
+        
+        self._action_keys = ['r_mag', 'r_phi', 'd_mag', 'd_phi', 'bs_theta']
+        self._action_ranges = {
+            'r_mag':    (0.0, self.max_sq_r),
+            'r_phi':    (0.0, 2 * np.pi),
+            'd_mag':    (0.0, self.max_disp_mag),
+            'd_phi':    (0.0, 2 * np.pi),
+            'bs_theta': (0.0, np.pi/2)
+        }
+
+    @property
+    def action_keys(self): return self._action_keys
+
+    @property
+    def action_ranges(self): return self._action_ranges
+
     def get_action_space(self) -> gym.spaces.Box:
-        """Returns the action space: 5D continuous [-1, 1]."""
-        return spaces.Box(
-            low=-1.0, high=1.0, shape=(5,), dtype=np.float32
-        )
+        return spaces.Box(low=-1.0, high=1.0, shape=(len(self._action_keys),), dtype=np.float32)
     
     def build_reset_program(self) -> sf.Program:
-        """Initializes the loop with a squeezed state."""
         prog = sf.Program(2)
         with prog.context as q:
             Sgate(self.max_sq_r) | q[0]
         return prog
     
-    def build_step_program(self, action: np.ndarray) -> sf.Program:
+    def build_step_program(self, action_dict: dict) -> sf.Program:
         """
         Builds the circuit for one time step.
         Action: [r_mag, r_phi, d_mag, d_phi, bs_theta] (normalized to [-1, 1])
         """
-        # Denormalize action from [-1, 1] to physical ranges
-        r_mag = np.clip(action[0] * self.max_sq_r, -self.max_sq_r, self.max_sq_r)
-        r_phi = np.clip(action[1] * np.pi, 0, 2 * np.pi)
-        d_mag = np.clip(action[2] * self.max_disp_mag, 0, self.max_disp_mag)
-        d_phi = np.clip(action[3] * np.pi, 0, 2 * np.pi)
-        bs_theta = np.clip(action[4] * np.pi/2, 0, np.pi/2)
-
         prog = sf.Program(2)
         with prog.context as q:
-            # q[0] = Loop Memory
-            # q[1] = Fresh Input (Ancilla)
-            
-            # 1. Prepare Ancilla
-            Sgate(r_mag, r_phi) | q[1]
-            Dgate(d_mag, d_phi) | q[1]
-            
-            # 2. Interact (beamsplitter)
-            BSgate(bs_theta, 0) | (q[0], q[1])
-        
+            # Prepare Ancilla in q[1]
+            Sgate(action_dict['r_mag'], action_dict['r_phi']) | q[1]
+            Dgate(action_dict['d_mag'], action_dict['d_phi']) | q[1]
+            # Interact
+            BSgate(action_dict['bs_theta'], 0) | (q[0], q[1])
         return prog
+
+    def _get_current_ket(self, state):
+        return state.ket()[:, 0]
 
 
 class GeneralLoopCircuit(CircuitContext):
@@ -78,16 +90,28 @@ class GeneralLoopCircuit(CircuitContext):
     def __init__(self, tunable_r=True, max_squeezing=1.38):
         self.tunable_r = tunable_r
         self.max_squeezing = max_squeezing
-    
-    def get_action_space(self) -> gym.spaces.Box:
-        """Returns the action space (2D or 3D continuous)."""
+        
         if self.tunable_r:
-            shape = (2,)  # [r, theta]
+            self._action_keys = ['squeezing_r', 'theta_1']
+            self._action_ranges = {
+                'squeezing_r': (-self.max_squeezing, self.max_squeezing),
+                'theta_1': (0, np.pi/2)
+            }
         else:
-            shape = (2,)  # [phase, theta]
-        return spaces.Box(
-            low=-1.0, high=1.0, shape=shape, dtype=np.float32
-        )
+            self._action_keys = ['squeezing_phase', 'theta_1']
+            self._action_ranges = {
+                'squeezing_phase': (-np.pi, np.pi),
+                'theta_1': (0, np.pi/2)
+            }
+    
+    @property
+    def action_keys(self): return self._action_keys
+
+    @property
+    def action_ranges(self): return self._action_ranges
+
+    def get_action_space(self) -> gym.spaces.Box:
+        return spaces.Box(low=-1.0, high=1.0, shape=(len(self._action_keys),), dtype=np.float32)
     
     def build_reset_program(self) -> sf.Program:
         """Initializes the loop with high squeezing."""
@@ -96,32 +120,19 @@ class GeneralLoopCircuit(CircuitContext):
             Sgate(self.max_squeezing) | q[0]
         return prog
     
-    def build_step_program(self, action: np.ndarray) -> sf.Program:
-        """
-        Builds the circuit for one time step.
-        
-        If tunable_r:
-            action: [squeezing_r (normalized), theta_1 (normalized)]
-        Else:
-            action: [squeezing_phase (normalized), theta_1 (normalized)]
-        """
-        if self.tunable_r:
-            # Denormalize from [-1, 1] to physical ranges
-            squeezing_r = np.clip(action[0] * self.max_squeezing, -self.max_squeezing, self.max_squeezing)
-            theta_1 = np.clip(action[1] * np.pi/2, 0, np.pi/2)
-            squeezing_phase = 0
-        else:
-            # Fixed squeezing magnitude
-            squeezing_r = self.max_squeezing
-            theta_1 = np.clip(action[1] * np.pi/2, 0, np.pi/2)
-            squeezing_phase = np.clip(action[0] * np.pi, -np.pi, np.pi)
-
+    def build_step_program(self, action_dict: dict) -> sf.Program:
         prog = sf.Program(2)
         with prog.context as q:
-            Sgate(squeezing_r, squeezing_phase) | q[1]
-            BSgate(theta_1, 0) | (q[0], q[1])
-        
+            if self.tunable_r:
+                Sgate(action_dict['squeezing_r'], 0) | q[1]
+            else:
+                Sgate(self.max_squeezing, action_dict['squeezing_phase']) | q[1]
+            
+            BSgate(action_dict['theta_1'], 0) | (q[0], q[1])
         return prog
+
+    def _get_current_ket(self, state):
+        return state.ket()[:, 0]
 
 
 class CubicSpecificCircuit(CircuitContext):
@@ -138,12 +149,22 @@ class CubicSpecificCircuit(CircuitContext):
         self.max_sq_r = max_sq_r
         self.max_disp_alpha = max_disp_alpha
         self.fixed_measure_beta = fixed_measure_beta
-    
+        
+        self._action_keys = ['r', 'theta', 'alpha']
+        self._action_ranges = {
+            'r': (-self.max_sq_r, self.max_sq_r),
+            'theta': (0, np.pi/2),
+            'alpha': (-self.max_disp_alpha, self.max_disp_alpha) 
+        }
+
+    @property
+    def action_keys(self): return self._action_keys
+
+    @property
+    def action_ranges(self): return self._action_ranges
+
     def get_action_space(self) -> gym.spaces.Box:
-        """Returns 3D continuous action space."""
-        return spaces.Box(
-            low=-1.0, high=1.0, shape=(3,), dtype=np.float32
-        )
+        return spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
     
     def build_reset_program(self) -> sf.Program:
         """Initialize loop with squeezed state."""
@@ -152,40 +173,23 @@ class CubicSpecificCircuit(CircuitContext):
             Sgate(self.max_sq_r) | q[0]
         return prog
     
-    def build_step_program(self, action: np.ndarray) -> sf.Program:
-        """
-        Builds the circuit for one time step.
-        Action: [r, theta, alpha] (normalized to [-1, 1])
-        """
-        # Denormalize
-        r_val = np.clip(action[0] * self.max_sq_r, -self.max_sq_r, self.max_sq_r)
-        theta_val = np.clip(action[1] * np.pi/2, 0, np.pi/2)
-        alpha_val = np.clip(action[2] * self.max_disp_alpha, -self.max_disp_alpha, self.max_disp_alpha)
-
+    def build_step_program(self, action_dict: dict) -> sf.Program:
         prog = sf.Program(2)
         with prog.context as q:
-            # q[0] = Loop Memory
-            # q[1] = Fresh Input
+            # Prepare Input
+            Sgate(action_dict['r']) | q[1]
+            # Displacement on imaginary axis
+            Dgate(np.abs(1j * action_dict['alpha']), np.angle(1j * action_dict['alpha'])) | q[1]
             
-            # Prepare Input State
-            Sgate(r_val) | q[1]
+            # Interaction
+            BSgate(action_dict['theta'], 0) | (q[0], q[1])
             
-            # Displacement (imaginary axis)
-            z = 1j * alpha_val
-            r = np.abs(z)
-            theta = np.angle(z)
-            Dgate(r, theta) | q[1]
-            
-            # Beamsplitter (VBS)
-            BSgate(theta_val, 0) | (q[0], q[1])
-            
-            # Apply FIXED displacement in measurement arm
-            z = 1j * self.fixed_measure_beta
-            r = np.abs(z)
-            theta = np.angle(z)
-            Dgate(r, theta) | q[0]
-        
+            # Fixed displacement in measurement arm (q[0])
+            Dgate(np.abs(1j * self.fixed_measure_beta), np.angle(1j * self.fixed_measure_beta)) | q[0]
         return prog
+
+    def _get_current_ket(self, state):
+        return state.ket()[:, 0]
 
 
 class GadgetCircuit(CircuitContext):
@@ -204,49 +208,92 @@ class GadgetCircuit(CircuitContext):
     """
     
     def __init__(self, max_squeezing=0.347, max_disp=1.0):
-        self.max_squeezing = max_squeezing  # 8 dB
+        self.max_squeezing = max_squeezing
         self.max_disp = max_disp
+        
+        self._action_keys = [
+            'squeezing_r', 'squeezing_phase', 'theta_1', 'phi_1',
+            'disp_mag1', 'disp_phi1', 'disp_mag2', 'disp_phi2'
+        ]
+        self._action_ranges = {
+            'squeezing_r': (0, self.max_squeezing),
+            'squeezing_phase': (-np.pi, np.pi),
+            'theta_1': (0, np.pi/2),
+            'phi_1': (-np.pi, np.pi),
+            'disp_mag1': (0, self.max_disp),
+            'disp_phi1': (-np.pi, np.pi),
+            'disp_mag2': (0, self.max_disp),
+            'disp_phi2': (-np.pi, np.pi)
+        }
     
+    @property
+    def action_keys(self): return self._action_keys
+
+    @property
+    def action_ranges(self): return self._action_ranges
+
     def get_action_space(self) -> gym.spaces.Box:
-        """Returns 8D continuous action space."""
-        return spaces.Box(
-            low=-1.0, high=1.0, shape=(8,), dtype=np.float32
-        )
+        return spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
     
     def build_reset_program(self) -> sf.Program:
-        """Initialize: vacuum with measurement on q[0]."""
-        prog = sf.Program(2)
-        # Vacuum initialization (implicit)
-        return prog
+        return sf.Program(2) # Starts in vacuum
     
-    def build_step_program(self, action: np.ndarray) -> sf.Program:
-        """
-        Builds the 2-mode gadget circuit for one time step.
-        Action: [r, phi_sq, theta, phi_bs, alpha_mag, alpha_phi, alpha_mag2, alpha_phi2]
-        """
-        # Denormalize from [-1, 1] to physical ranges
-        r_val = np.clip(action[0] * self.max_squeezing, 0, self.max_squeezing)
-        phi_sq_val = np.clip(action[1] * np.pi, -np.pi, np.pi)
-        theta_val = np.clip(action[2] * np.pi/2, 0, np.pi/2)
-        phi_val = np.clip(action[3] * np.pi, -np.pi, np.pi)
-        alpha_mag = np.clip(action[4] * self.max_disp, 0, self.max_disp)
-        alpha_phi = np.clip(action[5] * np.pi, -np.pi, np.pi)
-        alpha_mag2 = np.clip(action[6] * self.max_disp, 0, self.max_disp)
-        alpha_phi2 = np.clip(action[7] * np.pi, -np.pi, np.pi)
-
+    def build_step_program(self, action_dict: dict) -> sf.Program:
         prog = sf.Program(2)
         with prog.context as q:
-            # q[0] = Mode A (loop memory)
-            # q[1] = Mode B (fresh input)
+            # Prepare input on q[1]
+            Sgate(action_dict['squeezing_r'], action_dict['squeezing_phase']) | q[1]
+            Dgate(action_dict['disp_mag1'], action_dict['disp_phi1']) | q[1]
             
-            # Prepare fresh input
-            Sgate(r_val, phi_sq_val) | q[1]
-            Dgate(alpha_mag, alpha_phi) | q[1]
+            # BS Interaction
+            BSgate(action_dict['theta_1'], action_dict['phi_1']) | (q[0], q[1])
             
-            # Beamsplitter interaction
-            BSgate(theta_val, phi_val) | (q[0], q[1])
-            
-            # Output displacement on mode A
-            Dgate(alpha_mag2, alpha_phi2) | q[0]
-        
+            # Output displacement on loop mode
+            Dgate(action_dict['disp_mag2'], action_dict['disp_phi2']) | q[0]
         return prog
+
+    def _get_current_ket(self, state):
+        return state.ket()[:, 0]
+
+
+class QuarticSpecificCircuit(CircuitContext):
+    """Quartic Phase specific circuit."""
+    def __init__(self, max_sq_r=1.0, max_disp_alpha=2.0):
+        self.max_sq_r = max_sq_r
+        self.max_disp_alpha = max_disp_alpha
+        
+        self._action_keys = ['r', 'theta', 'alpha']
+        self._action_ranges = {
+            'r': (-self.max_sq_r, self.max_sq_r),
+            'theta': (0, np.pi/2),
+            'alpha': (-self.max_disp_alpha, self.max_disp_alpha) 
+        }
+
+    @property
+    def action_keys(self): return self._action_keys
+
+    @property
+    def action_ranges(self): return self._action_ranges
+
+    def get_action_space(self) -> gym.spaces.Box:
+        return spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
+    
+    def build_reset_program(self) -> sf.Program:
+        prog = sf.Program(2)
+        with prog.context as q:
+            Sgate(self.max_sq_r) | q[0]
+        return prog
+    
+    def build_step_program(self, action_dict: dict) -> sf.Program:
+        prog = sf.Program(2)
+        with prog.context as q:
+            Sgate(action_dict['r']) | q[1]
+            # Displacement (Imaginary axis)
+            alpha_z = 1j * action_dict['alpha']
+            Dgate(np.abs(alpha_z), np.angle(alpha_z)) | q[1]
+            
+            BSgate(action_dict['theta'], 0) | (q[0], q[1])
+        return prog
+
+    def _get_current_ket(self, state):
+        return state.ket()[:, 0]
