@@ -251,7 +251,7 @@ class ModularQuantumEnv(gym.Env):
             "step": self.current_step, 
             "max_steps": self.max_steps,
             "samples": result.samples if hasattr(result, 'samples') else None,
-            "results": result,
+            "result": result,
             "past_ket": self.past_ket,
             "ng_score": self.compute_non_gaussianity(self.current_ket)
         }

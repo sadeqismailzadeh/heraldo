@@ -11,7 +11,7 @@ if not hasattr(scipy.integrate, 'simps'):
     scipy.integrate.simps = scipy.integrate.simpson
 else:
     print("'simps' already exists in scipy.integrate. No patch needed.")
-    
+
 import abc
 import numpy as np
 import strawberryfields as sf
@@ -119,17 +119,18 @@ class SqueezedCatTarget(TargetGenerator):
     - r: Squeezing parameter
     """
     
-    def __init__(self, alpha=3.0, r=1.38):
+    def __init__(self, alpha=3.0, r=1.38, p=0):
         self.alpha = alpha
         self.r = r
+        self.p=p
     
     def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
         """Generate squeezed cat target state. Returns the even parity state."""
-        print(f"Generating Squeezed Cat Target (alpha={self.alpha}, r={self.r})...")
+        print(f"Generating Squeezed Cat Target (alpha={self.alpha}, r={self.r}, p={self.p})...")
         
         prog = sf.Program(1)
         with prog.context as q:
-            Catstate(self.alpha, p=0) | q[0]
+            Catstate(self.alpha, self.p) | q[0]
             Sgate(self.r) | q[0]
         
         eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
