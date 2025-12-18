@@ -104,67 +104,151 @@ def db_to_r(db_value):
     """Converts squeezing level from Decibels (dB) to the squeezing parameter r."""
     return db_value / (20 * np.log10(np.e))
 
-from targets import TargetGenerator
-from circuits import CircuitContext
-from rewards import RewardMechanism
+
+from quantum_modules import TargetGenerator, CircuitContext, RewardMechanism
+
 
 class ModularQuantumEnv(gym.Env):
+    """
+    A modular quantum optical circuit environment that delegates core responsibilities
+    to pluggable modules: TargetGenerator, CircuitContext, and RewardMechanism.
+    """
+    metadata = {"render_modes": [], "render_fps": 0}
+
     def __init__(
         self, 
         target_gen: TargetGenerator,
         circuit_context: CircuitContext,
         reward_mech: RewardMechanism,
         cutoff_dim=25,
-        max_steps=10
+        max_steps=10,
+        loss_channel=1.0,
+        initial_target_fidelity=0.8,
+        **kwargs
     ):
         super().__init__()
         self.cutoff_dim = cutoff_dim
         self.max_steps = max_steps
+        self.loss_channel = loss_channel
         
         # Composition
         self.target_gen = target_gen
         self.circuit_context = circuit_context
         self.reward_mech = reward_mech
         
+        # --- Internal State ---
+        self.current_step = 0
+        self.current_ket = None
+        self.past_ket = None
+        self.min_inner_product = 1.0
+        self.current_state = None
+        self.past_fidelity = 0.0
+        
         # Initialize
         self.action_space = self.circuit_context.get_action_space()
         
         # Observation space (Standardized)
         obs_size = 2 * self.cutoff_dim
+        self._obs_buffer = np.zeros(obs_size, dtype=np.float32)
         self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(obs_size,), dtype=np.float32)
 
         # Lazy load target (in case it's expensive)
         self.target_ket = self.target_gen.get_target_ket(self.cutoff_dim)
+        self.target_fidelity = initial_target_fidelity
 
-        self.eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
+        # --- Precompute operators for optional metrics ---
+        self._precompute_quadrature_operators()
+
+        # Compute target non-Gaussianity
+        self.target_ng_score = self.compute_non_gaussianity(self.target_ket)
+        print(f"target ng = {self.target_ng_score:.2f}")
+
+    def set_difficulty(self, fidelity):
+        """
+        Explicit setter for curriculum learning.
+        This ensures the attribute is updated within the subprocess.
+        """
+        self.target_fidelity = float(fidelity)
+        return self.target_fidelity
+
+    def _ket_to_observation(self, state_ket):
+        """Converts a pure state ket into a normalized observation vector."""
+        if state_ket is None:
+            self._obs_buffer.fill(0)
+            return self._obs_buffer.copy()
+
+        state_ket = state_ket.flatten()
+
+        if len(state_ket) < self.cutoff_dim:
+            padded = np.zeros(self.cutoff_dim, dtype=np.complex128)
+            padded[:len(state_ket)] = state_ket
+            state_ket = padded
+        elif len(state_ket) > self.cutoff_dim:
+            state_ket = state_ket[:self.cutoff_dim]
+
+        self._obs_buffer[:self.cutoff_dim] = state_ket.real
+        self._obs_buffer[self.cutoff_dim:] = state_ket.imag
+        return self._obs_buffer.copy()
+
+    def _denormalize_action(self, action):
+        """Denormalize action from [-1, 1] to original physical ranges."""
+        denorm_action = np.zeros_like(action, dtype=np.float32)
+
+        for i, key in enumerate(self.action_keys):
+            low, high = self.action_ranges[key]
+            a = (high - low) / 2
+            b = (high + low) / 2
+            denorm_action[i] = a * action[i] + b
+
+        return denorm_action
 
     def reset(self, seed=None, options=None):
+        """Resets the environment to an initial state."""
         super().reset(seed=seed)
+        
+        self.eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
         self.current_step = 0
+        self.min_inner_product = 1.0
         
         # Delegate to Circuit Strategy
         prog = self.circuit_context.build_reset_program()
         result = self.eng.run(prog)
+        self.current_state = result.state
         self.current_ket = self.circuit_context._get_current_ket(self.current_state)
+        self.past_ket = self.current_ket
+        
+        inner_product = np.abs(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
         
         return self._ket_to_observation(self.current_ket), {}
 
     def step(self, action):
+        """Executes one time step within the environment."""
         self.current_step += 1
+
+        denormalized_action = self._denormalize_action(action)
+
+        for i, key in enumerate(self.action_keys):
+            low, high = self.action_ranges[key]
+            denormalized_action[i] = np.clip(denormalized_action[i], low, high)
         
         # 1. Delegate Circuit Execution
         prog = self.circuit_context.build_step_program(action)
         result = self.eng.run(prog)
 
-        # _get_current_ket tobe implemented in CircuitContext
+        # Get the current ket from the result
+        self.current_state = result.state
         self.current_ket = self.circuit_context._get_current_ket(self.current_state)
+        
+        inner_product = np.abs(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
         
         # 2. Delegate Reward Calculation
         # Pass context like step number, max steps, etc.
         step_info = {
             "step": self.current_step, 
             "max_steps": self.max_steps,
-            "samples": result.samples
+            "samples": result.samples if hasattr(result, 'samples') else None
         }
         
         reward, terminated, info = self.reward_mech.compute(
@@ -175,6 +259,13 @@ class ModularQuantumEnv(gym.Env):
         
         truncated = self.current_step >= self.max_steps
         obs = self._ket_to_observation(self.current_ket)
+        
+        self.past_ket = self.current_ket
+        
+        if terminated or truncated:
+            info['final_ket'] = self.current_ket
+            info['min_inner_product'] = self.min_inner_product
+            info['episode_len'] = self.current_step
         
         return obs, reward, terminated, truncated, info
 
