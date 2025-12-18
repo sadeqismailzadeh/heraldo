@@ -1,7 +1,20 @@
+
+# 1. Import the module we need to patch
+import scipy.integrate
+
+# 2. Check if the patch is needed to avoid errors
+if not hasattr(scipy.integrate, 'simps'):
+    print("Monkey patching scipy.integrate: 'simps' not found. Pointing to 'simpson'.")
+    # 3. Create the 'simps' attribute and point it to the existing 'simpson' function.
+    scipy.integrate.simps = scipy.integrate.simpson
+else:
+    print("'simps' already exists in scipy.integrate. No patch needed.")
+    
 import abc
 import numpy as np
 import gymnasium as gym
 import strawberryfields as sf
+
 
 class TargetGenerator(abc.ABC):
     """Responsible for generating the target state ket."""
@@ -26,10 +39,10 @@ class CircuitContext(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def _ket_to_observation(self, ket):
-        # ... (Same implementation as your base class) ...
-        # Can be moved to a utility function
+    def _get_current_ket(self, state):
+        """Extract the relevant ket from the SF state object."""
         pass
+
 
 class RewardMechanism(abc.ABC):
     """Responsible for calculating reward and termination."""
