@@ -1,17 +1,106 @@
+"""Base classes for quantum circuit Gymnasium environments."""
+
+# 1. Import the module we need to patch
+import scipy.integrate
+
+# 2. Check if the patch is needed to avoid errors
+if not hasattr(scipy.integrate, 'simps'):
+    print("Monkey patching scipy.integrate: 'simps' not found. Pointing to 'simpson'.")
+    # 3. Create the 'simps' attribute and point it to the existing 'simpson' function.
+    scipy.integrate.simps = scipy.integrate.simpson
+else:
+    print("'simps' already exists in scipy.integrate. No patch needed.")
+
+
+import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
 import strawberryfields as sf
-from gymnasium import spaces
-from strawberryfields.ops import Sgate, Dgate, BSgate
+from strawberryfields.ops import *
+import strawberryfields.ops as ops
+import qutip as qt
+from scipy.special import factorial
+import matplotlib.pyplot as plt # Needed for the demo
+
+# Import your existing base infrastructure
+from base_quantum_env import BaseQuantumEnv, fidelity_max_rotation, decode_measurement_result
+from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock
 
 from base_quantum_env import BaseQuantumEnv, fidelity_max_rotation, db_to_r, MonitoredLossMeasureFock, decode_measurement_result
 
+
+def sqrGKP_qutip(mu, d, delta, cutoff, nmax=25):  
+    """Generates Square GKP target using QuTiP."""
+    n1 = np.arange(-nmax, nmax+1)[:, None]
+    n2 = np.arange(-nmax, nmax+1)[None, :]
+
+    # Lattice spacing L = sqrt(4*pi) for square
+    # arg1 handles the phase checkerboard pattern for logical states
+    arg1 = 1j * np.pi * n2 * (d * n1 + mu) / d
+    amplitude = (np.exp(arg1)).flatten()[:, None]
+
+    alpha = np.sqrt(np.pi / d) * ((d * n1 + mu - 1j * n2))
+    alpha = alpha.flatten()[:, None]
+    n = np.arange(cutoff)[None, :]
+    
+    coherent = np.exp(-0.5 * np.abs(alpha)**2) * alpha**n / np.sqrt(factorial(n))
+    state_vector = np.sum(amplitude * coherent * np.exp(-n * delta**2), axis=0).reshape(-1, 1)
+    
+    return qt.Qobj(state_vector).unit()
+
+
+
+def hexGKP(mu, d, delta, cutoff, nmax=20):
+    r"""Hexagonal GKP code state (QuTiP 5 compatible)."""
+    n1 = np.arange(-nmax, nmax+1)[:, None]
+    n2 = np.arange(-nmax, nmax+1)[None, :]
+
+    n1sq = n1**2
+    n2sq = n2**2
+
+    sqrt3 = np.sqrt(3)
+
+    # Complex phase and envelope arguments
+    arg1 = -1j * np.pi * n2 * (d * n1 + mu) / d
+    arg2 = -np.pi * (d**2 * n1sq + n2sq - d * n1 * (n2 - 2 * mu) - n2 * mu + mu**2) / (sqrt3 * d)
+    arg2 *= 1 - np.exp(-2 * delta**2)
+
+    amplitude = (np.exp(arg1)).flatten()[:, None]
+
+    # Hexagonal lattice displacement amplitudes
+    alpha = np.sqrt(np.pi / (2 * sqrt3 * d)) * (sqrt3 * (d * n1 + mu) - 1j * (d * n1 - 2 * n2 + mu))
+    alpha = alpha.flatten()[:, None]
+
+    n = np.arange(cutoff)[None, :]
+    coherent = np.exp(-0.5 * np.abs(alpha)**2) * alpha**n / np.sqrt(factorial(n))
+    
+    # Sum and Reshape for QuTiP 5
+    state_vector = np.sum(amplitude * coherent * np.exp(-n * delta**2), axis=0).reshape(-1, 1)
+    
+    return qt.Qobj(state_vector).unit()
+
+# --- MAIN ENVIRONMENT ---
 
 class ThreeModeGadgetEnv(BaseQuantumEnv):
     """
     Implements the 3-Mode Time-Multiplexed architecture from Article 2.
     """
 
-    def __init__(self, tunable_bs_phase=True, cutoff_dim=25, max_steps=10, **kwargs):
+    def __init__(self, 
+                gkp_type='square',   # 'square' or 'hex'
+                mu=0,             # Logical 0 or 1
+                delta=0.4,        # Finite energy envelope
+                tunable_bs_phase=False,
+                cutoff_dim=25,
+                max_steps=10,
+                **kwargs):
+        
+        self.gkp_type = gkp_type.lower()
+        self.mu = mu
+        self.delta = delta
+        
+
+    
         self.tunable_bs_phase = tunable_bs_phase
         self.r_max = db_to_r(8)
         self.d_max = 1
@@ -48,17 +137,39 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
             low=-1.0, high=1.0, shape=(len(self.action_keys),), dtype=np.float32
         )
 
+
     def _initialize_target_states(self):
-        """Generates the Cubic Phase Resource State."""
-        print("Initializing Cubic Phase Target State for ThreeModeGadgetEnv...")
-        a = 0.61
-        cutoff = self.cutoff_dim
-        base_ket = np.zeros(cutoff, dtype=np.complex128)
-        base_ket[0] = 1.0
-        base_ket[1] = 1j * a * np.sqrt(1.5)
-        base_ket[3] = 1j * a
-        base_ket /= np.linalg.norm(base_ket)
-        return [base_ket]
+        """
+        Generates the target GKP state using QuTiP, then converts to numpy
+        compatible with Strawberry Fields.
+        """
+        print(f"Generating {self.gkp_type.upper()} GKP Target (mu={self.mu}, delta={self.delta}, N={self.cutoff_dim})...")
+        
+        if 'hex' in self.gkp_type:
+            qobj_tgt = hexGKP(self.mu, 2, self.delta, self.cutoff_dim)
+        else:
+            qobj_tgt = sqrGKP_qutip(self.mu, 2, self.delta, self.cutoff_dim) # d=2 for qubit
+
+        # Convert QuTiP Qobj to Numpy Array (flattened for SF)
+        # QuTiP shape is (N, 1), we need (N,)
+        target_np = qobj_tgt.full().flatten()
+        
+        # Ensure it's normalized
+        target_np /= np.linalg.norm(target_np)
+        
+        return [target_np]
+
+    # def _initialize_target_states(self):
+    #     """Generates the Cubic Phase Resource State."""
+    #     print("Initializing Cubic Phase Target State for ThreeModeGadgetEnv...")
+    #     a = 0.61
+    #     cutoff = self.cutoff_dim
+    #     base_ket = np.zeros(cutoff, dtype=np.complex128)
+    #     base_ket[0] = 1.0
+    #     base_ket[1] = 1j * a * np.sqrt(1.5)
+    #     base_ket[3] = 1j * a
+    #     base_ket /= np.linalg.norm(base_ket)
+    #     return [base_ket]
 
     def _get_current_ket(self, state):
         """Extracts the ket of the primary mode from the 3-mode state."""
@@ -130,19 +241,19 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
         reward = self._calculate_reward(fidelity)
         reward -= max_reward
         
-        current_ng_score = self.compute_non_gaussianity(self.current_ket)
+        # current_ng_score = self.compute_non_gaussianity(self.current_ket)
         # if current_ng_score < self.target_ng_score/4:
         #     reward -= max_reward
 
-        self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
-        if self_fidelity > 0.95:
-            reward -= max_reward
+        # self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
+        # if self_fidelity > 0.95:
+        #     reward -= max_reward
         
         # if abs(fidelity - self.past_fidelity) < 0.05:
         #     reward -= max_reward
         # self.past_fidelity = fidelity
 
-        hit_target = (fidelity > target_fidelity) and (current_ng_score > self.target_ng_score / 3)
+        hit_target = (fidelity > target_fidelity)
         if hit_target:
             reward += 10 * max_reward
             terminated = True
@@ -157,9 +268,9 @@ class ThreeModeGadgetEnv(BaseQuantumEnv):
             'detected_photons': n1 + n2,
             'total_photons': lost1 + lost2 + n1 + n2,
             'fidelity': fidelity,
-            'ng_score': current_ng_score,
+            'ng_score': 0,
             'is_success': hit_target,
-            'self_fidelity': self_fidelity,
+            'self_fidelity': 0,
             'target_fidelity': self.target_fidelity
         }
         

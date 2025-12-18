@@ -143,21 +143,25 @@ class QuantumCircuitEnv(BaseQuantumEnv):
 
     def _calculate_reward_and_termination(self, fidelity, result):
         """Calculates the reward and determines if the episode should terminate."""
-        
+        reward = 0
         terminated = False
         hit_target = (fidelity > self.target_fidelity)
         max_reward = self._calculate_reward(self.target_fidelity)
-        reward = self._calculate_reward(fidelity)
+        reward += self._calculate_reward(fidelity)
         reward -= max_reward
-
+        reward -= 0.5 * max_reward # for time
         self_fidelity = fidelity_max_rotation(self.past_ket, self.current_ket)
         if self_fidelity > 0.95:
             reward -= max_reward
 
+        bounus = 3 * max_reward
         if hit_target:
-            reward += 10 * max_reward
+            reward += bounus
             terminated = True
 
+            # reward = (fidelity)**50
+
+        reward /= 4 * (max_reward)
         encoded_result = result.samples[0][0]
         lost_photons, detected_photons = decode_measurement_result(encoded_result)
 

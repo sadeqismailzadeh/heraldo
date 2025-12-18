@@ -38,15 +38,13 @@ class CubicPhaseEnv(BaseQuantumEnv):
         self.target_r = -0.7
         self.target_alpha = 1.25  # Magnitude (applied as i*1.25)
         
-        self.fixed_measure_beta = 2.5 # Applied as i*2.5
+        self.fixed_measure_beta = 2 # Applied as i*2.5
         
         self.max_sq_r = 1.15
-        self.max_disp_alpha = 2.5
-
-        initial_target_fidelity = 0.8
+        self.max_disp_alpha = 1
         
         super().__init__(cutoff_dim=cutoff_dim, max_steps=max_steps, loss_channel=loss_channel, 
-                         initial_target_fidelity= initial_target_fidelity, **kwargs)
+                         **kwargs)
 
     def _define_action_space(self):
         """
@@ -163,6 +161,14 @@ class CubicPhaseEnv(BaseQuantumEnv):
             theta = np.angle(z)
             Dgate(r, theta) | q[0]
             
+
+        self.current_state = self.eng.run(prog).state
+        self.current_ket =self.current_state.ket()
+        inner_product = np.real(np.vdot(self.current_ket, self.current_ket))
+        self.min_inner_product = min(self.min_inner_product, inner_product)
+        
+        prog = sf.Program(2)
+        with prog.context as q:
             # PNR Detection
             MonitoredLossMeasureFock(self.loss_channel) | q[0]
             
@@ -180,7 +186,7 @@ class CubicPhaseEnv(BaseQuantumEnv):
         """
         # In this paper, they don't seem to optimize over rotation in the reward
         # (unlike the Cat state paper). We use direct overlap.
-        return fidelity_pure_state(self.target_kets[0], state_ket)
+        return fidelity_max_rotation(self.target_kets[0], state_ket)
 
     def _calculate_reward_and_termination(self, fidelity, result):
         """Calculates the reward and determines if the episode should terminate."""
