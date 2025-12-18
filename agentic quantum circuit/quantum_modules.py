@@ -25,6 +25,12 @@ class CircuitContext(abc.ABC):
         """Returns the SF program for initialization."""
         pass
 
+    @abc.abstractmethod
+    def _ket_to_observation(self, ket):
+        # ... (Same implementation as your base class) ...
+        # Can be moved to a utility function
+        pass
+
 class RewardMechanism(abc.ABC):
     """Responsible for calculating reward and termination."""
     @abc.abstractmethod
