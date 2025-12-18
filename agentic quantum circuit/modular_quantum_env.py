@@ -235,8 +235,21 @@ class ModularQuantumEnv(gym.Env):
         denorm_action_dict = self._denormalize_to_dict(action)
         
         # 1. Delegate Circuit Execution
-        prog = self.circuit_context.build_step_program(denorm_action_dict)
-        result = self.eng.run(prog)
+        programs  = self.circuit_context.build_step_program(denorm_action_dict)
+        result = None
+
+        
+        # 2. Execute sequentially and monitor state between stages
+        for prog in programs:
+            result = self.eng.run(prog)
+            
+            # Update state tracking immediately after every sub-program
+            self.current_state = result.state
+            self.current_ket = self.circuit_context._get_current_ket(self.current_state)
+            
+            # Check inner product (Critical for the "split" logic)
+            inner_product = np.abs(np.vdot(self.current_ket, self.current_ket))
+            self.min_inner_product = min(self.min_inner_product, inner_product)
 
         # Get the current ket from the result
         self.current_state = result.state

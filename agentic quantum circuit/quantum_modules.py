@@ -47,8 +47,13 @@ class CircuitContext(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def build_reset_program(self) -> sf.Program:
-        """Returns the SF program for initialization."""
+    def build_reset_program(self) -> list[sf.Program]:
+        """
+        Returns a list of SF programs for a specific step.
+        If a list of two programs is returned:
+        [0]: Interaction/Preparation logic.
+        [1]: Measurement/Reset logic.
+        """
         pass
 
     @abc.abstractmethod

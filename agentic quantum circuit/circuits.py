@@ -127,8 +127,8 @@ class GeneralLoopCircuit(CircuitContext):
         return prog
     
     def build_step_program(self, action_dict: dict) -> sf.Program:
-        prog = sf.Program(2)
-        with prog.context as q:
+        prog1 = sf.Program(2)
+        with prog1.context as q:
             # 1. Prepare Ancilla (q[1])
             if self.tunable_r:
                 Sgate(action_dict['squeezing_r'], 0) | q[1]
@@ -141,10 +141,13 @@ class GeneralLoopCircuit(CircuitContext):
             # 3. Measure and Reset (CRITICAL FIX)
             # We measure q[0] (which contains the 'waste' after interaction in this setup)
             # and then swap q[1] (which momentarily holds the data) back to q[0].
+
+        prog2 = sf.Program(2)
+        with prog2.context as q:
             MonitoredLossMeasureFock(1) | q[0]
             BSgate(np.pi/2, 0) | (q[0], q[1])
 
-        return prog
+        return [prog1, prog2]
 
     def _get_current_ket(self, state):
         # Even after measurement, the state object handles the projection.
