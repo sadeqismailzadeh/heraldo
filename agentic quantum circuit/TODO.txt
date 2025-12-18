@@ -1,3 +1,5 @@
+SUPERVISOR: experimental RL agent
+
 termination with set full reflective action ask ai
 loss channel
 Map a full noise-phase diagram. Find noise thresholds where RL still performs like baselines?
@@ -26,3 +28,6 @@ articles regatding reward shaping for fidelity
 - measurement device analogous to apply kerr gate?
 - check inner product before measurement
 - make sure sb3 handels different seed for vectorized envs (minor: if strawberryfields uses that seed)
+-- curriculum increase target complexity 
+- squeezed cat with 0.99 and 0.999 fidelity
+- 0.8 success rate
