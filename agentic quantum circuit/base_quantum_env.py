@@ -1,16 +1,5 @@
 """Base classes for quantum circuit Gymnasium environments."""
 
-import abc
-import gymnasium as gym
-from gymnasium import spaces
-import numpy as np
-import scipy.sparse as sp
-
-# Import Strawberry Fields
-import strawberryfields as sf
-from strawberryfields import ops
-from strawberryfields.ops import *
-
 # 1. Import the module we need to patch
 import scipy.integrate
 
@@ -22,6 +11,19 @@ if not hasattr(scipy.integrate, 'simps'):
 else:
     print("'simps' already exists in scipy.integrate. No patch needed.")
 
+
+import abc
+import gymnasium as gym
+from gymnasium import spaces
+import numpy as np
+import scipy.sparse as sp
+
+# Import Strawberry Fields
+import strawberryfields as sf
+from strawberryfields import ops
+from strawberryfields.ops import *
+
+
 # disable caching to save memory for large cutoff dims
 from sf_operations_no_cache import disable_fock_caching
 disable_fock_caching()
@@ -29,6 +31,9 @@ disable_fock_caching()
 # optimized loss channel
 from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, decode_measurement_result
 patch_fock_backend()
+
+from beamsplitter_patch import patch_beamsplitter
+patch_beamsplitter()
 
 # --- Utility Functions ---
 
@@ -128,6 +133,7 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
         self.past_ket = None
         self.min_inner_product = 1.0
         self.current_state = None
+        self.past_fidelity = 0.0
 
         # --- Observation and Action Spaces (to be defined by subclass) ---
         obs_size = 2 * self.cutoff_dim
@@ -140,13 +146,19 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
         self.action_ranges = {}
         self._define_action_space()  # Subclass must implement this
 
+
+        # --- Precompute operators for optional metrics ---
+        self._precompute_quadrature_operators()
+
         # --- Target States (to be defined by subclass) ---
         self.target_kets = self._initialize_target_states()
 
         self.target_fidelity = initial_target_fidelity
 
-        # --- Precompute operators for optional metrics ---
-        self._precompute_quadrature_operators()
+        self.target_ng_score =self.compute_non_gaussianity(self.target_kets[0])
+        print(f"target ng = {self.target_ng_score:.2f}")
+
+
 
     def set_difficulty(self, fidelity):
         """
@@ -226,9 +238,9 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
 
     def _calculate_reward(self, fidelity):
         """Calculates a logarithmic reward based on infidelity."""
-        infidelity = max(1.0 - fidelity, 1e-5)
+        infidelity = max(1.0 - fidelity, 1e-3)
         log_val = -np.log10(infidelity)
-        return fidelity * log_val
+        return ((fidelity**2) * log_val)**2
 
     def reset(self, seed=None, options=None):
         """Resets the environment to an initial state."""
@@ -258,6 +270,11 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
         self.current_step += 1
 
         denormalized_action = self._denormalize_action(action)
+
+        for i, key in enumerate(self.action_keys):
+            low, high = self.action_ranges[key]
+            denormalized_action[i] = np.clip(denormalized_action[i], low, high)
+
         prog = self._build_step_program(denormalized_action)
         result = self.eng.run(prog)
 
@@ -344,7 +361,7 @@ class BaseQuantumEnv(gym.Env, abc.ABC):
             skewness = moment3_central / (sigma**3)
             excess_kurtosis = (moment4_central / (var**2)) - 3.0
 
-            return np.abs(skewness) + 0.1 * np.abs(excess_kurtosis)
+            return np.abs(skewness) +  np.abs(excess_kurtosis)
 
         score_x = get_quadrature_score(self.x_op_sparse, self.x2_sparse, self.x3_sparse, self.x4_sparse)
         score_p = get_quadrature_score(self.p_op_sparse, self.p2_sparse, self.p3_sparse, self.p4_sparse)
