@@ -48,12 +48,16 @@ from quantum_circuit_env import QuantumCircuitEnv
 from quantum_cubic_env import CubicPhaseEnv
 from quantum_gadget_env import QuantumGadgetEnv
 from quantum_gadget_env_3mode import ThreeModeGadgetEnv
+from quantum_quartic_env import QuarticPhaseEnv
+from quantum_GKP_env2 import GKPStateEnv
 # from quantum_gadget_env_seeded import SeededQuantumGadgetEnv
 
 from thread_manager_callback import ThreadManagerCallback
 from metrics_callback import MetricsCallback
 from typing import Callable
 from curriculum_callback import CurriculumCallback 
+from gkp_curriculum_callback import GKPCurriculumCallback
+from adaptive_kl_callback import AdaptiveKLCallback
 import torch
 
 
@@ -81,29 +85,29 @@ def main():
     """Configures the environment, resumes if possible, and launches PPO training."""
     # --- Configuration ---
     # Environment Parameters
-    CUTOFF_DIM = 25
-    MAX_STEPS = 50
+    CUTOFF_DIM = 50
+    MAX_STEPS = 15
     TUNABLE_R = True
     INITIAL_DIFFICULTY = 0.75 # Start easy
 
     # Training Parameters
     N_ENVS = 4  # Number of parallel environments
-    TARGET_TIMESTEPS = 30_000_000  # Total steps for the entire training run
+    TARGET_TIMESTEPS = 100_000_000  # Total steps for the entire training run
     CHECKPOINT_FREQ = 20_000  # Save a checkpoint every N steps
 
     # PPO Hyperparameters
     POLICY_KWARGS = dict(
-        net_arch=dict(pi=[256, 256], vf=[256, 256]),
+        net_arch=dict(pi=[256, 256, 256], vf=[256, 256, 256]),
         optimizer_class=torch.optim.Adam,
         activation_fn=torch.nn.Tanh)
     LEARNING_RATE = 3e-4
     # LEARNING_RATE = linear_schedule(3e-4, 1e-5)
-    N_STEPS_PER_UPDATE = 2048 
-    BATCH_SIZE = 128 * 2
+    N_STEPS_PER_UPDATE = 2048 // N_ENVS
+    BATCH_SIZE = 64
     N_EPOCHS = 10
     GAMMA = 0.99
     GAE_LAMBDA = 0.95
-    ENT_COEF = 0.01
+    ENT_COEF = 0.00
 
     # --- Setup Paths ---
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train")
@@ -160,7 +164,13 @@ def main():
         if os.path.exists(stats_path):
             env = VecNormalize.load(stats_path, vec_env)
             print(f"Loaded VecNormalize stats from {stats_path}")
-        model = PPO.load(latest_checkpoint, env=env)
+        model = PPO.load(latest_checkpoint, 
+                        env=env,
+                        # n_steps=N_STEPS_PER_UPDATE//2,
+                        # batch_size=BATCH_SIZE//2,
+                        # learning_rate=LEARNING_RATE,
+                        ent_coef=0,
+                        )
 
         
         # --- SET a new, much smaller learning rate ---
@@ -170,10 +180,10 @@ def main():
         # here a constant learning rate
 
 
-        # model.lr_schedule = lambda _: 1e-4
+        # model.lr_schedule = lambda _: new_learning_rate
         # # Update `learning_rate` too in case we want to save/load the model
         # # (cf. remark below)
-        # model.learning_rate = lambda _: initial_lr
+        # model.learning_rate = lambda _: new_learning_rate
         # print(f"New learning rate set to: {initial_lr}")
         
 
@@ -191,10 +201,11 @@ def main():
             batch_size=BATCH_SIZE,
             n_epochs=N_EPOCHS,
             gamma=GAMMA,
-            gae_lambda=GAE_LAMBDA,
-            ent_coef=ENT_COEF,
+            # gae_lambda=GAE_LAMBDA,
+            # ent_coef=ENT_COEF,
             verbose=1,
             # use_sde=True,
+            # sde_sample_freq=8,
             device='cpu',
             tensorboard_log=log_dir
         )
@@ -217,13 +228,33 @@ def main():
     # NEW: Instantiate Curriculum Manager
     curriculum_callback = CurriculumCallback(
         log_dir=log_dir,                  # <--- Pass the log directory here
-        success_threshold=0.6, 
-        max_difficulty=0.99,
+        success_threshold=0.99, 
+        max_difficulty=0.9999,
         initial_difficulty=INITIAL_DIFFICULTY, # <--- Use your constant from top of script
         verbose=1
     )
 
-    callback_list = CallbackList([checkpoint_callback, thread_manager_callback, metrics_callback, curriculum_callback])
+
+    # curriculum_callback = GKPCurriculumCallback(
+    #     log_dir=log_dir,
+    #     initial_fidelity=0.5,
+    #     max_fidelity=0.96,     # The trigger point
+    #     reset_fidelity=0.75,   # The drop point
+    #     initial_delta=0.58,
+    #     min_delta=0.2,        # Final goal
+    #     delta_step=0.01,       # How fast to sharpen
+    #     success_threshold=0.6,
+    #     verbose=1
+    # )
+
+    kl_callback = AdaptiveKLCallback(
+        kl_threshold=0.05, 
+        window_size=15, 
+        decay_factor=0.5,
+        min_lr=1e-6
+    )
+
+    callback_list = CallbackList([checkpoint_callback, thread_manager_callback, metrics_callback, curriculum_callback, kl_callback])
 
     # --- Train the Agent ---
     remaining_timesteps = TARGET_TIMESTEPS - current_steps
