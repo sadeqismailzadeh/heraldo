@@ -24,6 +24,19 @@ class TargetGenerator(abc.ABC):
 
 class CircuitContext(abc.ABC):
     """Responsible for the physical settings and action space."""
+
+    @property
+    @abc.abstractmethod
+    def action_keys(self) -> list:
+        """List of strings naming the action parameters."""
+        pass
+
+    @property
+    @abc.abstractmethod
+    def action_ranges(self) -> dict:
+        """Dictionary mapping keys to (min, max) physical values."""
+        pass
+
     @abc.abstractmethod
     def get_action_space(self) -> gym.spaces.Box:
         pass
@@ -47,7 +60,7 @@ class CircuitContext(abc.ABC):
 class RewardMechanism(abc.ABC):
     """Responsible for calculating reward and termination."""
     @abc.abstractmethod
-    def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict) -> tuple[float, bool, dict]:
+    def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict, target_fidelity: float) -> tuple[float, bool, dict]:
         """
         Compute reward and termination signal.
         

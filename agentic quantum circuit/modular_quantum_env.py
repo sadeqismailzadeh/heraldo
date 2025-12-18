@@ -149,6 +149,8 @@ class ModularQuantumEnv(gym.Env):
         self.past_fidelity = 0.0
         
         # Initialize
+        self.action_keys = self.circuit_context.action_keys
+        self.action_ranges = self.circuit_context.action_ranges
         self.action_space = self.circuit_context.get_action_space()
         
         # Observation space (Standardized)
@@ -166,6 +168,8 @@ class ModularQuantumEnv(gym.Env):
         # Compute target non-Gaussianity (use first target)
         self.target_ng_score = self.compute_non_gaussianity(self.target_kets[0])
         print(f"target ng = {self.target_ng_score:.2f}")
+
+
 
     def set_difficulty(self, fidelity):
         """
@@ -194,17 +198,15 @@ class ModularQuantumEnv(gym.Env):
         self._obs_buffer[self.cutoff_dim:] = state_ket.imag
         return self._obs_buffer.copy()
 
-    def _denormalize_action(self, action):
-        """Denormalize action from [-1, 1] to original physical ranges."""
-        denorm_action = np.zeros_like(action, dtype=np.float32)
-
+    def _denormalize_to_dict(self, action_array):
+        """Maps [-1, 1] array to a dictionary of named physical values."""
+        denorm_dict = {}
         for i, key in enumerate(self.action_keys):
             low, high = self.action_ranges[key]
-            a = (high - low) / 2
-            b = (high + low) / 2
-            denorm_action[i] = a * action[i] + b
-
-        return denorm_action
+            # Scale from [-1, 1] to [low, high]
+            val = ((high - low) / 2.0) * action_array[i] + ((high + low) / 2.0)
+            denorm_dict[key] = np.clip(val, low, high)
+        return denorm_dict
 
     def reset(self, seed=None, options=None):
         """Resets the environment to an initial state."""
@@ -230,14 +232,10 @@ class ModularQuantumEnv(gym.Env):
         """Executes one time step within the environment."""
         self.current_step += 1
 
-        denormalized_action = self._denormalize_action(action)
-
-        for i, key in enumerate(self.action_keys):
-            low, high = self.action_ranges[key]
-            denormalized_action[i] = np.clip(denormalized_action[i], low, high)
+        denorm_action_dict = self._denormalize_to_dict(action)
         
         # 1. Delegate Circuit Execution
-        prog = self.circuit_context.build_step_program(action)
+        prog = self.circuit_context.build_step_program(denorm_action_dict)
         result = self.eng.run(prog)
 
         # Get the current ket from the result
@@ -255,12 +253,14 @@ class ModularQuantumEnv(gym.Env):
             "samples": result.samples if hasattr(result, 'samples') else None,
             "results": result,
             "past_ket": self.past_ket,
+            "ng_score": self.compute_non_gaussianity(self.current_ket)
         }
         
         reward, terminated, info = self.reward_mech.compute(
             self.current_ket, 
             self.target_kets,  # Pass all targets for reward calculation
-            step_info
+            step_info,
+            self.target_fidelity 
         )
         
         truncated = self.current_step >= self.max_steps
