@@ -44,16 +44,30 @@ class CurriculumCallback(BaseCallback):
 
     def _calculate_next_difficulty(self):
         """Calculate the next difficulty level."""
+        if self.current_difficulty < 0.7:
+            increment = 0.04
         if self.current_difficulty < 0.92:
-            increment = 0.005 * 2
-        elif self.current_difficulty < 0.97:
-            increment = 0.0025 * 2
+            increment = 0.02
+        # elif self.current_difficulty < 0.97:
+        #     increment = 0.0025 * 2
+        # elif self.current_difficulty < 0.98:
+        #     increment = 0.001 * 2
         elif self.current_difficulty < 0.98:
-            increment = 0.001 * 2
+            increment = 0.01
         elif self.current_difficulty < 0.99:
-            increment = 0.0005 * 2
-        else:
+            increment = 0.0025
+        elif self.current_difficulty < 0.998:
+            increment = 0.001
+        elif self.current_difficulty < 0.999:
+            increment = 0.00025
+        elif self.current_difficulty < 0.9998:
             increment = 0.0001
+        elif self.current_difficulty < 0.9999:
+            increment = 0.000025
+        elif self.current_difficulty < 0.99999:
+            increment = 0.0001
+        else:
+            increment = 0
         return min(self.current_difficulty + increment, self.max_difficulty)
 
     def _on_training_start(self) -> None:
@@ -102,7 +116,7 @@ class CurriculumCallback(BaseCallback):
         # 1. If we have 100+ episodes, evaluate immediately.
         # 2. If we have accumulated 2 rollouts, evaluate immediately (regardless of count).
         # 3. Otherwise, return and keep accumulating data in the next rollout.
-        if num_episodes < 100:
+        if num_episodes < 400:
             if self.verbose > 0:
                 print(f"   [Curriculum] Accumulating... (Eps: {num_episodes}, Rollouts: {self.rollouts_accumulated})")
             return 
