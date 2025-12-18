@@ -11,8 +11,17 @@ import time
 import strawberryfields as sf
 from strawberryfields.ops import *
 from strawberryfields import ops
+
+
+# disable caching to save memory for large cutoff dims
+from sf_operations_no_cache import disable_fock_caching
+disable_fock_caching()
+
 from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, decode_measurement_result
 patch_fock_backend()
+
+from beamsplitter_patch import patch_beamsplitter
+patch_beamsplitter()
 
 
 print("="*80)
@@ -20,7 +29,7 @@ print(" Benchmark: Sgate vs BSgate vs Dgate vs MeasureFock with Varying Cutoff "
 print("="*80)
 
 # Test configuration
-cutoffs = [5, 10, 15, 20, 25, 30, 40, 50]
+cutoffs = [5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 150]
 n_trials = 20
 n_modes = 2
 
