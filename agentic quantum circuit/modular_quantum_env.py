@@ -236,6 +236,11 @@ class ModularQuantumEnv(gym.Env):
         
         # 1. Delegate Circuit Execution
         programs  = self.circuit_context.build_step_program(denorm_action_dict)
+
+        # Safety check: Ensure programs is iterable (list), even if single program returned 
+        if isinstance(programs, sf.Program):
+            programs = [programs]
+    
         result = None
 
         
@@ -248,7 +253,8 @@ class ModularQuantumEnv(gym.Env):
             self.current_ket = self.circuit_context._get_current_ket(self.current_state)
             
             # Check inner product (Critical for the "split" logic)
-            inner_product = np.abs(np.vdot(self.current_ket, self.current_ket))
+            full_ket = result.state.ket()
+            inner_product = np.abs(np.vdot(full_ket.flatten(), full_ket.flatten()))
             self.min_inner_product = min(self.min_inner_product, inner_product)
 
         # Get the current ket from the result
