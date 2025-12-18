@@ -5,68 +5,6 @@ from quantum_modules import RewardMechanism
 from base_quantum_env import fidelity_max_rotation, decode_measurement_result
 
 
-class StandardFidelityReward(RewardMechanism):
-    """
-    Generic fidelity-based reward mechanism.
-    
-    Uses logarithmic reward based on infidelity:
-    reward = ((fidelity^2) * log10(1/(1-fidelity)))^2
-    
-    Provides bonus for reaching target fidelity.
-    """
-    
-    def __init__(self, target_fidelity=0.9, bonus_multiplier=10.0):
-        self.target_fidelity = target_fidelity
-        self.bonus_multiplier = bonus_multiplier
-    
-    def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict) -> tuple:
-        """
-        Compute reward and termination.
-        
-        Returns:
-            (reward, terminated, info)
-        """
-        fidelity = max([fidelity_max_rotation(target_ket, current_ket) for target_ket in target_kets])
-        result = step_info.get('result', None)
-        past_ket = step_info.get('past_ket', None)
-        
-        terminated = False
-        hit_target = (fidelity > self.target_fidelity)
-        
-        # Logarithmic reward
-        max_reward = self._calculate_reward(self.target_fidelity)
-        reward = self._calculate_reward(fidelity)
-        reward -= max_reward
-
-        if hit_target:
-            reward += self.bonus_multiplier * max_reward
-            terminated = True
-
-        # Extract measurement info
-        info = {
-            'is_success': hit_target,
-            'fidelity': fidelity,
-            'target_fidelity': self.target_fidelity
-        }
-        
-        if result is not None:
-            encoded_result = result.samples[0][0]
-            lost_photons, detected_photons = decode_measurement_result(encoded_result)
-            info.update({
-                'photon_loss': lost_photons,
-                'detected_photons': detected_photons,
-                'total_photons': lost_photons + detected_photons
-            })
-
-        return reward, terminated, info
-    
-    def _calculate_reward(self, fidelity):
-        """Calculates a logarithmic reward based on infidelity."""
-        infidelity = max(1.0 - fidelity, 1e-3)
-        log_val = -np.log10(infidelity)
-        return ((fidelity**2) * log_val)**2
-
-
 class LogFidelityReward(RewardMechanism):
     """
     Logarithmic fidelity reward used for circuit environment (cat state).
@@ -109,10 +47,9 @@ class LogFidelityReward(RewardMechanism):
         reward -= self.time_penalty * max_reward
         
         # Stagnation penalty: penalize if state hasn't changed much
-        if past_ket is not None:
-            self_fidelity = fidelity_max_rotation(past_ket, current_ket)
-            if self_fidelity > 0.95:
-                reward -= self.stagnation_penalty * max_reward
+        self_fidelity = fidelity_max_rotation(past_ket, current_ket)
+        if self_fidelity > 0.95:
+            reward -= self.stagnation_penalty * max_reward
 
         # Success bonus
         if hit_target:
@@ -120,7 +57,7 @@ class LogFidelityReward(RewardMechanism):
             terminated = True
 
         # Normalize reward
-        reward /= (4 * max_reward)
+        reward /= (self.bonus_multiplier * max_reward)
         
         # Extract measurement info
         info = {
@@ -192,11 +129,10 @@ class GadgetReward(RewardMechanism):
         reward = self._calculate_reward(fidelity)
         reward -= max_reward
         
-        # Stagnation penalty
-        if past_ket is not None:
-            self_fidelity = fidelity_max_rotation(past_ket, current_ket)
-            if self_fidelity > 0.95:
-                reward -= self.stagnation_penalty * max_reward
+    # Stagnation penalty
+        self_fidelity = fidelity_max_rotation(past_ket, current_ket)
+        if self_fidelity > 0.95:
+            reward -= self.stagnation_penalty * max_reward
 
         if hit_target:
             reward += self.bonus_multiplier * max_reward
@@ -210,17 +146,15 @@ class GadgetReward(RewardMechanism):
             'target_ng_score': self.target_ng_score
         }
         
-        if result is not None:
-            encoded_result = result.samples[0][0]
-            lost_photons, detected_photons = decode_measurement_result(encoded_result)
-            info.update({
-                'photon_loss': lost_photons,
-                'detected_photons': detected_photons,
-                'total_photons': lost_photons + detected_photons
-            })
+        encoded_result = result.samples[0][0]
+        lost_photons, detected_photons = decode_measurement_result(encoded_result)
+        info.update({
+            'photon_loss': lost_photons,
+            'detected_photons': detected_photons,
+            'total_photons': lost_photons + detected_photons
+        })
         
-        if past_ket is not None:
-            info['self_fidelity'] = fidelity_max_rotation(past_ket, current_ket)
+        info['self_fidelity'] = fidelity_max_rotation(past_ket, current_ket)
 
         return reward, terminated, info
     
