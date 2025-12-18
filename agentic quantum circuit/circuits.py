@@ -19,6 +19,7 @@ import strawberryfields as sf
 from strawberryfields.ops import *
 
 from quantum_modules import CircuitContext
+from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock
 
 class GKPCircuit(CircuitContext):
     """
@@ -71,6 +72,11 @@ class GKPCircuit(CircuitContext):
             Dgate(action_dict['d_mag'], action_dict['d_phi']) | q[1]
             # Interact
             BSgate(action_dict['bs_theta'], 0) | (q[0], q[1])
+            
+            # Measurement and reset are critical for loop stability
+            MonitoredLossMeasureFock(1) | q[0]
+            BSgate(np.pi/2, 0) | (q[0], q[1])
+            
         return prog
 
     def _get_current_ket(self, state):
@@ -123,15 +129,26 @@ class GeneralLoopCircuit(CircuitContext):
     def build_step_program(self, action_dict: dict) -> sf.Program:
         prog = sf.Program(2)
         with prog.context as q:
+            # 1. Prepare Ancilla (q[1])
             if self.tunable_r:
                 Sgate(action_dict['squeezing_r'], 0) | q[1]
             else:
                 Sgate(self.max_squeezing, action_dict['squeezing_phase']) | q[1]
             
+            # 2. Interact Data(q[0]) and Ancilla(q[1])
             BSgate(action_dict['theta_1'], 0) | (q[0], q[1])
+
+            # 3. Measure and Reset (CRITICAL FIX)
+            # We measure q[0] (which contains the 'waste' after interaction in this setup)
+            # and then swap q[1] (which momentarily holds the data) back to q[0].
+            MonitoredLossMeasureFock(1) | q[0]
+            BSgate(np.pi/2, 0) | (q[0], q[1])
+
         return prog
 
     def _get_current_ket(self, state):
+        # Even after measurement, the state object handles the projection.
+        # We extract the ket of the active mode (q[0] after swap).
         return state.ket()[:, 0]
 
 
@@ -186,6 +203,11 @@ class CubicSpecificCircuit(CircuitContext):
             
             # Fixed displacement in measurement arm (q[0])
             Dgate(np.abs(1j * self.fixed_measure_beta), np.angle(1j * self.fixed_measure_beta)) | q[0]
+            
+            # Measure and Swap
+            MonitoredLossMeasureFock(1) | q[0]
+            BSgate(np.pi/2, 0) | (q[0], q[1])
+
         return prog
 
     def _get_current_ket(self, state):
@@ -250,6 +272,11 @@ class GadgetCircuit(CircuitContext):
             
             # Output displacement on loop mode
             Dgate(action_dict['disp_mag2'], action_dict['disp_phi2']) | q[0]
+
+            # Measure and Swap
+            MonitoredLossMeasureFock(1) | q[0]
+            BSgate(np.pi/2, 0) | (q[0], q[1])
+
         return prog
 
     def _get_current_ket(self, state):
@@ -293,6 +320,11 @@ class QuarticSpecificCircuit(CircuitContext):
             Dgate(np.abs(alpha_z), np.angle(alpha_z)) | q[1]
             
             BSgate(action_dict['theta'], 0) | (q[0], q[1])
+            
+            # Measure and Swap
+            MonitoredLossMeasureFock(1) | q[0]
+            BSgate(np.pi/2, 0) | (q[0], q[1])
+
         return prog
 
     def _get_current_ket(self, state):
