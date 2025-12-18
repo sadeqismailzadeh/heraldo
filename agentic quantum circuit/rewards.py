@@ -19,14 +19,14 @@ class StandardFidelityReward(RewardMechanism):
         self.target_fidelity = target_fidelity
         self.bonus_multiplier = bonus_multiplier
     
-    def compute(self, current_ket: np.ndarray, target_ket: np.ndarray, step_info: dict) -> tuple:
+    def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict) -> tuple:
         """
         Compute reward and termination.
         
         Returns:
             (reward, terminated, info)
         """
-        fidelity = step_info.get('fidelity', 0.0)
+        fidelity = max([fidelity_max_rotation(target_ket, current_ket) for target_ket in target_kets])
         result = step_info.get('result', None)
         past_ket = step_info.get('past_ket', None)
         
@@ -86,14 +86,14 @@ class LogFidelityReward(RewardMechanism):
         self.stagnation_penalty = stagnation_penalty
         self.bonus_multiplier = bonus_multiplier
     
-    def compute(self, current_ket: np.ndarray, target_ket: np.ndarray, step_info: dict) -> tuple:
+    def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict) -> tuple:
         """
         Compute reward with penalties and bonuses.
         
         Returns:
             (reward, terminated, info)
         """
-        fidelity = step_info.get('fidelity', 0.0)
+        fidelity = max([fidelity_max_rotation(target_ket, current_ket) for target_ket in target_kets])
         result = step_info.get('result', None)
         past_ket = step_info.get('past_ket', None)
         
@@ -150,190 +150,6 @@ class LogFidelityReward(RewardMechanism):
         return ((fidelity**2) * log_val)**2
 
 
-class GKPReward(RewardMechanism):
-    """
-    GKP-specific reward mechanism with bonus structure.
-    
-    GKP states are rotationally symmetric (modularly), so uses fidelity_max_rotation
-    to optimize over phase before computing reward.
-    """
-    
-    def __init__(self, target_fidelity=0.8, bonus_multiplier=10.0):
-        self.target_fidelity = target_fidelity
-        self.bonus_multiplier = bonus_multiplier
-    
-    def compute(self, current_ket: np.ndarray, target_ket: np.ndarray, step_info: dict) -> tuple:
-        """
-        Compute GKP reward with phase optimization.
-        
-        Returns:
-            (reward, terminated, info)
-        """
-        # Compute fidelity with phase optimization
-        fidelity = fidelity_max_rotation(target_ket, current_ket)
-        
-        result = step_info.get('result', None)
-        
-        terminated = False
-        hit_target = (fidelity > self.target_fidelity)
-        
-        max_reward = self._calculate_reward(self.target_fidelity)
-        reward = self._calculate_reward(fidelity)
-        reward -= max_reward
-
-        if hit_target:
-            reward += self.bonus_multiplier * max_reward
-            terminated = True
-
-        info = {
-            'is_success': hit_target,
-            'fidelity': fidelity,
-            'target_fidelity': self.target_fidelity
-        }
-        
-        if result is not None:
-            encoded_result = result.samples[0][0]
-            lost_photons, detected_photons = decode_measurement_result(encoded_result)
-            info.update({
-                'photon_loss': lost_photons,
-                'detected_photons': detected_photons,
-                'total_photons': lost_photons + detected_photons
-            })
-
-        return reward, terminated, info
-    
-    def _calculate_reward(self, fidelity):
-        """Calculates logarithmic reward based on infidelity."""
-        infidelity = max(1.0 - fidelity, 1e-3)
-        log_val = -np.log10(infidelity)
-        return ((fidelity**2) * log_val)**2
-
-
-class CubicPhaseReward(RewardMechanism):
-    """
-    Cubic Phase-specific reward with stagnation penalty.
-    
-    Penalizes states that don't change significantly between steps.
-    """
-    
-    def __init__(self, target_fidelity=0.9, bonus_multiplier=10.0, 
-                 stagnation_threshold=0.95, stagnation_penalty=1.0):
-        self.target_fidelity = target_fidelity
-        self.bonus_multiplier = bonus_multiplier
-        self.stagnation_threshold = stagnation_threshold
-        self.stagnation_penalty = stagnation_penalty
-    
-    def compute(self, current_ket: np.ndarray, target_ket: np.ndarray, step_info: dict) -> tuple:
-        """
-        Compute cubic phase reward with stagnation penalty.
-        
-        Returns:
-            (reward, terminated, info)
-        """
-        fidelity = step_info.get('fidelity', 0.0)
-        result = step_info.get('result', None)
-        past_ket = step_info.get('past_ket', None)
-        
-        terminated = False
-        hit_target = (fidelity > self.target_fidelity)
-        
-        max_reward = self._calculate_reward(self.target_fidelity)
-        reward = self._calculate_reward(fidelity)
-        reward -= max_reward
-
-        # Stagnation penalty
-        if past_ket is not None:
-            self_fidelity = fidelity_max_rotation(past_ket, current_ket)
-            if self_fidelity > self.stagnation_threshold:
-                reward -= self.stagnation_penalty * max_reward
-
-        if hit_target:
-            reward += self.bonus_multiplier * max_reward
-            terminated = True
-
-        info = {
-            'is_success': hit_target,
-            'fidelity': fidelity,
-            'target_fidelity': self.target_fidelity
-        }
-        
-        if result is not None:
-            encoded_result = result.samples[0][0]
-            lost_photons, detected_photons = decode_measurement_result(encoded_result)
-            info.update({
-                'photon_loss': lost_photons,
-                'detected_photons': detected_photons,
-                'total_photons': lost_photons + detected_photons
-            })
-        
-        if past_ket is not None:
-            info['self_fidelity'] = fidelity_max_rotation(past_ket, current_ket)
-
-        return reward, terminated, info
-    
-    def _calculate_reward(self, fidelity):
-        """Calculates logarithmic reward based on infidelity."""
-        infidelity = max(1.0 - fidelity, 1e-3)
-        log_val = -np.log10(infidelity)
-        return ((fidelity**2) * log_val)**2
-
-
-class QuarticPhaseReward(RewardMechanism):
-    """
-    Quartic Phase-specific reward (simpler than cubic, no stagnation penalty).
-    
-    Quartic states are more complex and benefit from simpler reward structure.
-    """
-    
-    def __init__(self, target_fidelity=0.9, bonus_multiplier=10.0):
-        self.target_fidelity = target_fidelity
-        self.bonus_multiplier = bonus_multiplier
-    
-    def compute(self, current_ket: np.ndarray, target_ket: np.ndarray, step_info: dict) -> tuple:
-        """
-        Compute quartic phase reward.
-        
-        Returns:
-            (reward, terminated, info)
-        """
-        fidelity = step_info.get('fidelity', 0.0)
-        result = step_info.get('result', None)
-        
-        terminated = False
-        hit_target = (fidelity > self.target_fidelity)
-        
-        max_reward = self._calculate_reward(self.target_fidelity)
-        reward = self._calculate_reward(fidelity)
-        reward -= max_reward
-
-        if hit_target:
-            reward += self.bonus_multiplier * max_reward
-            terminated = True
-
-        info = {
-            'is_success': hit_target,
-            'fidelity': fidelity,
-            'target_fidelity': self.target_fidelity
-        }
-        
-        if result is not None:
-            encoded_result = result.samples[0][0]
-            lost_photons, detected_photons = decode_measurement_result(encoded_result)
-            info.update({
-                'photon_loss': lost_photons,
-                'detected_photons': detected_photons,
-                'total_photons': lost_photons + detected_photons
-            })
-
-        return reward, terminated, info
-    
-    def _calculate_reward(self, fidelity):
-        """Calculates logarithmic reward based on infidelity."""
-        infidelity = max(1.0 - fidelity, 1e-3)
-        log_val = -np.log10(infidelity)
-        return ((fidelity**2) * log_val)**2
-
-
 class GadgetReward(RewardMechanism):
     """
     Gadget circuit reward with non-Gaussianity score.
@@ -356,14 +172,14 @@ class GadgetReward(RewardMechanism):
         self.bonus_multiplier = bonus_multiplier
         self.stagnation_penalty = stagnation_penalty
     
-    def compute(self, current_ket: np.ndarray, target_ket: np.ndarray, step_info: dict) -> tuple:
+    def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict) -> tuple:
         """
         Compute gadget reward combining fidelity and non-Gaussianity.
         
         Returns:
             (reward, terminated, info)
         """
-        fidelity = step_info.get('fidelity', 0.0)
+        fidelity = max([fidelity_max_rotation(target_ket, current_ket) for target_ket in target_kets])
         ng_score = step_info.get('ng_score', 0.0)
         result = step_info.get('result', None)
         past_ket = step_info.get('past_ket', None)

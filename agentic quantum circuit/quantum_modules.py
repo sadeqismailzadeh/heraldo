@@ -9,7 +9,7 @@ if not hasattr(scipy.integrate, 'simps'):
     scipy.integrate.simps = scipy.integrate.simpson
 else:
     print("'simps' already exists in scipy.integrate. No patch needed.")
-    
+
 import abc
 import numpy as np
 import gymnasium as gym
@@ -47,6 +47,16 @@ class CircuitContext(abc.ABC):
 class RewardMechanism(abc.ABC):
     """Responsible for calculating reward and termination."""
     @abc.abstractmethod
-    def compute(self, current_ket: np.ndarray, target_ket: np.ndarray, step_info: dict) -> tuple[float, bool, dict]:
-        """Returns (reward, terminated, info)."""
+    def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict) -> tuple[float, bool, dict]:
+        """
+        Compute reward and termination signal.
+        
+        Args:
+            current_ket: Current state vector
+            target_kets: List of target state vectors
+            step_info: Dictionary with step information
+            
+        Returns:
+            Tuple of (reward, terminated, info)
+        """
         pass

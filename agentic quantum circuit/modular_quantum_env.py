@@ -117,7 +117,7 @@ class ModularQuantumEnv(gym.Env):
 
     def __init__(
         self, 
-        target_gen: TargetGenerator,
+        target_gens,  # Can be a single TargetGenerator or list of TargetGenerators
         circuit_context: CircuitContext,
         reward_mech: RewardMechanism,
         cutoff_dim=25,
@@ -131,8 +131,12 @@ class ModularQuantumEnv(gym.Env):
         self.max_steps = max_steps
         self.loss_channel = loss_channel
         
-        # Composition
-        self.target_gen = target_gen
+        # Composition: normalize target_gens to a list
+        if isinstance(target_gens, (list, tuple)):
+            self.target_gens = list(target_gens)
+        else:
+            self.target_gens = [target_gens]
+        
         self.circuit_context = circuit_context
         self.reward_mech = reward_mech
         
@@ -152,15 +156,15 @@ class ModularQuantumEnv(gym.Env):
         self._obs_buffer = np.zeros(obs_size, dtype=np.float32)
         self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(obs_size,), dtype=np.float32)
 
-        # Lazy load target (in case it's expensive)
-        self.target_ket = self.target_gen.get_target_ket(self.cutoff_dim)
+        # Lazy load target states (in case it's expensive)
+        self.target_kets = [target_gen.get_target_ket(self.cutoff_dim) for target_gen in self.target_gens]
         self.target_fidelity = initial_target_fidelity
 
         # --- Precompute operators for optional metrics ---
         self._precompute_quadrature_operators()
 
-        # Compute target non-Gaussianity
-        self.target_ng_score = self.compute_non_gaussianity(self.target_ket)
+        # Compute target non-Gaussianity (use first target)
+        self.target_ng_score = self.compute_non_gaussianity(self.target_kets[0])
         print(f"target ng = {self.target_ng_score:.2f}")
 
     def set_difficulty(self, fidelity):
@@ -248,12 +252,14 @@ class ModularQuantumEnv(gym.Env):
         step_info = {
             "step": self.current_step, 
             "max_steps": self.max_steps,
-            "samples": result.samples if hasattr(result, 'samples') else None
+            "samples": result.samples if hasattr(result, 'samples') else None,
+            "results": result,
+            "past_ket": self.past_ket,
         }
         
         reward, terminated, info = self.reward_mech.compute(
             self.current_ket, 
-            self.target_ket, 
+            self.target_kets,  # Pass all targets for reward calculation
             step_info
         )
         
