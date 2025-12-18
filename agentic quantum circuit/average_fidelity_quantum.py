@@ -27,7 +27,7 @@ def main():
     """Runs the evaluation and computes average fidelity."""
     # --- Configuration ---
     # IMPORTANT: Environment parameters MUST match those used during training.
-    CUTOFF_DIM = 25
+    CUTOFF_DIM = 50
     MAX_STEPS = 50
     REWARD_POWER = 2
     N_EPISODES = 1000  # Number of episodes to run

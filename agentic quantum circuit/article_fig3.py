@@ -40,7 +40,7 @@ from quantum_cubic_env import CubicPhaseEnv
 # --- Configuration ---
 
 # Simulation Parameters
-CUTOFF_DIM = 25
+CUTOFF_DIM = 50
 MAX_STEPS = 50
 REWARD_POWER = 2 
 
@@ -111,7 +111,7 @@ def main():
             tunable_r=True, # Article 1 usually assumes fixed r=1.38, agent controls theta
             is_loss_channel=False,
             loss_channel=1,
-            initial_target_fidelity=0.94,
+            initial_target_fidelity=0.95,
         ),
         vec_env_cls=SubprocVecEnv
     )
