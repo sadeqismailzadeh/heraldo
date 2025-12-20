@@ -18,8 +18,8 @@ from gymnasium import spaces
 import strawberryfields as sf
 from strawberryfields.ops import *
 
-from quantum_modules import CircuitContext
-from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock
+from quantum_agent.core.interfaces import CircuitContext
+from quantum_agent.patches.monitored_loss_measure_fock_patch import MonitoredLossMeasureFock
 
 class GKPCircuit(CircuitContext):
     """

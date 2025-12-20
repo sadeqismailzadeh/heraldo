@@ -31,8 +31,8 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
-from quantum_cubic_env import CubicPhaseEnv
+from legacy.quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from legacy.quantum_cubic_env import CubicPhaseEnv
 
 # from quantum_gadget_env import QuantumGadgetEnv, fidelity_pure_state
 # from quantum_circuit_env_mixed import QuantumCircuitEnv

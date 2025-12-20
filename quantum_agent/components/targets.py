@@ -21,7 +21,7 @@ from scipy.special import factorial
 import scipy.linalg
 import pandas as pd
 
-from quantum_modules import TargetGenerator
+from quantum_agent.core.interfaces import TargetGenerator
 
 
 # --- QuTiP Target Generators (Helper Functions) ---

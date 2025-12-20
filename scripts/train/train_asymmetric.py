@@ -45,10 +45,10 @@ from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 
-from asymmetric_env import AsymmetricTrainingEnv
-from asymmetric_policy import AsymmetricLstmPolicy
-from thread_manager_callback import ThreadManagerCallback
-from metrics_callback import MetricsCallback
+from devel.assymetric.asymmetric_env import AsymmetricTrainingEnv
+from devel.assymetric.asymmetric_policy import AsymmetricLstmPolicy
+from quantum_agent.callbacks.thread_manager_callback import ThreadManagerCallback
+from quantum_agent.callbacks.metrics_callback import MetricsCallback
 from typing import Callable
 
 

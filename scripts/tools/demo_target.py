@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import strawberryfields as sf
 from strawberryfields import ops
 
-from targets import *
+from quantum_agent.components.targets import *
 
 
 def plot_target_wigner(target_instance, name, cutoff_dim=35, grid_size=200, x_limit=5):

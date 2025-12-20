@@ -31,18 +31,18 @@ import torch
 
 # --- Custom Imports ---
 # 1. The Modular Environment
-from modular_quantum_env import ModularQuantumEnv
+from quantum_agent.envs.modular_env import ModularQuantumEnv
 
 # 2. The Specific Modules to assemble the environment
-from circuits import *
-from targets import *
-from rewards import *
+from quantum_agent.components.circuits import *
+from quantum_agent.components.targets import *
+from quantum_agent.components.rewards import *
 
 # 3. Callbacks (Assumed to exist based on your file list)
-from thread_manager_callback import ThreadManagerCallback
-from metrics_callback import MetricsCallback
-from curriculum_callback import CurriculumCallback 
-from adaptive_kl_callback import AdaptiveKLCallback
+from quantum_agent.callbacks.thread_manager_callback import ThreadManagerCallback
+from quantum_agent.callbacks.metrics_callback import MetricsCallback
+from quantum_agent.callbacks.curriculum_callback import CurriculumCallback
+from quantum_agent.callbacks.adaptive_kl_callback import AdaptiveKLCallback
 
 def main():
     """Configures the modular environment and launches PPO training."""

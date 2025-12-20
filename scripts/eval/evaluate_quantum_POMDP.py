@@ -19,8 +19,8 @@ import matplotlib as mpl
 from matplotlib import cm
 
 # from stable_baselines3 import PPO
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
-from partially_observable_env import PartiallyObservableQuantumEnv
+from legacy.quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from devel.POMDP.partially_observable_env import PartiallyObservableQuantumEnv
 
 # from partially_observable_env_mixed import PartiallyObservableQuantumEnv
 # from quantum_circuit_env_mixed import QuantumCircuitEnv, fidelity_with_sqrt

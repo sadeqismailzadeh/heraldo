@@ -13,8 +13,8 @@ import os
 import numpy as np
 from tqdm import tqdm
 
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
-from partially_observable_env import PartiallyObservableQuantumEnv
+from legacy.quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from devel.POMDP.partially_observable_env import PartiallyObservableQuantumEnv
 
 from sb3_contrib import RecurrentPPO
 

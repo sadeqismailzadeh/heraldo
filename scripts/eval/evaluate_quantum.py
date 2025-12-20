@@ -43,11 +43,11 @@ from matplotlib import cm
 
 
 from stable_baselines3 import PPO
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from legacy.quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
 from stable_baselines3.common.vec_env import VecNormalize
-from quantum_cubic_env import CubicPhaseEnv
+from legacy.quantum_cubic_env import CubicPhaseEnv
 from stable_baselines3.common.env_util import make_vec_env
-from quantum_gadget_env_3mode import ThreeModeGadgetEnv
+from legacy.quantum_gadget_env_3mode import ThreeModeGadgetEnv
 
 # from quantum_circuit_env_mixed import QuantumCircuitEnv
 

@@ -1,8 +1,8 @@
 """Reward mechanisms implementing the RewardMechanism interface."""
 
 import numpy as np
-from quantum_modules import RewardMechanism
-from modular_quantum_env import fidelity_max_rotation, decode_measurement_result
+from quantum_agent.core.interfaces import RewardMechanism
+from quantum_agent.envs.modular_env import fidelity_max_rotation, decode_measurement_result
 
 
 class LogFidelityReward(RewardMechanism):

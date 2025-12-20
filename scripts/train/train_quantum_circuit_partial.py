@@ -43,9 +43,9 @@ from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 
-from partially_observable_env import PartiallyObservableQuantumEnv
-from thread_manager_callback import ThreadManagerCallback
-from metrics_callback import MetricsCallback
+from devel.POMDP.partially_observable_env import PartiallyObservableQuantumEnv
+from quantum_agent.callbacks.thread_manager_callback import ThreadManagerCallback
+from quantum_agent.callbacks.metrics_callback import MetricsCallback
 from typing import Callable
 
 

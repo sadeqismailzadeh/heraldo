@@ -16,8 +16,8 @@ from tqdm import tqdm
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
-from quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
-from quantum_cubic_env import CubicPhaseEnv
+from legacy.quantum_circuit_env import QuantumCircuitEnv, fidelity_pure_state
+from legacy.quantum_cubic_env import CubicPhaseEnv
 
 import strawberryfields as sf
 

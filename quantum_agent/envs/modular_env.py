@@ -25,14 +25,14 @@ from strawberryfields.ops import *
 
 
 # disable caching to save memory for large cutoff dims
-from sf_operations_no_cache import disable_fock_caching
+from quantum_agent.patches.sf_operations_no_cache import disable_fock_caching
 disable_fock_caching()
 
 # optimized loss channel
-from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, decode_measurement_result
+from quantum_agent.patches.monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, decode_measurement_result
 patch_fock_backend()
 
-from beamsplitter_patch import patch_beamsplitter
+from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter
 patch_beamsplitter()
 
 # --- Utility Functions ---
@@ -105,7 +105,7 @@ def db_to_r(db_value):
     return db_value / (20 * np.log10(np.e))
 
 
-from quantum_modules import TargetGenerator, CircuitContext, RewardMechanism
+from quantum_agent.core.interfaces import TargetGenerator, CircuitContext, RewardMechanism
 
 
 class ModularQuantumEnv(gym.Env):
