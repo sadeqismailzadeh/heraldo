@@ -59,7 +59,7 @@ def plot_results(fidelities, photons, episode_lengths, steps_between_resets):
     
     # (a) Output State Fidelity
     ax = axes[0, 0]
-    ax.hist(fidelities, bins=50, range=(0.0, 1.0), color='#1f77b4', edgecolor='black', alpha=0.7)
+    ax.hist(fidelities, bins=100, range=(0.0, 1.0), color='#1f77b4', edgecolor='black', alpha=0.7)
     ax.set_title("(a) Output State Fidelity")
     ax.set_xlabel("Fidelity")
     ax.set_ylabel("Episode count")
@@ -68,7 +68,7 @@ def plot_results(fidelities, photons, episode_lengths, steps_between_resets):
     # (b) Total Detected Photons per Episode
     ax = axes[1, 0]
     # Log scale helps visualize the spread if there are many resets
-    ax.hist(photons, bins=50, range=(0, 100), color="#ff7f0e", edgecolor='black', alpha=0.7)
+    ax.hist(photons, bins=100, range=(0, 100), color="#ff7f0e", edgecolor='black', alpha=0.7)
     ax.set_title("(b) Total Detected Photons (per Episode)")
     ax.set_xlabel("Detected photon number")
     ax.set_ylabel("Episode count")
@@ -111,7 +111,7 @@ def main():
             tunable_r=True, # Article 1 usually assumes fixed r=1.38, agent controls theta
             is_loss_channel=False,
             loss_channel=1,
-            initial_target_fidelity=0.95,
+            initial_target_fidelity=0.94,
         ),
         vec_env_cls=SubprocVecEnv
     )
