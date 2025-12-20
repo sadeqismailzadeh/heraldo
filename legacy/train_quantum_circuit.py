@@ -86,7 +86,7 @@ def main():
     # --- Configuration ---
     # Environment Parameters
     CUTOFF_DIM = 50
-    MAX_STEPS = 15
+    MAX_STEPS = 20
     TUNABLE_R = True
     INITIAL_DIFFICULTY = 0.75 # Start easy
 
@@ -102,8 +102,8 @@ def main():
         activation_fn=torch.nn.Tanh)
     LEARNING_RATE = 3e-4
     # LEARNING_RATE = linear_schedule(3e-4, 1e-5)
-    N_STEPS_PER_UPDATE = 2048 // N_ENVS
-    BATCH_SIZE = 64
+    N_STEPS_PER_UPDATE = 2048 // N_ENVS *2
+    BATCH_SIZE = 64 *2
     N_EPOCHS = 10
     GAMMA = 0.99
     GAE_LAMBDA = 0.95
@@ -228,7 +228,7 @@ def main():
     # NEW: Instantiate Curriculum Manager
     curriculum_callback = CurriculumCallback(
         log_dir=log_dir,                  # <--- Pass the log directory here
-        success_threshold=0.99, 
+        success_threshold=0.9, 
         max_difficulty=0.9999,
         initial_difficulty=INITIAL_DIFFICULTY, # <--- Use your constant from top of script
         verbose=1

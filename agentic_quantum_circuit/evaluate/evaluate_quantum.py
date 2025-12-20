@@ -58,7 +58,7 @@ def main():
     """Runs the main evaluation loop."""
     # --- Configuration ---
     # IMPORTANT: Environment parameters MUST match those used during training.
-    CUTOFF_DIM = 15
+    CUTOFF_DIM = 50
     MAX_STEPS = 50
     NUM_EPISODES = 10 # Number of episodes to run
 
@@ -77,14 +77,14 @@ def main():
         stats_path = MODEL_PATH.replace('.zip', '_vecnormalize.pkl')
         # vec_env = make_vec_env(env, n_envs=1)
         env = make_vec_env(
-            ThreeModeGadgetEnv,
+            QuantumCircuitEnv,
             n_envs=1,
             env_kwargs=dict(
                 cutoff_dim=CUTOFF_DIM,
                 max_steps=MAX_STEPS,
                 is_loss_channel=False, 
                 loss_channel=1,
-                initial_target_fidelity=0.91,
+                initial_target_fidelity=0.94,
             ),
         )
         env = VecNormalize.load(stats_path, env)
@@ -120,9 +120,9 @@ def main():
             fidelity = infos[0].get('fidelity', 'N/A')
             print(
                 f"Step {step:2d}: "
-                f"Action=[r={denorm_action[0]:.4f},  phi_sq={denorm_action[1]:.4f}, tau={np.cos(denorm_action[2]):.4f}, phi={(denorm_action[3]):.4f}, alpha_mag={denorm_action[4]:.4f}, alpha_phi={denorm_action[5]:.4f}]"
+                # f"Action=[r={denorm_action[0]:.4f},  phi_sq={denorm_action[1]:.4f}, tau={np.cos(denorm_action[2]):.4f}, phi={(denorm_action[3]):.4f}, alpha_mag={denorm_action[4]:.4f}, alpha_phi={denorm_action[5]:.4f}]"
 
-                # f"Action=[squeezing_r={denorm_action[0]:.4f},tau_1={np.cos(denorm_action[1]):.4f}] "
+                f"Action=[squeezing_r={denorm_action[0]:.4f},tau_1={np.cos(denorm_action[1]):.4f}] "
                 # f"Action=[squeezing_r={denorm_action[0]:.4f},tau_1={np.cos(denorm_action[1]):.4f},alpha={(denorm_action[2]):.4f}] "
                 f"Measured_n={measured_n}, "
                 f"photon_loss={photon_loss}, "

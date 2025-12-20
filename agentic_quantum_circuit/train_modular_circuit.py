@@ -11,6 +11,8 @@ import glob
 import platform
 import multiprocessing as mp
 
+from sympy import false
+
 # --- CRITICAL: Set thread limits BEFORE importing other libraries ---
 print("--- Configuring thread limits for NumPy/OpenBLAS/MKL ---")
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -32,9 +34,9 @@ import torch
 from modular_quantum_env import ModularQuantumEnv
 
 # 2. The Specific Modules to assemble the environment
-from circuits import GeneralLoopCircuit
-from targets import SqueezedCatTarget
-from rewards import LogFidelityReward
+from circuits import *
+from targets import *
+from rewards import *
 
 # 3. Callbacks (Assumed to exist based on your file list)
 from thread_manager_callback import ThreadManagerCallback
@@ -48,8 +50,8 @@ def main():
     # --- Configuration ---
     # Environment Parameters
     CUTOFF_DIM = 50
-    MAX_STEPS = 30
-    INITIAL_DIFFICULTY = 0.75 # Start with lower fidelity target
+    MAX_STEPS = 50
+    INITIAL_DIFFICULTY = 0.67 # Start with lower fidelity target
 
 
     # Training Parameters
@@ -59,13 +61,13 @@ def main():
 
     # PPO Hyperparameters
     POLICY_KWARGS = dict(
-        net_arch=dict(pi=[256, 256, 256], vf=[256, 256, 256]),
+        net_arch=dict(pi=[256, 256], vf=[256, 256]),
         optimizer_class=torch.optim.Adam,
         activation_fn=torch.nn.Tanh
     )
     LEARNING_RATE = 3e-4
-    N_STEPS_PER_UPDATE = 2048 // N_ENVS * 2
-    BATCH_SIZE = 64 * 2
+    N_STEPS_PER_UPDATE = 2048 // N_ENVS 
+    BATCH_SIZE = 64  
     N_EPOCHS = 10
     GAMMA = 0.99
     
@@ -82,6 +84,14 @@ def main():
         tunable_r=True, 
         max_squeezing=1.38
     )
+
+    circuit_context2 = ThreeModeGadgetCircuit(
+        max_sq_r=1, 
+        max_disp=1,
+        tunable_bs_phase=false
+    )
+
+    circuit_context3 = CubicSpecificCircuit(max_sq_r=1.38)
     
     # 2. Target Generator: The state we want to reach (Squeezed Cat)
     target1 = SqueezedCatTarget(
@@ -95,6 +105,12 @@ def main():
         r=1.38,
         p=1
     )
+    
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "GKP_core_coefficients.csv")
+    target3=CoreGKPTarget(csv_path=csv_path, 
+                          n_max=4, 
+                          delta_db=10.4, 
+                          mu=0)
     
     # 3. Reward Mechanism: How we calculate success
     reward_mech = LogFidelityReward()
@@ -111,7 +127,7 @@ def main():
         initial_target_fidelity=INITIAL_DIFFICULTY,
         # INJECT MODULES HERE:
         circuit_context=circuit_context,
-        target_gens=[target1, target2],
+        target_gens=[target3],
         reward_mech=reward_mech
     )
 
@@ -193,8 +209,8 @@ def main():
     # or the reward mechanism should read it from the env state.
     curriculum_callback = CurriculumCallback(
         log_dir=log_dir,
-        success_threshold=0.95, 
-        max_difficulty=0.9999,
+        success_threshold=0.9, 
+        max_difficulty=0.98,
         initial_difficulty=INITIAL_DIFFICULTY,
         verbose=1
     )

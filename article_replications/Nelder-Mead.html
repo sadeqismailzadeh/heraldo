@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Understanding Nelder-Mead</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --secondary: #1e40af;
+            --bg: #f8fafc;
+            --text: #334155;
+            --highlight: #e2e8f0;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            background: var(--bg);
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max_width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        h1 { color: #0f172a; font-size: 2.5rem; margin-bottom: 10px; }
+        h2 { color: var(--primary); border-bottom: 2px solid var(--highlight); padding-bottom: 10px; margin-top: 40px; }
+        h3 { color: #1e293b; margin-top: 25px; }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        .concept-box {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .concept-item {
+            flex: 1;
+            min-width: 250px;
+            background: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+        }
+
+        /* Visualization Styles */
+        #canvas-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px 0;
+        }
+        canvas {
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            background: white;
+            cursor: crosshair;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        button:hover { background: var(--secondary); }
+        button:disabled { background: #94a3b8; cursor: not-allowed; }
+        
+        .status-log {
+            margin-top: 10px;
+            font-family: monospace;
+            color: #475569;
+            height: 24px;
+        }
+
+        /* Diagrams for steps */
+        .step-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        .step-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .step-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>The Nelder-Mead Algorithm</h1>
+    <p class="lead">Also known as the <strong>Downhill Simplex Method</strong> or the <strong>"Amoeba" Method</strong>.</p>
+    
+    <div class="card">
+        <h2>What is it?</h2>
+        <p>
+            Nelder-Mead is a numerical method to find the minimum (or maximum) of a function. 
+            Unlike "Gradient Descent" used in Deep Learning, Nelder-Mead <strong>does not use derivatives (calculus)</strong>.
+        </p>
+        <p>
+            This makes it perfect for your Quantum Physics simulations where:
+        </p>
+        <ul>
+            <li>The function is a "Black Box" (e.g., a Strawberry Fields simulation).</li>
+            <li>Calculating the mathematical slope (gradient) is impossible or computationally expensive.</li>
+            <li>The landscape might be slightly "noisy" due to numerical precision.</li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>The Geometric Intuition</h2>
+        <p>
+            Imagine you are on a foggy mountain and want to find the lowest valley. You can't see the slope, but you have a GPS altimeter.
+        </p>
+        <div class="concept-box">
+            <div class="concept-item">
+                <strong>1. The Simplex</strong>
+                <p>The algorithm drops a geometric shape onto the landscape. In 2D (optimizing Alpha and r), this shape is a <strong>Triangle</strong> (3 points).</p>
+            </div>
+            <div class="concept-item">
+                <strong>2. The Logic</strong>
+                <p>It evaluates the "Cost" (1 - Fidelity) at the 3 corners. It identifies the <strong>Worst</strong> corner (highest cost) and tries to flip it away to find a better spot.</p>
+            </div>
+            <div class="concept-item">
+                <strong>3. The Movement</strong>
+                <p>The triangle behaves like a living amoeba. It stretches to go downhill fast, shrinks to fit into narrow valleys, and flips over itself.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Interactive Demo</h2>
+        <p>
+            Below is a 2D "Cost Landscape". The <strong>Dark Blue</strong> center is the target (Minimum Cost).
+            <br>The red triangle is the Simplex. Watch how it crawls towards the center.
+        </p>
+        
+        <div id="canvas-container">
+            <canvas id="simCanvas" width="500" height="400"></canvas>
+            <div class="status-log" id="statusLog">Click 'Start' to begin optimization</div>
+            <div class="controls">
+                <button id="btnStart" onclick="startSim()">Reset & Start</button>
+                <button id="btnStep" onclick="stepSim()" disabled>Step-by-Step</button>
+                <button id="btnAuto" onclick="autoRun()" disabled>Auto Run</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>The 4 Moves</h2>
+        <p>At every step, the algorithm sorts the vertices: <strong>Best (B), Good (G), and Worst (W)</strong>. It then tries to replace <strong>W</strong>.</p>
+        
+        <div class="step-grid">
+            <div class="step-card">
+                <span class="step-icon">🪞</span>
+                <strong>1. Reflection</strong>
+                <p>Flip the Worst point over the line between Best and Good. <br><em>"Let's move away from the bad area."</em></p>
+            </div>
+            <div class="step-card">
+                <span class="step-icon">🚀</span>
+                <strong>2. Expansion</strong>
+                <p>If Reflection was amazing (better than Best), go further in that direction.<br><em>"We found a steep downhill slope, accelerate!"</em></p>
+            </div>
+            <div class="step-card">
+                <span class="step-icon">🤏</span>
+                <strong>3. Contraction</strong>
+                <p>If Reflection wasn't great, don't go that far. Try a point halfway.<br><em>"Careful, let's test the water first."</em></p>
+            </div>
+            <div class="step-card">
+                <span class="step-icon">📉</span>
+                <strong>4. Shrink</strong>
+                <p>If everything fails, the valley is very narrow. Shrink the whole triangle towards the Best point.<br><em>"Huddle together."</em></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const target = { x: width / 2, y: height / 2 };
+
+    let simplex = [];
+    let isRunning = false;
+    let autoInterval = null;
+
+    // The "Cost Function": Distance from center squared
+    // (Like 1 - Fidelity)
+    function cost(p) {
+        const dx = p.x - target.x;
+        const dy = p.y - target.y;
+        return Math.sqrt(dx*dx + dy*dy); // Cone shape landscape
+    }
+
+    function drawBackground() {
+        // Draw a simplified topographic map
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Draw concentric circles representing the "Hill"
+        // Darker = Deeper/Better
+        for (let r = 300; r > 0; r -= 30) {
+            const alpha = 1 - (r / 350);
+            ctx.beginPath();
+            ctx.arc(target.x, target.y, r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(37, 99, 235, ${0.1})`;
+            ctx.fill();
+            ctx.strokeStyle = `rgba(37, 99, 235, ${0.2})`;
+            ctx.stroke();
+        }
+        
+        // Target X
+        ctx.beginPath();
+        ctx.moveTo(target.x - 10, target.y);
+        ctx.lineTo(target.x + 10, target.y);
+        ctx.moveTo(target.x, target.y - 10);
+        ctx.lineTo(target.x, target.y + 10);
+        ctx.strokeStyle = '#1e40af';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    function drawSimplex() {
+        if (simplex.length !== 3) return;
+
+        // Sort to find Best (0) and Worst (2) just for coloring
+        const sortedIndices = [0, 1, 2].sort((a, b) => cost(simplex[a]) - cost(simplex[b]));
+        const best = simplex[sortedIndices[0]];
+        const worst = simplex[sortedIndices[2]];
+
+        // Draw Triangle Fill
+        ctx.beginPath();
+        ctx.moveTo(simplex[0].x, simplex[0].y);
+        ctx.lineTo(simplex[1].x, simplex[1].y);
+        ctx.lineTo(simplex[2].x, simplex[2].y);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(220, 38, 38, 0.3)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#dc2626';
+        ctx.stroke();
+
+        // Draw Vertices
+        simplex.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#dc2626';
+            ctx.fill();
+        });
+
+        // Highlight Best (Green)
+        ctx.beginPath();
+        ctx.arc(best.x, best.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = '#16a34a';
+        ctx.fill();
+    }
+
+    function startSim() {
+        // Stop any running auto
+        if(autoInterval) clearInterval(autoInterval);
+
+        // Initialize random triangle away from center
+        const startX = 50 + Math.random() * 100;
+        const startY = 50 + Math.random() * 100;
+        
+        simplex = [
+            { x: startX, y: startY },
+            { x: startX + 80, y: startY + 10 },
+            { x: startX + 20, y: startY + 90 }
+        ];
+
+        document.getElementById('btnStep').disabled = false;
+        document.getElementById('btnAuto').disabled = false;
+        document.getElementById('statusLog').innerText = "Simplex Initialized. Best point is Green.";
+        
+        drawAll();
+    }
+
+    function drawAll() {
+        ctx.clearRect(0, 0, width, height);
+        drawBackground();
+        drawSimplex();
+    }
+
+    // THE NELDER MEAD LOGIC
+    function stepSim() {
+        if (cost(simplex[0]) < 2 && cost(simplex[1]) < 2 && cost(simplex[2]) < 2) {
+            document.getElementById('statusLog').innerText = "Converged! Minimum found.";
+            if(autoInterval) clearInterval(autoInterval);
+            return;
+        }
+
+        // 1. ORDER: Sort vertices by cost (0=Best, 2=Worst)
+        simplex.sort((a, b) => cost(a) - cost(b));
+        
+        const B = simplex[0];
+        const G = simplex[1];
+        const W = simplex[2];
+
+        // 2. CENTROID: Midpoint of all points except Worst
+        const C = { x: (B.x + G.x)/2, y: (B.y + G.y)/2 };
+
+        // Coefficients
+        const alpha = 1.0; // Reflection
+        const gamma = 2.0; // Expansion
+        const rho = 0.5;   // Contraction
+        const sigma = 0.5; // Shrink
+
+        // 3. REFLECTION
+        const R = {
+            x: C.x + alpha * (C.x - W.x),
+            y: C.y + alpha * (C.y - W.y)
+        };
+
+        let log = "";
+        const costR = cost(R);
+        const costB = cost(B);
+        const costG = cost(G);
+        const costW = cost(W);
+
+        if (costR < costB) {
+            // Reflection is better than best -> Try EXPANSION
+            const E = {
+                x: C.x + gamma * (R.x - C.x),
+                y: C.y + gamma * (R.y - C.y)
+            };
+            if (cost(E) < costR) {
+                simplex[2] = E;
+                log = "Expansion! (Rocket)";
+            } else {
+                simplex[2] = R;
+                log = "Reflection (Great)";
+            }
+        } else if (costR < costG) {
+            // Reflection is better than second worst -> Accept it
+            simplex[2] = R;
+            log = "Reflection (Good)";
+        } else {
+            // Reflection is bad. Try CONTRACTION
+            const shouldContractOutside = costR < costW;
+            
+            if (shouldContractOutside) {
+                // Outside Contraction
+                const Oc = {
+                    x: C.x + rho * (R.x - C.x),
+                    y: C.y + rho * (R.y - C.y)
+                };
+                if (cost(Oc) <= costR) {
+                    simplex[2] = Oc;
+                    log = "Contraction (Outside)";
+                } else {
+                    doShrink();
+                    log = "Shrink";
+                }
+            } else {
+                // Inside Contraction
+                const Ic = {
+                    x: C.x + rho * (W.x - C.x),
+                    y: C.y + rho * (W.y - C.y)
+                };
+                if (cost(Ic) < costW) {
+                    simplex[2] = Ic;
+                    log = "Contraction (Inside)";
+                } else {
+                    doShrink();
+                    log = "Shrink";
+                }
+            }
+        }
+
+        function doShrink() {
+            // Shrink everyone towards Best
+            simplex[1] = { x: B.x + sigma*(G.x - B.x), y: B.y + sigma*(G.y - B.y) };
+            simplex[2] = { x: B.x + sigma*(W.x - B.x), y: B.y + sigma*(W.y - B.y) };
+        }
+
+        document.getElementById('statusLog').innerText = `Action: ${log} | Best Cost: ${Math.round(costB)}`;
+        drawAll();
+    }
+
+    function autoRun() {
+        if(autoInterval) clearInterval(autoInterval);
+        autoInterval = setInterval(stepSim, 100);
+    }
+
+    // Initialize on load
+    window.onload = () => {
+        drawBackground();
+        // startSim(); 
+    };
+</script>
+
+</body>
+</html>

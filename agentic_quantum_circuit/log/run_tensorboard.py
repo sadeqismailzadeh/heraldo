@@ -6,7 +6,7 @@ import webbrowser
 import time
 
 # Set the log directory where your training data is saved
-log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train")
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train_Modular")
 
 def launch_tensorboard():
     """Start TensorBoard for the local PPO training logs and keep it alive."""
