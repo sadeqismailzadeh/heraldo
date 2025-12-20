@@ -15,10 +15,11 @@ else:
 import abc
 import numpy as np
 import strawberryfields as sf
-from strawberryfields.ops import Sgate, Dgate, Vgate, Catstate
+from strawberryfields.ops import Sgate, Dgate, Vgate, Catstate, Ket
 import qutip as qt
 from scipy.special import factorial
 import scipy.linalg
+import pandas as pd
 
 from quantum_modules import TargetGenerator
 
@@ -130,8 +131,8 @@ class SqueezedCatTarget(TargetGenerator):
         
         prog = sf.Program(1)
         with prog.context as q:
-            Catstate(self.alpha, self.p) | q[0]
-            Sgate(self.r) | q[0]
+            Catstate(a=self.alpha, p=self.p) | q[0]
+            Sgate(r=self.r) | q[0]
         
         eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
         state = eng.run(prog).state
@@ -257,3 +258,87 @@ class CubicResourceTarget(TargetGenerator):
         base_ket[3] = 1j * self.a
         base_ket /= np.linalg.norm(base_ket)
         return base_ket
+    
+
+
+class CoreGKPTarget(TargetGenerator):
+    """
+    Generates an approximate GKP state using the "Core + Squeezing" (Stellar Representation)
+    method described in the paper.
+    
+    This class requires the 'GKP_core_coefficients.csv' file containing the optimized
+    squeezing parameters (r) and Fock coefficients (c_n).
+    
+    Parameters:
+    - csv_path: Path to the GKP coefficients CSV.
+    - n_max: The stellar rank / truncation (2, 4, 6, 8, 10, 12).
+    - delta_db: Target Delta in dB (e.g., 10.0).
+    - mu: Logical state (0 or 1).
+    """
+    
+    def __init__(self, csv_path='GKP_core_coefficients.csv', n_max=4, delta_db=10.0, mu=0):
+        self.csv_path = csv_path
+        self.n_max = n_max
+        self.delta_db = delta_db
+        self.mu = mu
+    
+    def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
+        """Load coefficients from CSV and apply squeezing to the core state."""
+        print(f"Generating Core GKP Target (|{self.mu}>_A, n_max={self.n_max}, Delta={self.delta_db}dB)...")
+
+        # 1. Load CSV data
+        try:
+            df = pd.read_csv(self.csv_path)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"GKP coefficients file not found at {self.csv_path}. Please ensure the CSV is present.")
+
+        # 2. Find matching row
+        # Use a small tolerance for float comparison of Delta (dB)
+        row = df[(df['n_max'] == self.n_max) & (np.abs(df['Delta (dB)'] - self.delta_db) < 1e-5)]
+
+        if row.empty:
+            # Fallback: find closest delta_db if exact match not found
+            closest_idx = (df[df['n_max'] == self.n_max]['Delta (dB)'] - self.delta_db).abs().idxmin()
+            row = df.loc[[closest_idx]]
+            print(f"Warning: Exact Delta={self.delta_db}dB not found for n_max={self.n_max}. Using closest match: {row['Delta (dB)'].values[0]}dB")
+
+        # 3. Extract squeezing (r) and core coefficients (c)
+        # Suffix '0' for logical 0, '1' for logical 1
+        sfx = str(self.mu)
+        r_db = row[f'r{sfx} (dB)'].values[0]
+
+        # Convert r_dB to r (Strawberry Fields parameter)
+        # Paper Eq A3: r = ln(10)/20 * r_db
+        r_param = (np.log(10) / 20.0) * r_db
+
+        # Collect even Fock coefficients up to n_max
+        # CSV columns are named c0_0, c0_2, ... or c1_0, c1_2, ...
+        base_ket = np.zeros(cutoff_dim, dtype=np.complex128)
+        for n in range(0, self.n_max + 1, 2):
+            col_name = f'c{sfx}_{n}'
+            if col_name in row.columns:
+                base_ket[n] = row[col_name].values[0]
+
+        # Ensure core is normalized
+        base_ket /= np.linalg.norm(base_ket)
+
+        # Print the core state coefficients
+        print(f"Core state (stellar representation) for n_max={self.n_max}:")
+        for n, val in enumerate(base_ket):
+            if np.abs(val) > 1e-6:
+                # Print real part if imaginary is negligible, otherwise show complex
+                out_val = val.real if np.abs(val.imag) < 1e-8 else val
+                print(f"  |{n}>: {out_val:.6f}")
+
+        # 4. Use Strawberry Fields to apply Squeezing to the core ket
+        prog = sf.Program(1)
+        with prog.context as q:
+            Ket(base_ket) | q[0]
+            # Sgate applies exp(0.5 * r * (exp(-i*phi)a^2 - exp(i*phi)a_dag^2))
+            # The paper assumes real squeezing
+            # Sgate(r_param) | q[0]
+
+        eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+        state = eng.run(prog).state
+
+        return state.ket()

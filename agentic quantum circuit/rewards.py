@@ -2,7 +2,7 @@
 
 import numpy as np
 from quantum_modules import RewardMechanism
-from base_quantum_env import fidelity_max_rotation, decode_measurement_result
+from modular_quantum_env import fidelity_max_rotation, decode_measurement_result
 
 
 class LogFidelityReward(RewardMechanism):
@@ -17,9 +17,7 @@ class LogFidelityReward(RewardMechanism):
     """
     
     def __init__(self):
-        self.time_penalty = 0.5
-        self.stagnation_penalty = 1
-        self.bonus_multiplier = 3
+        pass
     
     def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict, target_fidelity: float) -> tuple:
         """
@@ -38,25 +36,25 @@ class LogFidelityReward(RewardMechanism):
         terminated = False
         hit_target = (fidelity > self.target_fidelity)
         
-        max_reward = self._calculate_reward(self.target_fidelity)
+        max_reward = self._calculate_reward(1)
         reward += self._calculate_reward(fidelity)
         reward -= max_reward
         
         # Time penalty
-        reward -= self.time_penalty * max_reward
+        # reward -= 1 * max_reward
         
         # Stagnation penalty: penalize if state hasn't changed much
         self_fidelity = fidelity_max_rotation(past_ket, current_ket)
         if self_fidelity > 0.95:
-            reward -= self.stagnation_penalty * max_reward
+            reward -=  0.5*max_reward
 
         # Success bonus
         if hit_target:
-            reward += self.bonus_multiplier * max_reward
+            reward += 10 * max_reward
             terminated = True
 
         # Normalize reward
-        reward /= (self.bonus_multiplier * max_reward)
+        reward /= (11*max_reward)
         
         # Extract measurement info
         info = {
