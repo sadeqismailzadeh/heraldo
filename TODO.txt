@@ -31,3 +31,4 @@ articles regatding reward shaping for fidelity
 -- curriculum increase target complexity 
 - squeezed cat with 0.99 and 0.999 fidelity
 - 0.8 success rate
+- scipy patch global
