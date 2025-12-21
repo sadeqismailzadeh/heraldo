@@ -29,8 +29,8 @@ from quantum_agent.patches.sf_operations_no_cache import disable_fock_caching
 disable_fock_caching()
 
 # optimized loss channel
-from quantum_agent.patches.monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, decode_measurement_result
-patch_fock_backend()
+from quantum_agent.patches.monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, decode_measurement_result
+patch_monitored_loss_measure_fock()
 
 from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter
 patch_beamsplitter()

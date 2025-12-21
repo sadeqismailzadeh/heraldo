@@ -251,7 +251,7 @@ class MonitoredLossMeasureFock(Measurement):
         return temp
 
 
-def patch_fock_backend():
+def patch_monitored_loss_measure_fock():
     """Patch the Fock backend with the monitored loss + measure operation."""
     from strawberryfields.backends.fockbackend.backend import FockBackend
     from strawberryfields.backends.fockbackend.circuit import Circuit
@@ -323,7 +323,7 @@ def run_numerical_cross_validation(state_prep_func, state_name, params):
     # Import both implementations
     try:
         # Import the monitored implementation
-        from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, revert_fock_backend_patch
+        from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_fock_backend_patch
         # Import the unmonitored implementation
         from loss_measure_fock_patch import LossMeasureFock, patch_fock_backend as patch_loss_fock_backend, revert_fock_backend_patch as revert_loss_fock_backend_patch
     except ImportError as e:
@@ -340,7 +340,7 @@ def run_numerical_cross_validation(state_prep_func, state_name, params):
     print(f"  Running {n_shots} shots for statistics comparison...")
     
     # Results from monitored implementation
-    patch_fock_backend()
+    patch_monitored_loss_measure_fock()
     monitored_results = []
     for i in range(n_shots):
         np.random.seed(1000 + i)  # Different seed each time
@@ -430,7 +430,7 @@ def validate_tmsv_analytical():
     print("Test Case 1: Analytical Validation with TMSV Setup")
     print("="*60)
     
-    from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, revert_fock_backend_patch
+    from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_fock_backend_patch
     
     # Fixed parameters
     eta = 0.8
@@ -443,7 +443,7 @@ def validate_tmsv_analytical():
     
     # Instead of trying to force specific outcomes, let's run a comprehensive test
     # and verify that the resulting states follow TMSV theoretical predictions
-    patch_fock_backend()
+    patch_monitored_loss_measure_fock()
     
     # Run multiple measurements to check general behavior
     test_runs = 50
@@ -616,7 +616,7 @@ def validate_eta_one_against_no_loss():
     print("Test Case 4: Validation of eta=1.0 against lossless measurement")
     print("="*60)
     
-    from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_fock_backend, revert_fock_backend_patch
+    from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_fock_backend_patch
     
     cutoff_dim = 15
     all_tests_pass = True
@@ -635,7 +635,7 @@ def validate_eta_one_against_no_loss():
         alpha = params['alpha']
 
         # --- Run with MonitoredLossMeasureFock(eta=1.0) ---
-        patch_fock_backend()
+        patch_monitored_loss_measure_fock()
         
         np.random.seed(4000 + i)
         prog_monitored = sf.Program(2)
