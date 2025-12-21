@@ -83,7 +83,7 @@ class GKPCircuit(CircuitContext):
         return state.ket()[:, 0]
 
 
-class GeneralLoopCircuit(CircuitContext):
+class SqueezeOnlyCircuit(CircuitContext):
     """
     General loop circuit for squeezed cat generation.
     Handles tunable squeezing parameter.
@@ -93,22 +93,23 @@ class GeneralLoopCircuit(CircuitContext):
     - If not tunable_r: [squeezing_phase, theta_1]
     """
     
-    def __init__(self, tunable_r=True, max_squeezing=1.38):
-        self.tunable_r = tunable_r
+    def __init__(self, tunable_phases=True, max_squeezing=1.38):
+        self.tunable_phases = tunable_phases
         self.max_squeezing = max_squeezing
         
-        if self.tunable_r:
-            self._action_keys = ['squeezing_r', 'theta_1']
+        if self.tunable_phases:
             self._action_ranges = {
-                'squeezing_r': (-self.max_squeezing, self.max_squeezing),
-                'theta_1': (0, np.pi/2)
+                'sq_r': (0, self.max_squeezing),
+                'sq_phi': (-np.pi, np.pi),
+                'bs_theta':  (0, np.pi/2),
+                'bs_phi': (-np.pi, np.pi),
             }
         else:
-            self._action_keys = ['squeezing_phase', 'theta_1']
             self._action_ranges = {
-                'squeezing_phase': (-np.pi, np.pi),
-                'theta_1': (0, np.pi/2)
+                'sq_r': (-self.max_squeezing, self.max_squeezing),
+                'bs_theta': (0, np.pi/2)
             }
+        self._action_keys = list(self.action_ranges.keys())
     
     @property
     def action_keys(self): return self._action_keys
@@ -128,15 +129,20 @@ class GeneralLoopCircuit(CircuitContext):
     
     def build_step_program(self, action_dict: dict) -> sf.Program:
         prog1 = sf.Program(2)
+        sq_r = action_dict['sq_r']
+        bs_theta = action_dict['bs_theta']
+        if self.tunable_phases:
+            sq_phi = action_dict['sq_phi']
+            bs_phi = action_dict['bs_phi']
+        else:
+            sq_phi = 0
+            bs_phi = 0
         with prog1.context as q:
             # 1. Prepare Ancilla (q[1])
-            if self.tunable_r:
-                Sgate(action_dict['squeezing_r'], 0) | q[1]
-            else:
-                Sgate(self.max_squeezing, action_dict['squeezing_phase']) | q[1]
-            
+            Sgate(sq_r, sq_phi) | q[1]
+
             # 2. Interact Data(q[0]) and Ancilla(q[1])
-            BSgate(action_dict['theta_1'], 0) | (q[0], q[1])
+            BSgate(bs_theta, bs_phi) | (q[0], q[1])
 
             # 3. Measure and Reset (CRITICAL FIX)
             # We measure q[0] (which contains the 'waste' after interaction in this setup)
