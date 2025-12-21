@@ -426,3 +426,81 @@ class ThreeModeGadgetCircuit(CircuitContext):
     def _get_current_ket(self, state):
         # Extracts ket of the primary mode (q[0]) assuming 3-mode structure
         return state.ket()[:, 0, 0]
+
+
+class ThreeModeSqueezeOnlyCircuit(CircuitContext):
+    """
+    3-Mode Time-Multiplexed Gadget circuit with only Squeezing control.
+    
+    Action Space (Continuous):
+    - Ancilla 1: r1, phi_r1
+    - Ancilla 2: r2, phi_r2
+    - Interactions: theta1, theta2, theta3
+    - (Optional) Interaction phases: phi1, phi2, phi3
+    """
+
+    def __init__(self, max_sq_r=0.92, tunable_bs_phase=False):
+        self.max_sq_r = max_sq_r
+        self.tunable_bs_phase = tunable_bs_phase
+
+        self._action_keys = [
+            'r1', 'phi_r1',
+            'r2', 'phi_r2',
+            'theta1', 'theta2', 'theta3'
+        ]
+        self._action_ranges = {
+            'r1': (0.0, self.max_sq_r), 'phi_r1': (-np.pi, np.pi),
+            'r2': (0.0, self.max_sq_r), 'phi_r2': (-np.pi, np.pi),
+            'theta1': (0.0, np.pi/2),
+            'theta2': (0.0, np.pi/2),
+            'theta3': (0.0, np.pi/2),
+        }
+
+        if self.tunable_bs_phase:
+            self._action_keys += ['phi1', 'phi2', 'phi3']
+            self._action_ranges.update({
+                'phi1': (-np.pi, np.pi),
+                'phi2': (-np.pi, np.pi),
+                'phi3': (-np.pi, np.pi),
+            })
+
+    @property
+    def action_keys(self): return self._action_keys
+
+    @property
+    def action_ranges(self): return self._action_ranges
+
+    def get_action_space(self) -> gym.spaces.Box:
+        return spaces.Box(low=-1.0, high=1.0, shape=(len(self._action_keys),), dtype=np.float32)
+
+    def build_reset_program(self) -> sf.Program:
+        prog = sf.Program(3)
+        with prog.context as q:
+            # Ensure loop mode is measured/reset
+            MonitoredLossMeasureFock(1) | q[0]
+        return prog
+
+    def build_step_program(self, action_dict: dict) -> list:
+        prog1 = sf.Program(3)
+        with prog1.context as q:
+            Sgate(action_dict['r1'], action_dict['phi_r1']) | q[1]
+            Sgate(action_dict['r2'], action_dict['phi_r2']) | q[2]
+            
+            ph1 = action_dict.get('phi1', 0.0)
+            ph2 = action_dict.get('phi2', 0.0)
+            ph3 = action_dict.get('phi3', 0.0)
+
+            BSgate(action_dict['theta1'], ph1) | (q[0], q[1])
+            BSgate(action_dict['theta2'], ph2) | (q[1], q[2])
+            BSgate(action_dict['theta3'], ph3) | (q[0], q[1])
+
+        prog2 = sf.Program(3)
+        with prog2.context as q:
+            MonitoredLossMeasureFock(1) | q[0]
+            MonitoredLossMeasureFock(1) | q[1]
+            BSgate(np.pi/2, 0) | (q[0], q[2])
+
+        return [prog1, prog2]
+
+    def _get_current_ket(self, state):
+        return state.ket()[:, 0, 0]
