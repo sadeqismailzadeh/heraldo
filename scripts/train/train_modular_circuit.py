@@ -130,7 +130,7 @@ def main():
         initial_target_fidelity=INITIAL_DIFFICULTY,
         # INJECT MODULES HERE:
         circuit_context=circuit_context,
-        target_gens=[target3],
+        target_gens=[target1, target2],
         reward_mech=reward_mech
     )
 
