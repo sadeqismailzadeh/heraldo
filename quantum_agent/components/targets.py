@@ -281,6 +281,7 @@ class CoreGKPTarget(TargetGenerator):
         self.n_max = n_max
         self.delta_db = delta_db
         self.mu = mu
+        self.apply_squeezing = False  # To store the squeezing parameter used
     
     def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
         """Load coefficients from CSV and apply squeezing to the core state."""
@@ -336,7 +337,8 @@ class CoreGKPTarget(TargetGenerator):
             Ket(base_ket) | q[0]
             # Sgate applies exp(0.5 * r * (exp(-i*phi)a^2 - exp(i*phi)a_dag^2))
             # The paper assumes real squeezing
-            # Sgate(r_param) | q[0]
+            if self.apply_squeezing:
+               Sgate(r_param) | q[0]
 
         eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
         state = eng.run(prog).state

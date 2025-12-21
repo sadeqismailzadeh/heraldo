@@ -14,6 +14,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import strawberryfields as sf
 from strawberryfields import ops
+from pathlib import Path
 
 from quantum_agent.components.targets import *
 
@@ -121,7 +122,7 @@ def main():
     # quartic = QuarticPhaseTarget(delta=0.03, s_r=0.0)
     # plot_target_wigner(quartic, "Quartic Phase", cutoff_dim=40)
 
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "GKP_core_coefficients.csv")
+    csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     target3=CoreGKPTarget(csv_path=csv_path, 
                           n_max=4, 
                           delta_db=10.4, 

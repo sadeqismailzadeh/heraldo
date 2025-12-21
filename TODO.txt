@@ -32,3 +32,8 @@ articles regatding reward shaping for fidelity
 - squeezed cat with 0.99 and 0.999 fidelity
 - 0.8 success rate
 - scipy patch global
+- wigner negativity calc in step
+- calculate post select probability of the agent
+render the state eval 
+- some other targets of Anteneh
+note in the package readme this work has continued the work on Anteneh (cite the work and code)

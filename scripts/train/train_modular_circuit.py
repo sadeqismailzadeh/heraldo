@@ -10,6 +10,8 @@ import re
 import glob
 import platform
 import multiprocessing as mp
+from pathlib import Path
+
 
 from sympy import false
 
@@ -88,7 +90,7 @@ def main():
     circuit_context2 = ThreeModeGadgetCircuit(
         max_sq_r=1, 
         max_disp=1,
-        tunable_bs_phase=false
+        tunable_bs_phase=False
     )
 
     circuit_context3 = CubicSpecificCircuit(max_sq_r=1.38)
@@ -106,7 +108,7 @@ def main():
         p=1
     )
     
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "GKP_core_coefficients.csv")
+    csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     target3=CoreGKPTarget(csv_path=csv_path, 
                           n_max=4, 
                           delta_db=10.4, 
@@ -209,7 +211,7 @@ def main():
     # or the reward mechanism should read it from the env state.
     curriculum_callback = CurriculumCallback(
         log_dir=log_dir,
-        success_threshold=0.9, 
+        success_threshold=0.5, 
         max_difficulty=0.98,
         initial_difficulty=INITIAL_DIFFICULTY,
         verbose=1
