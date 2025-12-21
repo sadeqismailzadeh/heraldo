@@ -276,7 +276,7 @@ def patch_monitored_loss_measure_fock():
     print("MonitoredLossMeasureFock patched successfully")
 
 
-def revert_fock_backend_patch():
+def revert_monitored_loss_measure_fock_patch():
     """Revert the patch."""
     from strawberryfields.backends.fockbackend.backend import FockBackend
     from strawberryfields.backends.fockbackend.circuit import Circuit
@@ -323,9 +323,9 @@ def run_numerical_cross_validation(state_prep_func, state_name, params):
     # Import both implementations
     try:
         # Import the monitored implementation
-        from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_fock_backend_patch
+        from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_monitored_loss_measure_fock_patch
         # Import the unmonitored implementation
-        from loss_measure_fock_patch import LossMeasureFock, patch_loss_measure_fock as patch_loss_fock_backend, revert_fock_backend_patch as revert_loss_fock_backend_patch
+        from loss_measure_fock_patch import LossMeasureFock, patch_loss_measure_fock as patch_loss_fock_backend, revert_loss_measure_fock_patch as revert_loss_fock_backend_patch
     except ImportError as e:
         print(f"Import error: {e}")
         print("Make sure both implementations are available")
@@ -356,7 +356,7 @@ def run_numerical_cross_validation(state_prep_func, state_name, params):
             detected_photons = [(sample[0] % 10000) for sample in result.samples if len(sample) > 0]
             monitored_results.extend(detected_photons)
     
-    revert_fock_backend_patch()
+    revert_monitored_loss_measure_fock_patch()
     
     # Results from unmonitored implementation
     patch_loss_fock_backend()
@@ -430,7 +430,7 @@ def validate_tmsv_analytical():
     print("Test Case 1: Analytical Validation with TMSV Setup")
     print("="*60)
     
-    from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_fock_backend_patch
+    from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_monitored_loss_measure_fock_patch
     
     # Fixed parameters
     eta = 0.8
@@ -503,7 +503,7 @@ def validate_tmsv_analytical():
                     else:
                         print(f"    Run {run+1}: Lost {lost_photons}, Detected {detected_photons}, Mode 1 not pure Fock state (max_prob={max_prob:.6f}) [FAIL - distributed]")
     
-    revert_fock_backend_patch()
+    revert_monitored_loss_measure_fock_patch()
     
     # Check if reasonable proportion were Fock-like
     fock_ratio = fock_state_matches / total_runs if total_runs > 0 else 0
@@ -616,7 +616,7 @@ def validate_eta_one_against_no_loss():
     print("Test Case 4: Validation of eta=1.0 against lossless measurement")
     print("="*60)
     
-    from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_fock_backend_patch
+    from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_monitored_loss_measure_fock_patch
     
     cutoff_dim = 15
     all_tests_pass = True
@@ -649,7 +649,7 @@ def validate_eta_one_against_no_loss():
         result_monitored = eng_monitored.run(prog_monitored)
         state_monitored = result_monitored.state.ket()
         
-        revert_fock_backend_patch()
+        revert_monitored_loss_measure_fock_patch()
 
         # --- Run with standard MeasureFock (lossless) ---
         np.random.seed(4000 + i)

@@ -305,7 +305,7 @@ def patch_loss_measure_fock():
     print("LossMeasureFock V2 (JIT-optimized) patched successfully")
 
 
-def revert_fock_backend_patch():
+def revert_loss_measure_fock_patch():
     """Revert the patch."""
     from strawberryfields.backends.fockbackend.backend import FockBackend
     from strawberryfields.backends.fockbackend.circuit import Circuit
@@ -391,7 +391,7 @@ def test_with_postselection():
             print(f"  Result: FAIL (diff={diff:.2e})")
             all_pass = False
         
-        revert_fock_backend_patch()
+        revert_loss_measure_fock_patch()
     
     print(f"\n{'='*60}")
     if all_pass:
@@ -473,7 +473,7 @@ def test_without_postselection():
             print(f"  Result: FAIL (only {matches}/{n_samples} match)")
             all_pass = False
         
-        revert_fock_backend_patch()
+        revert_loss_measure_fock_patch()
     
     print(f"\n{'='*60}")
     if all_pass:
@@ -516,7 +516,7 @@ def test_multi_mode():
     print(f"State after measurements: {result.state}")
     print("[PASS] Multi-mode measurement works!")
     
-    revert_fock_backend_patch()
+    revert_loss_measure_fock_patch()
     return True
 
 

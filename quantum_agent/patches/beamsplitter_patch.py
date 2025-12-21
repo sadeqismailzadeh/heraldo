@@ -240,7 +240,7 @@ def patch_beamsplitter():
     Circuit.beamsplitter = _beamsplitter_patched_optimized
     print("BeamSplitter patch applied (Optimized O(D^3) Diagonal Traversal).")
 
-def revert_patch():
+def revert_beamsplitter_patch():
     from strawberryfields.backends.fockbackend.circuit import Circuit
     if hasattr(Circuit, 'beamsplitter_original'):
         Circuit.beamsplitter = Circuit.beamsplitter_original
@@ -262,7 +262,7 @@ def verify_correctness(theta_phi_pairs=[(np.pi/4, np.pi/6), (np.pi/3, 0), (np.pi
 
     # Initialize the patching mechanism to ensure original is saved
     patch_beamsplitter()
-    revert_patch()
+    revert_beamsplitter_patch()
 
     for n_modes in n_modes_list:
         for trunc in truncs:
@@ -280,7 +280,7 @@ def verify_correctness(theta_phi_pairs=[(np.pi/4, np.pi/6), (np.pi/3, 0), (np.pi
                         BSgate(theta/2, phi/2) | (q[1], q[2])
 
                 # Original (no patch)
-                revert_patch()  # Ensure original is active
+                revert_beamsplitter_patch()  # Ensure original is active
                 eng_original = sf.Engine("fock", backend_options={"cutoff_dim": trunc})
                 state1 = eng_original.run(prog).state
 
@@ -300,7 +300,7 @@ def verify_correctness(theta_phi_pairs=[(np.pi/4, np.pi/6), (np.pi/3, 0), (np.pi
                 assert diff < 1e-10, f"States differ! theta={theta}, phi={phi}, trunc={trunc}, diff={diff}"
 
     print("\nCorrectness verification passed!\n")
-    revert_patch()
+    revert_beamsplitter_patch()
 
 
 def run_dynamic_benchmark(truncs=[10, 15, 20, 30, 40, 50, 60], 
@@ -315,7 +315,7 @@ def run_dynamic_benchmark(truncs=[10, 15, 20, 30, 40, 50, 60],
 
     # 1. Run ORIGINAL (Unpatched)
     print("\nBenchmarking ORIGINAL beamsplitter...")
-    revert_patch()
+    revert_beamsplitter_patch()
 
     for n_modes in n_modes_list:
         for trunc in truncs:
@@ -416,7 +416,7 @@ def run_dynamic_benchmark(truncs=[10, 15, 20, 30, 40, 50, 60],
         print(f"{res['n_modes']:<6} {res['trunc']:<8} {t_orig:<15.6f} {t_opt:<15.6f} {speedup:.2f}x")
     print("="*80)
     
-    revert_patch()
+    revert_beamsplitter_patch()
 
 def main():
     """Run verification and benchmarks."""

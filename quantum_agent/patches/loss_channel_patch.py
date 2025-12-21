@@ -138,7 +138,7 @@ def patch_loss_channel():
     print("loss_channel patch applied successfully")
 
 
-def revert_patch():
+def revert_loss_channel_patch():
     """Reverts the monkey patch on Circuit.loss."""
     from strawberryfields.backends.fockbackend.circuit import Circuit
     
@@ -172,7 +172,7 @@ def verify_correctness(T_values=[0.8], truncs=[7, 10], n_modes_list=[2]):
                     if n_modes > 2:
                         BSgate(np.pi / 3, np.pi / 5) | (q[1], q[2])
 
-                revert_patch()
+                revert_loss_channel_patch()
                 eng_original = sf.Engine("fock", backend_options={"cutoff_dim": cutoff})
                 state1 = eng_original.run(prog).state
 
@@ -185,7 +185,7 @@ def verify_correctness(T_values=[0.8], truncs=[7, 10], n_modes_list=[2]):
                 assert diff < 1e-10, f"States differ significantly! T={T}, trunc={trunc}, max diff={diff}"
     
     print("\n✓ Correctness verification passed!\n")
-    revert_patch()
+    revert_loss_channel_patch()
 
 
 def run_benchmark(T_values=[0.3, 0.8], truncs=[5, 8 , 10], n_modes_list=[2], repeats=10):
@@ -196,7 +196,7 @@ def run_benchmark(T_values=[0.3, 0.8], truncs=[5, 8 , 10], n_modes_list=[2], rep
     results = []
 
     print("\nBenchmarking ORIGINAL loss channel...")
-    revert_patch()
+    revert_loss_channel_patch()
     for n_modes in n_modes_list:
         for trunc in truncs:
             for T in T_values:
@@ -265,7 +265,7 @@ def run_benchmark(T_values=[0.3, 0.8], truncs=[5, 8 , 10], n_modes_list=[2], rep
         speedup_str = f"{speedup:.2f}x" if speedup != float('inf') else "inf"
         print(f"{res['n_modes']:<6} {res['trunc']:<6} {res['T']:<4.2f} {res['original']:<15.6f} {res.get('optimized', 0):<15.6f} {speedup_str:<10}")
 
-    revert_patch()
+    revert_loss_channel_patch()
 
 
 def main():

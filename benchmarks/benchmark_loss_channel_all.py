@@ -147,7 +147,7 @@ print("[3/4] Benchmarking LossMeasureFock ...")
 from loss_measure_fock_patch import (
     LossMeasureFock,
     patch_fock_backend,
-    revert_fock_backend_patch
+    revert_loss_measure_fock_patch
 )
 patch_fock_backend()
 
@@ -188,14 +188,14 @@ time_lmf = np.mean(timings_lmf)
 std_lmf = np.std(timings_lmf)
 print(f"  Time: {time_lmf*1000:.2f} +/- {std_lmf*1000:.2f} ms (excluding first trial)\n")
 
-revert_fock_backend_patch()
+revert_loss_measure_fock_patch()
 
 # MonitoredLossMeasureFock
 print("[4/4] Benchmarking MonitoredLossMeasureFock ...")
 from monitored_loss_measure_fock_patch import (
     MonitoredLossMeasureFock,
     patch_fock_backend as patch_monitored,
-    revert_fock_backend_patch as revert_monitored_patch
+    revert_monitored_loss_measure_fock_patch as revert_monitored_patch
 )
 patch_monitored()
 
