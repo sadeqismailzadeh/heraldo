@@ -280,7 +280,7 @@ def _project_loss_n_measure(modes, x, state, pure, n, trunc, eta):
     return ret
 
 
-def patch_fock_backend():
+def patch_loss_measure_fock():
     """Patch the Fock backend with optimized V2."""
     from strawberryfields.backends.fockbackend.backend import FockBackend
     from strawberryfields.backends.fockbackend.circuit import Circuit
@@ -367,7 +367,7 @@ def test_with_postselection():
         dm1 = result1.state.dm()
         
         # Method 2: New LossMeasureFock operation
-        patch_fock_backend()
+        patch_loss_measure_fock()
         
         np.random.seed(42)
         prog2 = sf.Program(2)
@@ -437,7 +437,7 @@ def test_without_postselection():
             outcomes1.append(result1.samples[0][0])
         
         # Method 2: LossMeasureFock
-        patch_fock_backend()
+        patch_loss_measure_fock()
         
         for i in range(n_samples):
             np.random.seed(100 + i)
@@ -498,7 +498,7 @@ def test_multi_mode():
     # Note: Our current implementation uses same eta for all modes in one call
     # For different etas, we need separate calls
     
-    patch_fock_backend()
+    patch_loss_measure_fock()
     
     np.random.seed(42)
     prog = sf.Program(2)

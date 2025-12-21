@@ -325,7 +325,7 @@ def run_numerical_cross_validation(state_prep_func, state_name, params):
         # Import the monitored implementation
         from monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, revert_fock_backend_patch
         # Import the unmonitored implementation
-        from loss_measure_fock_patch import LossMeasureFock, patch_fock_backend as patch_loss_fock_backend, revert_fock_backend_patch as revert_loss_fock_backend_patch
+        from loss_measure_fock_patch import LossMeasureFock, patch_loss_measure_fock as patch_loss_fock_backend, revert_fock_backend_patch as revert_loss_fock_backend_patch
     except ImportError as e:
         print(f"Import error: {e}")
         print("Make sure both implementations are available")
