@@ -260,13 +260,8 @@ def patch_monitored_loss_measure_fock():
     def backend_monitored_loss_measure_fock(self, modes, eta, shots=1, select=None, **kwargs):
         return self.circuit.monitored_loss_measure_fock(self._remap_modes(modes), eta, select)
 
-    if not hasattr(FockBackend, 'monitored_loss_measure_fock_original'):
-        FockBackend.monitored_loss_measure_fock_original = None
 
     FockBackend.monitored_loss_measure_fock = backend_monitored_loss_measure_fock
-
-    if not hasattr(Circuit, 'monitored_loss_measure_fock_original'):
-        Circuit.monitored_loss_measure_fock_original = None
 
     Circuit.monitored_loss_measure_fock = monitored_loss_measure_fock_implementation
 
