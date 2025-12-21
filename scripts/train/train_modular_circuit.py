@@ -60,6 +60,7 @@ def main():
     N_ENVS = 4  # Number of parallel environments
     TARGET_TIMESTEPS = 100_000_000
     CHECKPOINT_FREQ = 20_000
+    USE_VEC_NORMALIZE = True
 
     # PPO Hyperparameters
     POLICY_KWARGS = dict(
@@ -68,8 +69,8 @@ def main():
         activation_fn=torch.nn.Tanh
     )
     LEARNING_RATE = 3e-4
-    N_STEPS_PER_UPDATE = 2048 // N_ENVS 
-    BATCH_SIZE = 64  
+    N_STEPS_PER_UPDATE = 2048 // N_ENVS *2
+    BATCH_SIZE = 64  *2
     N_EPOCHS = 10
     GAMMA = 0.99
     
@@ -82,8 +83,8 @@ def main():
     # We create instances of the components to define what the environment does.
     
     # 1. Circuit Context: The physical loop setup
-    circuit_context = GeneralLoopCircuit(
-        tunable_r=True, 
+    circuit_context = SqueezeOnlyCircuit(
+        tunable_phases=True, 
         max_squeezing=1.38
     )
 
@@ -164,19 +165,25 @@ def main():
     # --- Create or Load Model ---
     if latest_checkpoint:
         print("\n--- RESUMING TRAINING ---")
-        stats_filename = f"{model_prefix}_vecnormalize_{current_steps}_steps.pkl"
-        stats_path = os.path.join(log_dir, stats_filename)
-        if os.path.exists(stats_path):
-            env = VecNormalize.load(stats_path, vec_env)
-            print(f"Loaded VecNormalize stats from {stats_path}")
+        if USE_VEC_NORMALIZE:
+            stats_filename = f"{model_prefix}_vecnormalize_{current_steps}_steps.pkl"
+            stats_path = os.path.join(log_dir, stats_filename)
+            if os.path.exists(stats_path):
+                env = VecNormalize.load(stats_path, vec_env)
+                print(f"Loaded VecNormalize stats from {stats_path}")
+            else:
+                # Fallback if stats missing
+                env = VecNormalize(vec_env, norm_obs=False, gamma=GAMMA, norm_reward=True, clip_reward=10.0)
         else:
-            # Fallback if stats missing
-            env = VecNormalize(vec_env, norm_obs=False, gamma=GAMMA, norm_reward=True, clip_reward=10.0)
+            env = vec_env
             
         model = PPO.load(latest_checkpoint, env=env, ent_coef=0)
         print(f"Model loaded. Resuming from {current_steps} timesteps.")
     else:
-        env = VecNormalize(vec_env, norm_obs=False, gamma=GAMMA, norm_reward=True, clip_reward=10.0)
+        if USE_VEC_NORMALIZE:
+            env = VecNormalize(vec_env, norm_obs=False, gamma=GAMMA, norm_reward=True, clip_reward=10.0)
+        else:
+            env = vec_env
 
         print("\n--- STARTING NEW TRAINING ---")
         model = PPO(
@@ -199,7 +206,7 @@ def main():
         save_path=log_dir,
         name_prefix=model_prefix,
         save_replay_buffer=True,
-        save_vecnormalize=True
+        save_vecnormalize=USE_VEC_NORMALIZE
     )
     
     num_cpus = 4
@@ -246,8 +253,9 @@ def main():
     # --- Save Final ---
     final_model_path = os.path.join(log_dir, f"{model_prefix}_final.zip")
     model.save(final_model_path)
-    stats_path = os.path.join(log_dir, "vec_normalize.pkl")
-    env.save(stats_path)
+    if USE_VEC_NORMALIZE:
+        stats_path = os.path.join(log_dir, "vec_normalize.pkl")
+        env.save(stats_path)
     print(f"\n✅ Training finished. Saved to {final_model_path}")
 
 if __name__ == "__main__":
