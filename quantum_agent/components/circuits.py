@@ -443,11 +443,6 @@ class ThreeModeSqueezeOnlyCircuit(CircuitContext):
         self.max_sq_r = max_sq_r
         self.tunable_bs_phase = tunable_bs_phase
 
-        self._action_keys = [
-            'r1', 'phi_r1',
-            'r2', 'phi_r2',
-            'theta1', 'theta2', 'theta3'
-        ]
         self._action_ranges = {
             'r1': (0.0, self.max_sq_r), 'phi_r1': (-np.pi, np.pi),
             'r2': (0.0, self.max_sq_r), 'phi_r2': (-np.pi, np.pi),
@@ -457,12 +452,13 @@ class ThreeModeSqueezeOnlyCircuit(CircuitContext):
         }
 
         if self.tunable_bs_phase:
-            self._action_keys += ['phi1', 'phi2', 'phi3']
             self._action_ranges.update({
                 'phi1': (-np.pi, np.pi),
                 'phi2': (-np.pi, np.pi),
                 'phi3': (-np.pi, np.pi),
             })
+
+        self._action_keys = list(self.action_ranges.keys())
 
     @property
     def action_keys(self): return self._action_keys
@@ -477,7 +473,7 @@ class ThreeModeSqueezeOnlyCircuit(CircuitContext):
         prog = sf.Program(3)
         with prog.context as q:
             # Ensure loop mode is measured/reset
-            MonitoredLossMeasureFock(1) | q[0]
+            Sgate(self.max_sq_r) | q[0]
         return prog
 
     def build_step_program(self, action_dict: dict) -> list:

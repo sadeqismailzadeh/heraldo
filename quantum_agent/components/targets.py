@@ -276,12 +276,12 @@ class CoreGKPTarget(TargetGenerator):
     - mu: Logical state (0 or 1).
     """
     
-    def __init__(self, csv_path='GKP_core_coefficients.csv', n_max=4, delta_db=10.0, mu=0):
+    def __init__(self, csv_path='GKP_core_coefficients.csv', n_max=4, delta_db=10.0, mu=0, apply_squeezing=False):
         self.csv_path = csv_path
         self.n_max = n_max
         self.delta_db = delta_db
         self.mu = mu
-        self.apply_squeezing = False  # To store the squeezing parameter used
+        self.apply_squeezing = apply_squeezing  # To store the squeezing parameter used
     
     def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
         """Load coefficients from CSV and apply squeezing to the core state."""
