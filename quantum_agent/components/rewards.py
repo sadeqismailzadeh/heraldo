@@ -1,9 +1,12 @@
 """Reward mechanisms implementing the RewardMechanism interface."""
 
 import numpy as np
+import scipy.integrate
 from scipy.special import eval_hermite
 from quantum_agent.core.interfaces import RewardMechanism
 from quantum_agent.envs.modular_env import fidelity_max_rotation, decode_measurement_result
+import thewalrus
+import qutip as qt
 
 
 class LogFidelityReward(RewardMechanism):
@@ -243,3 +246,151 @@ class PotentialBasedReward(RewardMechanism):
         return reward, terminated, info
 
 
+
+
+class WignerWeightedReward(RewardMechanism):
+    """
+    Reward based on the weighted overlap of Wigner functions using QuTiP.
+    
+    It emphasizes the negative regions of the target state's Wigner function.
+    Because the Wigner transform is linear, we can precompute a single 
+    Hermitian operator 'O' such that:
+       Reward(psi) = <psi| O |psi>
+    
+    This reduces the heavy Wigner integration (slow) to a simple 
+    vector-matrix multiplication (fast, O(N^2)) during training.
+    
+    Args:
+        target_ket (np.ndarray): The target state vector (numpy).
+        cutoff_dim (int): Fock truncation dimension.
+        neg_weight (float): Multiplier for the negative regions of the target (e.g. 2.0).
+        pos_weight (float): Multiplier for positive regions (usually 1.0).
+        grid_range (float): Max x/p extent for integration (e.g. 6.0).
+        grid_points (int): Resolution of the integration grid. 
+                           MUST be Odd to capture origin (e.g. 101 or 201).
+    """
+    
+    def __init__(self, target_ket, cutoff_dim, neg_weight=2.0, pos_weight=1.0, grid_range=12.0, grid_points=201):
+        self.neg_weight = neg_weight
+        self.pos_weight = pos_weight
+        self.cutoff_dim = cutoff_dim
+        
+        # Ensure grid points is odd to capture origin
+        if grid_points % 2 == 0:
+            grid_points += 1
+            
+        print(f"Initializing WignerWeightedReward (NegWeight={neg_weight}x, Range={grid_range}, Points={grid_points})...")
+        self.reward_operator = self._build_weighted_wigner_operator(
+            target_ket, cutoff_dim, grid_range, grid_points
+        )
+        print("Wigner Operator built successfully.")
+
+    def _build_weighted_wigner_operator(self, target_ket, dim, g_range, g_points):
+        """
+        Constructs the Hermitian operator O such that <psi|O|psi> 
+        approximates the weighted Wigner overlap integral.
+        """
+        # 1. Setup Phase Space Grid
+        xvec = np.linspace(-g_range, g_range, g_points)
+        pvec = np.linspace(-g_range, g_range, g_points)
+        
+        # 2. Compute Target Wigner Function using QuTiP
+        tgt_qobj = qt.Qobj(target_ket.flatten())
+        
+        # QuTiP wigner returns W(x, p)
+        W_target = qt.wigner(tgt_qobj, xvec, pvec)
+        
+        # 3. Calculate Difference Map
+        # Instead of integrating the full W_weighted, we define:
+        # W_weighted = W_target + W_diff
+        # Where W_diff accounts for the extra weights (neg_weight - 1, etc.)
+        # This allows us to set Op = |tgt><tgt| + Op_diff
+        # Ensuring that for weight=1, we get the EXACT target state projector.
+        
+        W_diff = np.zeros_like(W_target)
+        mask_neg = W_target < 0
+        mask_pos = W_target >= 0
+        
+        # Delta weights (relative to 1.0)
+        W_diff[mask_neg] = W_target[mask_neg] * (self.neg_weight - 1.0)
+        W_diff[mask_pos] = W_target[mask_pos] * (self.pos_weight - 1.0)
+        
+        # 4. Construct Base Operator (Perfect fidelity for weight=1)
+        # Note: dim might differ from len(target_ket), so we project.
+        # But usually they match. We construct |psi><psi|.
+        # Ensure we work in the truncated dim space.
+        t_vec = target_ket.flatten()[:dim] 
+        t_vec /= np.linalg.norm(t_vec)
+        Op_base = np.outer(t_vec, np.conj(t_vec))
+        
+        # 5. Construct Correction Operator via Integration
+        Op_diff = np.zeros((dim, dim), dtype=np.complex128)
+        
+        # Iterate over basis elements (Upper triangle)
+        for m in range(dim):
+            for n in range(m, dim):
+                # Basis operator A = |n><m|
+                basis_op = qt.basis(dim, n) * qt.basis(dim, m).dag()
+                
+                # Compute Wigner of this basis operator
+                W_nm = qt.wigner(basis_op, xvec, pvec)
+                
+                # Integrate Difference Map
+                integrand = W_nm * W_diff
+                
+                # Simpson's Rule Integration
+                val = scipy.integrate.simps(scipy.integrate.simps(integrand, pvec), xvec)
+                
+                Op_diff[m, n] = val
+                
+                if m != n:
+                    Op_diff[n, m] = np.conj(val)
+        
+        # 6. Combine
+        # Scale factor: Tr(A B) = 2*pi * Integral(W_A W_B)
+        # So Integral = 1/(2*pi) * Tr.
+        # We computed Integral. We want Operator element (Tr).
+        # So we multiply by 2*pi.
+        Op_diff *= (2 * np.pi)
+        
+        return Op_base + Op_diff
+
+    def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict, target_fidelity: float) -> tuple:
+        
+        # 1. Compute Expectation Value: <psi | O | psi>
+        psi = current_ket.flatten()
+        
+        # Fast Vector-Matrix-Vector multiply: O(N^2)
+        # reward = Re( psi.dag * O * psi )
+        reward_val = np.real(np.vdot(psi, self.reward_operator.dot(psi)))
+        
+        # 2. Check termination via standard fidelity
+        # (We can stick to fidelity for "success" metrics even if reward is Wigner-based)
+        current_fidelity = max([fidelity_max_rotation(t, current_ket) for t in target_kets])
+        
+        terminated = False
+        if current_fidelity >= target_fidelity:
+            terminated = True
+            # Optional: Bonus for actual success
+            reward_val += 1.0
+
+        info = {
+            'wigner_reward': reward_val,
+            'fidelity': current_fidelity,
+            'is_success': terminated
+        }
+        
+        # Log measurement details if available
+        result = step_info.get('result', None)
+        if result is not None and hasattr(result, 'samples') and len(result.samples) > 0:
+            try:
+                encoded_result = result.samples[0][0]
+                lost_photons, detected_photons = decode_measurement_result(encoded_result)
+                info.update({
+                    'photon_loss': lost_photons,
+                    'detected_photons': detected_photons
+                })
+            except:
+                pass
+
+        return reward_val, terminated, info
