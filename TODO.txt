@@ -36,4 +36,5 @@ articles regatding reward shaping for fidelity
 - calculate post select probability of the agent
 render the state eval 
 - some other targets of Anteneh
-note in the package readme this work has continued the work on Anteneh (cite the work and code)
+- sucess rate of experimental rl 
+- lower discount factor,shorter paths
