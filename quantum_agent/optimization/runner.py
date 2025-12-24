@@ -60,11 +60,6 @@ class OptimizationRunner:
         
         return loss
 
-    def callback(self, x, f, accept):
-        """Optional callback to print progress."""
-        if accept:
-            print(f"  [Accept] Loss: {f:.5f}")
-
     def run(self, n_iter=20, method="SLSQP"):
         """
         Runs the global optimization.
@@ -87,7 +82,6 @@ class OptimizationRunner:
             x0,
             niter=n_iter,
             minimizer_kwargs=minimizer_kwargs,
-            callback=self.callback,
             stepsize=0.5
         )
         
@@ -106,4 +100,4 @@ class OptimizationRunner:
             "probability": fin_prob,
             "duration": duration,
             "message": result.message
-        }
+        }
