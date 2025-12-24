@@ -38,7 +38,8 @@ class OptimizationRunner:
         try:
             state = self.circuit.run_circuit(params, eng)
             # Trace of pure state ket^2 checks norm conservation (truncation error)
-            norm_in_trace = state.trace() 
+            ket = state.ket().flatten()
+            norm_in_trace = np.real(np.vdot(ket, ket))
         except Exception as e:
             # If simulation fails (e.g. numerical instability), return high loss
             return 100.0
@@ -59,6 +60,12 @@ class OptimizationRunner:
         loss = -fid - (self.alpha_prob * prob) + (self.penalty_strength * truncation_error)
         
         return loss
+
+    def callback(self, x, f, accept):
+        """Optional callback to print progress."""
+        if accept:
+            print(f"  [Accept] Loss: {f:.5f}")
+
 
     def run(self, n_iter=20, method="SLSQP"):
         """
@@ -82,6 +89,7 @@ class OptimizationRunner:
             x0,
             niter=n_iter,
             minimizer_kwargs=minimizer_kwargs,
+            callback=self.callback,
             stepsize=0.5
         )
         
