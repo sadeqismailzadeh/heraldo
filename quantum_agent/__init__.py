@@ -15,3 +15,15 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
+
+import scipy.integrate
+from sympy import true
+
+# 2. Check if the patch is needed to avoid errors
+if not hasattr(scipy.integrate, 'simps'):
+    print("Monkey patching scipy.integrate: 'simps' not found. Pointing to 'simpson'.")
+    # 3. Create the 'simps' attribute and point it to the existing 'simpson' function.
+    scipy.integrate.simps = scipy.integrate.simpson
+else:
+    print("'simps' already exists in scipy.integrate. No patch needed.")
+
