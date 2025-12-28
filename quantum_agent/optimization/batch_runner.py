@@ -18,12 +18,16 @@ class BatchOptimizationRunner:
                  target_gens: list[TargetGenerator], 
                  cutoff_dim: int,
                  measure_modes: list[int],
-                 penalty_strength: float = 10.0):
+                 penalty_strength: float = 10.0,
+                 success_threshold: float = 0.98,
+                 success_weight: float = 10.0):
         
         self.circuit = circuit
         self.cutoff_dim = cutoff_dim
         self.measure_modes = measure_modes
         self.penalty_strength = penalty_strength
+        self.success_threshold = success_threshold
+        self.success_weight = success_weight
         
         # Precompute all target kets once
         self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
@@ -52,31 +56,45 @@ class BatchOptimizationRunner:
         branches = self.circuit.extract_all_outputs(state, self.measure_modes)
         
         expected_fidelity = 0.0
+        soft_success_prob = 0.0
         total_prob = 0.0
         
-        # 3. Calculate Expected Fidelity
+        # Sigmoid steepness for soft indicator
+        steepness = 500.0
+        
+        # 3. Calculate Expected Fidelity and Soft Success Probability
         for branch_ket, prob, outcome in branches:
             total_prob += prob
             
             if sum(outcome) == 0:
                 continue
+            
+            # Optimization: Skip negligible branches to save FFT calls
+            if prob < 1e-6:
+                continue
 
             # Find best match among all targets for this specific branch
-            # We use fidelity_max_rotation to be phase insensitive
             best_branch_fid = 0.0
             for target_ket in self.target_kets:
                 fid = fidelity_max_rotation(target_ket, branch_ket)
                 if fid > best_branch_fid:
                     best_branch_fid = fid
             
+             
+            # Soft Indicator: sigmoid(fidelity)
+            # This approximates a step function at self.success_threshold
+        
+
+            sigmoid = 1.0 / (1.0 + np.exp(-steepness * (best_branch_fid - self.success_threshold)))
+            soft_success_prob += prob * sigmoid
+
             # Accumulate expectation
-            # best_branch_fid = 0 if best_branch_fid < 0.8 else best_branch_fid
             def _calculate_reward(fidelity):
                 """Calculates logarithmic reward based on infidelity."""
-                infidelity = max(1.0 - fidelity, 1e-10)
+                infidelity = max(1.0 - fidelity, 1e-2)
                 log_val = -np.log10(infidelity)
                 return (log_val)
-            expected_fidelity += (prob) * _calculate_reward(best_branch_fid)
+            expected_fidelity += (prob**0.7) * _calculate_reward(best_branch_fid)
 
         # 4. Calculate Penalties
         
@@ -88,8 +106,9 @@ class BatchOptimizationRunner:
         prob_sum_penalty = self.penalty_strength * abs(1.0 - total_prob)
         
         # 5. Total Loss
-        # Maximize Expected Fidelity -> Minimize negative
-        loss = -expected_fidelity + truncation_penalty + prob_sum_penalty
+        # Maximize Expected Fidelity and Soft Success Probability
+        loss = -expected_fidelity - (self.success_weight * soft_success_prob) + \
+               truncation_penalty + prob_sum_penalty
         
         return loss
 
@@ -146,14 +165,13 @@ class BatchOptimizationRunner:
             
             final_expected_fid += prob * best_fid
             
-            # Store details for top probabilities
-            if prob > 0.002:
-                branch_details.append({
-                    "outcome": outcome,
-                    "prob": prob,
-                    "fidelity": best_fid,
-                    "target_idx": best_target_idx
-                })
+            # Store details for all branches
+            branch_details.append({
+                "outcome": outcome,
+                "prob": prob,
+                "fidelity": best_fid,
+                "target_idx": best_target_idx
+            })
         
         # Sort details by probability descending
         branch_details.sort(key=lambda x: x["prob"], reverse=True)
