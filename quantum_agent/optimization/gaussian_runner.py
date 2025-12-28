@@ -12,7 +12,7 @@ import time
 import numpy as np
 from scipy.optimize import basinhopping
 import strawberryfields as sf
-from thewalrus.quantum import state_vector, density_matrix_element
+from thewalrus.quantum import state_vector, density_matrix_element, pure_state_amplitude
 
 from quantum_agent.components.targets import TargetGenerator
 from quantum_agent.optimization.interfaces import OptimizableCircuit
@@ -44,6 +44,12 @@ class GaussianOptimizationRunner:
         
         # Generate target ket once
         self.target_ket = target_gen.get_target_ket(cutoff_dim)
+
+        # OPTIMIZATION: Identify non-zero target indices to avoid computing unnecessary Hafnians
+        # This speeds up fidelity calculation significantly for sparse targets (e.g. Cubic Resource)
+        self.nonzero_indices = np.where(np.abs(self.target_ket) > 1e-6)[0]
+        self.nonzero_coeffs = self.target_ket[self.nonzero_indices]
+        print(f"[GaussianRunner] Sparse Optimization: Computing {len(self.nonzero_indices)}/{len(self.target_ket)} amplitudes.")
         
     def _loss_function(self, params):
         """
@@ -75,22 +81,52 @@ class GaussianOptimizationRunner:
             # Penalty for zero probability (failed post-selection)
             return 10.0
 
-        # 3. Reconstruct State Vector of Unmeasured Modes
-        # state_vector computes the conditional state (ket) of the remaining modes
-        # post_select arg expects {mode_index: fock_value}
+        # 3. FAST Fidelity Calculation (Sparse)
+        # Instead of computing the full state_vector (which calculates 'cutoff' Hafnians),
+        # we only calculate amplitudes for indices where target_ket is non-zero.
         try:
-            raw_ket = state_vector(mu, cov, post_select=self.post_select_dict, cutoff=self.cutoff_dim)
+            overlap = 0.0 + 0.0j
+            n_modes = state.num_modes
             
-            # Normalize the ket (TheWalrus returns unnormalized conditional ket)
-            ket = raw_ket / np.sqrt(prob)
+            # Determine unmeasured mode index
+            # (Assumes single mode output for sparse optimization currently)
+            all_idxs = set(range(n_modes))
+            meas_idxs = set(self.measured_modes)
+            rem_idxs = list(all_idxs - meas_idxs)
+            
+            if len(rem_idxs) == 1:
+                target_mode_idx = rem_idxs[0]
+                
+                # Base pattern with measured values
+                pattern = [0] * n_modes
+                for m, v in self.post_select_dict.items():
+                    pattern[m] = v
+                
+                # Loop only over relevant indices
+                for i, idx in enumerate(self.nonzero_indices):
+                    pattern[target_mode_idx] = int(idx)
+                    
+                    # pure_state_amplitude computes <n_out, n_meas | U | 0>
+                    # This is much faster than computing the whole vector if sparse
+                    amp = pure_state_amplitude(mu, cov, pattern)
+                    
+                    # Accumulate overlap: <target|psi>
+                    overlap += np.conj(self.nonzero_coeffs[i]) * amp
+                    
+                # Normalize by sqrt(Prob)
+                overlap /= np.sqrt(prob)
+                fid = np.abs(overlap)**2
+
+            else:
+                # Fallback to slow full vector if multi-mode output (rare for gadgets)
+                raw_ket = state_vector(mu, cov, post_select=self.post_select_dict, cutoff=self.cutoff_dim)
+                ket = raw_ket / np.sqrt(prob)
+                fid = fidelity_pure_state(self.target_ket, ket)
+
         except Exception:
             return 100.0
         
-        # 4. Calculate Fidelity
-        # fidelity_pure_state handles flattening internally
-        fid = fidelity_pure_state(self.target_ket, ket)
-        
-        # 5. Total Loss
+        # 4. Total Loss
         # Maximize F and P -> Minimize -F - alpha*P
         loss = -fid - (self.alpha_prob * prob)
         
