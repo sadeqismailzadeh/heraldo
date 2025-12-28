@@ -104,6 +104,35 @@ class TwoModeGadget(OptimizableCircuit):
         
         return normalized_ket, prob
 
+    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
+        """
+        Projects onto all possible Fock states for the measured mode.
+        """
+        full_ket = state.ket()
+        cutoff = full_ket.shape[0]
+        results = []
+
+        if len(measure_modes) != 1:
+            raise ValueError("TwoModeGadget expects exactly one measurement mode.")
+        
+        m_idx = measure_modes[0]
+
+        for n in range(cutoff):
+            # Project mode onto |n>
+            if m_idx == 0:
+                vec = full_ket[n, :]
+            else:
+                vec = full_ket[:, n]
+            
+            prob = np.linalg.norm(vec)**2
+            
+            # Filter negligible probabilities
+            if prob > 1e-9:
+                norm_ket = vec / np.sqrt(prob)
+                results.append((norm_ket, prob, (n,)))
+        
+        return results
+
 
 class ThreeModeSqueezeOnly(OptimizableCircuit):
     """
@@ -200,6 +229,35 @@ class ThreeModeSqueezeOnly(OptimizableCircuit):
 
         return normalized_ket, prob
 
+    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
+        """
+        Iterates through all Fock combinations for the two measured modes.
+        """
+        full_ket = state.ket()
+        cutoff = full_ket.shape[0]
+        results = []
+
+        if len(measure_modes) != 2:
+             raise ValueError("ThreeModeSqueezeOnly expects exactly two measurement modes.")
+        
+        m1, m2 = measure_modes
+
+        for n1 in range(cutoff):
+            for n2 in range(cutoff):
+                indices = [slice(None)] * 3
+                indices[m1] = n1
+                indices[m2] = n2
+                
+                vec = full_ket[tuple(indices)]
+                prob = np.linalg.norm(vec)**2
+                
+                # Filter negligible probabilities
+                if prob > 1e-9:
+                    norm_ket = vec / np.sqrt(prob)
+                    results.append((norm_ket, prob, (n1, n2)))
+        
+        return results
+
 
 class TwoModeSqueezeOnly(OptimizableCircuit):
     """
@@ -276,6 +334,34 @@ class TwoModeSqueezeOnly(OptimizableCircuit):
         normalized_ket = projected_ket / np.sqrt(prob)
         
         return normalized_ket, prob
+
+    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
+        """
+        Projects onto all possible Fock states for the measured mode.
+        """
+        full_ket = state.ket()
+        cutoff = full_ket.shape[0]
+        results = []
+
+        if len(measure_modes) != 1:
+            raise ValueError("TwoModeSqueezeOnly expects exactly one measurement mode.")
+        
+        m_idx = measure_modes[0]
+
+        for n in range(cutoff):
+            # Project mode onto |n>
+            if m_idx == 0:
+                vec = full_ket[n, :]
+            else:
+                vec = full_ket[:, n]
+            
+            prob = np.linalg.norm(vec)**2
+            
+            if prob > 1e-9:
+                norm_ket = vec / np.sqrt(prob)
+                results.append((norm_ket, prob, (n,)))
+        
+        return results
 
 
 class ThreeModeGadget(OptimizableCircuit):
@@ -380,3 +466,31 @@ class ThreeModeGadget(OptimizableCircuit):
         normalized_ket = projected_ket / np.sqrt(prob)
         
         return normalized_ket, prob
+
+    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
+        """
+        Iterates through all Fock combinations for the two measured modes.
+        """
+        full_ket = state.ket()
+        cutoff = full_ket.shape[0]
+        results = []
+
+        if len(measure_modes) != 2:
+             raise ValueError("ThreeModeGadget expects exactly two measurement modes.")
+        
+        m1, m2 = measure_modes
+
+        for n1 in range(cutoff):
+            for n2 in range(cutoff):
+                indices = [slice(None)] * 3
+                indices[m1] = n1
+                indices[m2] = n2
+                
+                vec = full_ket[tuple(indices)]
+                prob = np.linalg.norm(vec)**2
+                
+                if prob > 1e-9:
+                    norm_ket = vec / np.sqrt(prob)
+                    results.append((norm_ket, prob, (n1, n2)))
+        
+        return results

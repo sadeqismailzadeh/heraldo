@@ -43,4 +43,18 @@ class OptimizableCircuit(abc.ABC):
         Returns:
             (normalized_ket, probability)
         """
-        pass
+        pass
+
+    @abc.abstractmethod
+    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
+        """
+        Extracts states for all possible measurement outcomes on specified modes.
+
+        Args:
+            state: The Strawberry Fields state object (pure).
+            measure_modes: List of mode indices to measure.
+
+        Returns:
+            List of tuples: (normalized_ket, probability, outcome_tuple)
+        """
+        pass
