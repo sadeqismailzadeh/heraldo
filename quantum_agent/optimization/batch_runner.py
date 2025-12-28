@@ -55,9 +55,12 @@ class BatchOptimizationRunner:
         total_prob = 0.0
         
         # 3. Calculate Expected Fidelity
-        for branch_ket, prob, _ in branches:
+        for branch_ket, prob, outcome in branches:
             total_prob += prob
             
+            if sum(outcome) == 0:
+                continue
+
             # Find best match among all targets for this specific branch
             # We use fidelity_max_rotation to be phase insensitive
             best_branch_fid = 0.0
@@ -67,7 +70,13 @@ class BatchOptimizationRunner:
                     best_branch_fid = fid
             
             # Accumulate expectation
-            expected_fidelity += prob * best_branch_fid
+            # best_branch_fid = 0 if best_branch_fid < 0.8 else best_branch_fid
+            def _calculate_reward(fidelity):
+                """Calculates logarithmic reward based on infidelity."""
+                infidelity = max(1.0 - fidelity, 1e-10)
+                log_val = -np.log10(infidelity)
+                return (log_val)
+            expected_fidelity += (prob) * _calculate_reward(best_branch_fid)
 
         # 4. Calculate Penalties
         
@@ -138,7 +147,7 @@ class BatchOptimizationRunner:
             final_expected_fid += prob * best_fid
             
             # Store details for top probabilities
-            if prob > 0.01:
+            if prob > 0.002:
                 branch_details.append({
                     "outcome": outcome,
                     "prob": prob,
@@ -156,4 +165,4 @@ class BatchOptimizationRunner:
             "duration": duration,
             "branches": branch_details,
             "message": result.message
-        }
+        }

@@ -19,7 +19,7 @@ from quantum_agent.components.targets import CubicResourceTarget, SqueezedCatTar
 
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 30
+    CUTOFF_DIM = 50
     MEASURE_MODES = [0]  # Measure mode 0, leaving state on mode 1
     
     # Setup
@@ -27,6 +27,8 @@ def main():
     
     # 1. Circuit
     circuit = TwoModeSqueezeOnly(clip_size=1.38)
+
+    circuit2 = TwoModeGadget(clip_size=1.38)
     
     # 2. Targets (List)
     # The optimizer will reward the circuit if the output is close to EITHER of these
@@ -48,8 +50,8 @@ def main():
     print(f"Optimizing for {len(targets)} targets simultaneousy.")
     print(f"Objective: Maximize Expected Fidelity (Sum of Prob * MaxFidelity)")
 
-    nhp = 50       # Number of hops per global search
-    niter = 10     # Number of global searches
+    nhp = 30       # Number of hops per global search
+    niter = 20     # Number of global searches
 
     exp_fid_ls = []
     hpx = []
@@ -57,11 +59,18 @@ def main():
 
     print(f"Starting {niter} global optimization runs (each with {nhp} hops)...")
 
+    target_names = ["Cat0", "Cat1"]
+
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
-        res = runner.run(n_iter=nhp, method="Nelder-Mead")
+        res = runner.run(n_iter=nhp, method="SLSQP")
         
         print(f"  -> Final Expected Fidelity: {res['expected_fidelity']:.5f}")
+        print(f"  {'Outcome':<10} {'Prob':<10} {'Fidelity':<10} {'Best Target'}")
+        for b in res['branches']:
+             tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
+             print(f"  {str(b['outcome']):<10} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name}")
+        print("")
 
         exp_fid_ls.append(res['expected_fidelity'])
         hpx.append(res['x'])
@@ -126,11 +135,9 @@ def main():
     print(f"{'Outcome':<10} {'Prob':<10} {'Fidelity':<10} {'Best Target':<15}")
     print("-" * 60)
     
-    target_names = ["Cat0", "Cat1"]
-    
     for b in best_res['branches']:
         outcome_str = str(b['outcome'])
-        tgt_name = target_names[b['target_idx']]
+        tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
         print(f"{outcome_str:<10} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name:<15}")
     print("="*60)
 
