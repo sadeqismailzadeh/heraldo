@@ -17,7 +17,7 @@ import numpy as np
 import strawberryfields as sf
 from strawberryfields.ops import Sgate, Dgate, Vgate, Catstate, Ket
 import qutip as qt
-from scipy.special import factorial
+from scipy.special import factorial, comb
 import scipy.linalg
 import pandas as pd
 
@@ -344,3 +344,51 @@ class CoreGKPTarget(TargetGenerator):
         state = eng.run(prog).state
 
         return state.ket()
+
+
+class BinomialCodeTarget(TargetGenerator):
+    """
+    Generates Binomial Code target states.
+
+    Defined by (N, S) parameters:
+    |W_mu> = (1/sqrt(2^N)) * sum_{p} sqrt(binom(N+1, p)) |p(S+1)>
+
+    where p sums over even integers for mu=0 (logical 0/up)
+    and odd integers for mu=1 (logical 1/down).
+
+    Parameters:
+    - N: Order of the code (max(L, G, 2D)).
+    - S: Spacing parameter (L + G).
+    - mu: Logical state (0 or 1).
+    """
+
+    def __init__(self, N=1, S=1, mu=0):
+        self.N = N
+        self.S = S
+        self.mu = mu
+
+    def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
+        print(f"Generating Binomial Code Target (N={self.N}, S={self.S}, mu={self.mu})...")
+
+        target_ket = np.zeros(cutoff_dim, dtype=np.complex128)
+
+        # Iterate p from 0 to N+1
+        # mu=0 -> even p, mu=1 -> odd p
+        start_p = 1 if self.mu == 1 else 0
+
+        for p in range(start_p, self.N + 2, 2):
+            fock_n = p * (self.S + 1)
+
+            if fock_n < cutoff_dim:
+                # coeff = sqrt(binom(N+1, p))
+                c = np.sqrt(comb(self.N + 1, p))
+                target_ket[fock_n] = c
+            else:
+                pass
+
+        # Normalize
+        norm = np.linalg.norm(target_ket)
+        if norm > 1e-9:
+            target_ket /= norm
+
+        return target_ket

@@ -51,9 +51,9 @@ def main():
     
     # --- Configuration ---
     # Environment Parameters
-    CUTOFF_DIM = 50
+    CUTOFF_DIM = 20
     MAX_STEPS = 50
-    INITIAL_DIFFICULTY = 0.67 # Start with lower fidelity target
+    INITIAL_DIFFICULTY = 0.9 # Start with lower fidelity target
 
 
     # Training Parameters
@@ -64,15 +64,15 @@ def main():
 
     # PPO Hyperparameters
     POLICY_KWARGS = dict(
-        net_arch=dict(pi=[256, 256], vf=[256, 256]),
+        net_arch=dict(pi=[256, 256, 256], vf=[256, 256, 256]),
         optimizer_class=torch.optim.Adam,
         activation_fn=torch.nn.Tanh
     )
     LEARNING_RATE = 3e-4
-    N_STEPS_PER_UPDATE = 2048 // N_ENVS *2
-    BATCH_SIZE = 64  *2
-    N_EPOCHS = 10
-    GAMMA = 0.99
+    N_STEPS_PER_UPDATE = 2048 // N_ENVS *4
+    BATCH_SIZE = 1024
+    N_EPOCHS = 3
+    GAMMA = 0.87
     
     # --- Setup Paths ---
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train_Modular")
@@ -95,6 +95,8 @@ def main():
     )
 
     circuit_context3 = CubicSpecificCircuit(max_sq_r=1.38)
+
+    circuit_context4 = ThreeModeSqueezeOnlyCircuit(max_sq_r=1)
     
     # 2. Target Generator: The state we want to reach (Squeezed Cat)
     target1 = SqueezedCatTarget(
@@ -109,6 +111,10 @@ def main():
         p=1
     )
     
+    gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
+                                 n_max=n, delta_db=10.4, mu=m)
+                   for n in [4, 6, 8, 10, 12] for m in [0, 1]]
+
     csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     target3=CoreGKPTarget(csv_path=csv_path, 
                           n_max=4, 
@@ -117,6 +123,22 @@ def main():
     
     # 3. Reward Mechanism: How we calculate success
     reward_mech = LogFidelityReward()
+
+    # add target1 and 2 to the current gkp_targets list
+    gkp_targets.append(target1)
+    gkp_targets.append(target2)
+
+    # Generate all Binomial Codes with max Fock state <= 12
+    binomial_targets = []
+    max_fock_n = 12
+    for S in range(1, max_fock_n):
+        for N in range(1, max_fock_n):
+            if (N + 1) * (S + 1) <= max_fock_n:
+                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=0))
+                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=1))
+    
+    gkp_targets.extend(binomial_targets)
+    
 
     # --- Setup Parallel Environments ---
     print(f"Using {N_ENVS} parallel environments with ModularQuantumEnv.")
@@ -129,8 +151,8 @@ def main():
         loss_channel=1.0, # Assumes no loss for now, consistent with basic setup
         initial_target_fidelity=INITIAL_DIFFICULTY,
         # INJECT MODULES HERE:
-        circuit_context=circuit_context,
-        target_gens=[target1, target2],
+        circuit_context=circuit_context4,
+        target_gens=gkp_targets,
         reward_mech=reward_mech
     )
 
@@ -230,6 +252,8 @@ def main():
         decay_factor=0.5,
         min_lr=1e-6
     )
+
+
 
     callback_list = CallbackList([
         checkpoint_callback, 
