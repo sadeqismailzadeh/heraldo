@@ -31,13 +31,13 @@ def main():
     # Simulation parameters
     # INCREASED CUTOFF to avoid simulation artifacts during reconstruction
     cutoff = 100  
-    n_max_core = 4 # Truncation for the core state (Stellar rank approximation)
+    n_max_core = 6 # Truncation for the core state (Stellar rank approximation)
     
     print("=== Stellar Representation Decomposition Test ===")
     
     # 1. Generate Target State (Square GKP)
     # mu=0 (logical 0), delta=0.3 (~10dB squeezing)
-    target_gen = GKPTarget(gkp_type='square', mu=0, delta=0.3)
+    target_gen = GKPTarget(gkp_type='square', mu=0, delta=0.33)
     target_ket = target_gen.get_target_ket(cutoff)
     
     # 2. Perform Decomposition
