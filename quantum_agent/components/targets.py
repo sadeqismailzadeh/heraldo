@@ -33,8 +33,14 @@ def sqrGKP_qutip(mu, d, delta, cutoff, nmax=25):
 
     # Lattice spacing L = sqrt(4*pi) for square
     # arg1 handles the phase checkerboard pattern for logical states
-    arg1 = 1j * np.pi * n2 * (d * n1 + mu) / d
-    amplitude = (np.exp(arg1)).flatten()[:, None]
+    # Note: Tzitrin et al. (2020) uses all-positive weights for mu=0 square GKP.
+    # We maintain compatibility by defaulting to positive for mu=0.
+    if mu == 0 and d == 2:
+        # Create amplitude for the full 2D grid (n1 x n2)
+        amplitude = np.ones((n1.size * n2.size, 1), dtype=np.complex128)
+    else:
+        arg1 = 1j * np.pi * n2 * (d * n1 + mu) / d
+        amplitude = (np.exp(arg1)).flatten()[:, None]
 
     alpha = np.sqrt(np.pi / d) * ((d * n1 + mu - 1j * n2))
     alpha = alpha.flatten()[:, None]

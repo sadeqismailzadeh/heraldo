@@ -13,7 +13,7 @@ from scipy.optimize import basinhopping
 import strawberryfields as sf
 from strawberryfields.ops import Ket, Sgate, Dgate
 
-def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method='SLSQP'):
+def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method='SLSQP', even_parity=True):
     """
     Decomposes a target state into its stellar representation approximation:
     |psi> ~ D(alpha) S(r, phi) |core>
@@ -28,6 +28,8 @@ def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method=
         n_max_core (int): The maximum photon number for the core state.
         cutoff_dim (int, optional): Simulation cutoff dimension. Defaults to len(target_ket) + padding.
         method (str): Optimization method for local search. Default 'SLSQP'.
+        even_parity (bool): If True, restricts core to even Fock states (|0>, |2>...).
+                            Necessary for symmetric states like GKP |0>.
         
     Returns:
         dict: {
@@ -63,10 +65,11 @@ def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method=
     def negative_overlap(params):
         """
         Cost function: -1 * Probability of the inverse-transformed state 
-        residing in the core subspace (Fock 0 to n_max_core).
+        residing in the core subspace.
         
-        Maximizing this probability is equivalent to maximizing the achievable
-        fidelity between the target and any state of form G |core>.
+        For GKP states (even_parity=True), we only project onto the even
+        Fock subspace (|0>, |2>, ...), matching the methodology in
+        formalism.py.
         """
         # Unpack parameters
         r, phi, x, y = params
@@ -95,7 +98,16 @@ def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method=
             
             # Calculate probability in the core subspace
             # This is equivalent to || P_core |psi'> ||^2
-            prob = np.sum(np.abs(state_ket[:n_max_core+1])**2)
+            
+            if even_parity:
+                # Restrict to even Fock states only (|0>, |2>, |4>, ...)
+                # The step '2' in the slice selects every second element starting from 0.
+                # We must ensure n_max_core is even to capture the last state correctly
+                eff_n_max = n_max_core if n_max_core % 2 == 0 else n_max_core - 1
+                prob = np.sum(np.abs(state_ket[0:eff_n_max+1:2])**2)
+            else:
+                # General case: include all states |0> ... |n_max>
+                prob = np.sum(np.abs(state_ket[:n_max_core+1])**2)
             
             # Bound check (numerical errors might give > 1 slightly)
             prob = min(prob, 1.0)
@@ -105,14 +117,14 @@ def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method=
             return 0.0
 
     # Bounds for parameters
-    # r: [0, 1.4] (approx 12 dB) - Restricted to avoid cutoff artifacts
+    # r: [0, 2.0] (approx 17 dB)
     # phi: [-2pi, 2pi]
-    # x, y: [-4.5, 4.5] - Restricted displacement
+    # x, y: [-6, 6]
     bounds = [
-        (0.0, 1.4),
+        (0.0, 2.0),
         (-2*np.pi, 2*np.pi),
-        (-4.5, 4.5),
-        (-4.5, 4.5)
+        (-6.0, 6.0),
+        (-6.0, 6.0)
     ]
     
     # Initial guess
@@ -148,12 +160,23 @@ def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method=
     final_state_ket = res_final.state.ket().flatten()
     
     # Extract, project and normalize core
-    core_ket_trunc = final_state_ket[:n_max_core+1]
-    norm_core = np.linalg.norm(core_ket_trunc)
-    
-    if norm_core > 1e-9:
-        core_ket = core_ket_trunc / norm_core
+    if even_parity:
+        eff_n_max = n_max_core if n_max_core % 2 == 0 else n_max_core - 1
+        # Extract only even indices
+        core_ket_trunc = final_state_ket[0:eff_n_max+1:2]
+        
+        # Reconstruct full core ket with zeros at odd indices for consistency
+        core_ket = np.zeros(n_max_core+1, dtype=np.complex128)
+        norm_core = np.linalg.norm(core_ket_trunc)
+        if norm_core > 1e-9:
+            core_ket[0:eff_n_max+1:2] = core_ket_trunc / norm_core
     else:
+        core_ket_trunc = final_state_ket[:n_max_core+1]
+        norm_core = np.linalg.norm(core_ket_trunc)
+        if norm_core > 1e-9:
+            core_ket = core_ket_trunc / norm_core
+            
+    if np.linalg.norm(core_ket) < 1e-9:
         # Fallback if optimization failed completely
         core_ket = np.zeros(n_max_core+1, dtype=np.complex128)
         core_ket[0] = 1.0
