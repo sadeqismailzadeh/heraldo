@@ -64,20 +64,28 @@ def _prepare_multimode_patched(self, state, modes):
             slicer[m] = multi_idx[m]
             
         candidate_vec = self._state[tuple(slicer)].copy()
-        norm = np.linalg.norm(candidate_vec)
+        norm_candidate = np.linalg.norm(candidate_vec)
         
         # If the slice we picked is effectively zero (unlikely given argmax), skip
-        if norm > 1e-12:
-            candidate_vec /= norm
+        if norm_candidate > 1e-12:
+            candidate_vec /= norm_candidate
             
             # Check separability: Project full state onto candidate (conjugated)
             # Contract kept_modes indices of state with candidate indices
             projection = np.tensordot(self._state, candidate_vec.conj(),
                                       axes=(list(kept_modes), list(range(len(kept_modes)))))
             
-            # If separable, norm of projection should be 1.0 (since both vecs normalized)
-            # If entangled, norm < 1.0 (Schwartz inequality on Schmidt coefficients)
-            if abs(np.linalg.norm(projection) - 1.0) < 1e-6:
+            # Robust Check: Compare projection norm to the actual state norm.
+            # Truncation errors can cause state norm to drop below 1.0.
+            # If separable: |psi_total> = c * |psi_kept> (x) |psi_replaced>
+            # |projection> = c * |psi_replaced>
+            # norm(projection) should equal norm(total_state)
+            
+            state_norm = np.linalg.norm(self._state)
+            proj_norm = np.linalg.norm(projection)
+            
+            # Use a relative tolerance based on the state norm
+            if abs(proj_norm - state_norm) < (1e-5 * state_norm + 1e-9):
                 # OPTIMIZATION SUCCESS: Update pure state directly
                 
                 # New state = candidate_vec (kept) (x) state (replaced)
@@ -89,6 +97,12 @@ def _prepare_multimode_patched(self, state, modes):
                 inv_perm = np.argsort(current_ordering)
                 
                 self._state = new_full_state.transpose(inv_perm)
+                
+                # Re-normalize to prevent drift accumulation
+                new_norm = np.linalg.norm(self._state)
+                if new_norm > 1e-12:
+                    self._state /= new_norm
+                    
                 # self._pure remains True
                 return
 
