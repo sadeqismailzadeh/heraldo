@@ -20,8 +20,8 @@ class LogFidelityReward(RewardMechanism):
     Uses bonus for success.
     """
     
-    def __init__(self):
-        pass
+    def __init__(self, is_terminate=True):
+        self.is_terminate = is_terminate
     
     def compute(self, current_ket: np.ndarray, target_kets: list, step_info: dict, target_fidelity: float) -> tuple:
         """
@@ -54,8 +54,9 @@ class LogFidelityReward(RewardMechanism):
 
         # Success bonus
         if hit_target:
-            reward = 10*self._calculate_reward(fidelity)
-            terminated = True
+            reward = 5*max_reward + 5*self._calculate_reward(fidelity)
+            if self.is_terminate:
+                terminated = True
 
         # Normalize reward
         reward /= (11*max_reward)
@@ -86,6 +87,10 @@ class LogFidelityReward(RewardMechanism):
         infidelity = max(1.0 - fidelity, 1e-3)
         log_val = -np.log10(infidelity)
         return ((fidelity**2) * log_val)**2
+    
+
+
+
 
 
 class PowerLawReward(RewardMechanism):

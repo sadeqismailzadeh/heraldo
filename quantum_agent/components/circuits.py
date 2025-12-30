@@ -396,7 +396,7 @@ class ThreeModeGadgetCircuit(CircuitContext):
         prog = sf.Program(3)
         with prog.context as q:
             # Ensure loop mode is measured/reset
-            MonitoredLossMeasureFock(1) | q[0]
+            Sgate(self.max_sq_r) | q[0]
         return prog
 
     def build_step_program(self, action_dict: dict) -> list:
