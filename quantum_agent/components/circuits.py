@@ -2,6 +2,7 @@
 
 # 1. Import the module we need to patch
 import scipy.integrate
+from sympy import Integer
 
 # 2. Check if the patch is needed to avoid errors
 if not hasattr(scipy.integrate, 'simps'):
@@ -32,7 +33,8 @@ class GKPCircuit(CircuitContext):
     4. Displacement Angle (arg(alpha))
     5. Beamsplitter Transmissivity (theta)
     """
-    def __init__(self, max_sq_r=1.38, max_disp_mag=2.5):
+    def __init__(self, max_sq_r=1.38, max_disp_mag=2.5, num_single_photon: Integer = 0):
+        self.num_single_photon = num_single_photon
         self.max_sq_r = max_sq_r
         self.max_disp_mag = max_disp_mag
         
@@ -68,6 +70,8 @@ class GKPCircuit(CircuitContext):
         prog = sf.Program(2)
         with prog.context as q:
             # Prepare Ancilla in q[1]
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
             Sgate(action_dict['r_mag'], action_dict['r_phi']) | q[1]
             Dgate(action_dict['d_mag'], action_dict['d_phi']) | q[1]
             # Interact
@@ -93,9 +97,10 @@ class SqueezeOnlyCircuit(CircuitContext):
     - If not tunable_r: [squeezing_phase, theta_1]
     """
     
-    def __init__(self, tunable_phases=True, max_squeezing=1.38):
+    def __init__(self, tunable_phases=True, max_squeezing=1.38, num_single_photon :Integer = 0):
         self.tunable_phases = tunable_phases
         self.max_squeezing = max_squeezing
+        self.num_single_photon = num_single_photon
         
         if self.tunable_phases:
             self._action_ranges = {
@@ -131,6 +136,7 @@ class SqueezeOnlyCircuit(CircuitContext):
         prog1 = sf.Program(2)
         sq_r = action_dict['sq_r']
         bs_theta = action_dict['bs_theta']
+
         if self.tunable_phases:
             sq_phi = action_dict['sq_phi']
             bs_phi = action_dict['bs_phi']
@@ -139,6 +145,9 @@ class SqueezeOnlyCircuit(CircuitContext):
             bs_phi = 0
         with prog1.context as q:
             # 1. Prepare Ancilla (q[1])
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
+                
             Sgate(sq_r, sq_phi) | q[1]
 
             # 2. Interact Data(q[0]) and Ancilla(q[1])
@@ -171,7 +180,8 @@ class CubicSpecificCircuit(CircuitContext):
     3. Input Displacement (alpha)
     """
     
-    def __init__(self, max_sq_r=1.15, max_disp_alpha=1.0, fixed_measure_beta=2.0):
+    def __init__(self, max_sq_r=1.15, max_disp_alpha=1.0, fixed_measure_beta=2.0, num_single_photon: Integer = 0):
+        self.num_single_photon = num_single_photon
         self.max_sq_r = max_sq_r
         self.max_disp_alpha = max_disp_alpha
         self.fixed_measure_beta = fixed_measure_beta
@@ -203,6 +213,8 @@ class CubicSpecificCircuit(CircuitContext):
         prog1 = sf.Program(2)
         with prog1.context as q:
             # Prepare Input
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
             Sgate(action_dict['r']) | q[1]
             # Displacement on imaginary axis
             Dgate(np.abs(1j * action_dict['alpha']), np.angle(1j * action_dict['alpha'])) | q[1]
@@ -239,7 +251,8 @@ class GadgetCircuit(CircuitContext):
     8. Second displacement phase (phi_alpha2)
     """
     
-    def __init__(self, max_squeezing=0.347, max_disp=1.0):
+    def __init__(self, max_squeezing=0.347, max_disp=1.0, num_single_photon: Integer = 0):
+        self.num_single_photon = num_single_photon
         self.max_squeezing = max_squeezing
         self.max_disp = max_disp
         
@@ -274,6 +287,8 @@ class GadgetCircuit(CircuitContext):
         prog = sf.Program(2)
         with prog.context as q:
             # Prepare input on q[1]
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
             Sgate(action_dict['squeezing_r'], action_dict['squeezing_phase']) | q[1]
             Dgate(action_dict['disp_mag1'], action_dict['disp_phi1']) | q[1]
             
@@ -295,7 +310,8 @@ class GadgetCircuit(CircuitContext):
 
 class QuarticSpecificCircuit(CircuitContext):
     """Quartic Phase specific circuit."""
-    def __init__(self, max_sq_r=1.0, max_disp_alpha=2.0):
+    def __init__(self, max_sq_r=1.0, max_disp_alpha=2.0, num_single_photon: Integer = 0):
+        self.num_single_photon = num_single_photon
         self.max_sq_r = max_sq_r
         self.max_disp_alpha = max_disp_alpha
         
@@ -324,6 +340,8 @@ class QuarticSpecificCircuit(CircuitContext):
     def build_step_program(self, action_dict: dict) -> sf.Program:
         prog1 = sf.Program(2)
         with prog1.context as q:
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
             Sgate(action_dict['r']) | q[1]
             # Displacement (Imaginary axis)
             alpha_z = 1j * action_dict['alpha']
@@ -355,7 +373,8 @@ class ThreeModeGadgetCircuit(CircuitContext):
     - (Optional) Interaction phases: phi1, phi2, phi3
     """
 
-    def __init__(self, max_sq_r=0.92, max_disp=1.0, tunable_bs_phase=False):
+    def __init__(self, max_sq_r=0.92, max_disp=1.0, tunable_bs_phase=False, num_single_photon: Integer = 0):
+        self.num_single_photon = num_single_photon
         self.max_sq_r = max_sq_r
         self.max_disp = max_disp
         self.tunable_bs_phase = tunable_bs_phase
@@ -402,6 +421,10 @@ class ThreeModeGadgetCircuit(CircuitContext):
     def build_step_program(self, action_dict: dict) -> list:
         prog1 = sf.Program(3)
         with prog1.context as q:
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
+            if self.num_single_photon >= 2:
+                Fock(1) | q[2]
             Sgate(action_dict['r1'], action_dict['phi_r1']) | q[1]
             Dgate(action_dict['d1'], action_dict['phi_d1']) | q[1]
             Sgate(action_dict['r2'], action_dict['phi_r2']) | q[2]
@@ -439,7 +462,8 @@ class ThreeModeSqueezeOnlyCircuit(CircuitContext):
     - (Optional) Interaction phases: phi1, phi2, phi3
     """
 
-    def __init__(self, max_sq_r=0.92, tunable_bs_phase=False):
+    def __init__(self, max_sq_r=0.92, tunable_bs_phase=False, num_single_photon: Integer = 0):
+        self.num_single_photon = num_single_photon
         self.max_sq_r = max_sq_r
         self.tunable_bs_phase = tunable_bs_phase
 
@@ -479,6 +503,10 @@ class ThreeModeSqueezeOnlyCircuit(CircuitContext):
     def build_step_program(self, action_dict: dict) -> list:
         prog1 = sf.Program(3)
         with prog1.context as q:
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
+            if self.num_single_photon >= 2:
+                Fock(1) | q[2]
             Sgate(action_dict['r1'], action_dict['phi_r1']) | q[1]
             Sgate(action_dict['r2'], action_dict['phi_r2']) | q[2]
             
