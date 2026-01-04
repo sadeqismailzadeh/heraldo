@@ -38,3 +38,18 @@ render the state eval
 - some other targets of Anteneh
 - sucess rate of experimental rl 
 - lower discount factor,shorter paths
+- cite sabapathy and anteneh articles in the code
+- incorporate core state maker
+- gaussian backend rl
+- compare rl to post select
+jet brains mellum download
+- mit license
+- post select on time domain
+- prove rl not good
+- list of usefull quantum states in quantum computing
+- circuit omtimize for all measurement outcomes
+mit licesnce not gpl
+- multiple target for rl
+- interferometer
+- no terminate test squuezed cat
+- multi target article
