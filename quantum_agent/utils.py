@@ -96,6 +96,13 @@ def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method=
             result = eng.run(prog)
             state_ket = result.state.ket().flatten()
             
+            # Check for numerical validity (trace preservation)
+            # If the trace drops significantly, we've exceeded the cutoff
+            norm_sq = np.real(np.vdot(state_ket, state_ket))
+            if norm_sq < 0.9 or norm_sq >1.1:
+                # Penalize states that leave the Hilbert space (truncation error)
+                return 1.0 + (1.0 - norm_sq)
+
             # Calculate probability in the core subspace
             # This is equivalent to || P_core |psi'> ||^2
             
@@ -114,17 +121,17 @@ def decompose_target_to_stellar(target_ket, n_max_core, cutoff_dim=None, method=
             
             return -prob
         except Exception:
-            return 0.0
+            return 1.0
 
     # Bounds for parameters
-    # r: [0, 2.0] (approx 17 dB)
+    # r: [0, 1.4] (approx 12 dB) - Restricted to avoid Fock cutoff errors.
     # phi: [-2pi, 2pi]
-    # x, y: [-6, 6]
+    # x, y: [-2.5, 2.5] - Restricted to keep displacement manageable.
     bounds = [
-        (0.0, 2.0),
+        (0.0, 1.4),
         (-2*np.pi, 2*np.pi),
-        (-6.0, 6.0),
-        (-6.0, 6.0)
+        (-2.5, 2.5),
+        (-2.5, 2.5)
     ]
     
     # Initial guess
