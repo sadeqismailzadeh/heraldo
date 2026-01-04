@@ -122,12 +122,25 @@ def main():
     # quartic = QuarticPhaseTarget(delta=0.03, s_r=0.0)
     # plot_target_wigner(quartic, "Quartic Phase", cutoff_dim=40)
 
+    # target4 = BinomialCodeTarget(N=3, S=1, mu=0)
+    # plot_target_wigner(target4, "BinomialCode", cutoff_dim=14)
+
+
+    target4 = TrisqueezedTarget()
+    plot_target_wigner(target4, "Trisqueezed", cutoff_dim=50)
+
+    target4 = QuadsqueezedTarget()
+    plot_target_wigner(target4, "Quadsqueezed", cutoff_dim=50)
+
+
+    
+
     csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
-    target3=CoreGKPTarget(csv_path=csv_path, 
-                          n_max=4, 
-                          delta_db=10.4, 
-                          mu=0)
-    plot_target_wigner(target3, "Quartic Phase", cutoff_dim=30)
+    # target3=CoreGKPTarget(csv_path=csv_path, 
+    #                       n_max=4, 
+    #                       delta_db=10.4, 
+    #                       mu=0)
+    # plot_target_wigner(target3, "Quartic Phase", cutoff_dim=30)
 
 if __name__ == "__main__":
     main()

@@ -51,16 +51,16 @@ def main():
     
     # --- Configuration ---
     # Environment Parameters
-    CUTOFF_DIM = 20
+    CUTOFF_DIM = 50
     MAX_STEPS = 50
-    INITIAL_DIFFICULTY = 0.9 # Start with lower fidelity target
+    INITIAL_DIFFICULTY = 0.85 # Start with lower fidelity target
 
 
     # Training Parameters
     N_ENVS = 4  # Number of parallel environments
     TARGET_TIMESTEPS = 100_000_000
     CHECKPOINT_FREQ = 20_000
-    USE_VEC_NORMALIZE = True
+    USE_VEC_NORMALIZE = False
 
     # PPO Hyperparameters
     POLICY_KWARGS = dict(
@@ -69,8 +69,8 @@ def main():
         activation_fn=torch.nn.Tanh
     )
     LEARNING_RATE = 3e-4
-    N_STEPS_PER_UPDATE = 2048 // N_ENVS *4
-    BATCH_SIZE = 1024
+    N_STEPS_PER_UPDATE = 2048 // N_ENVS *4 *2*2
+    BATCH_SIZE = 1024 * 2*2
     N_EPOCHS = 3
     GAMMA = 0.87
     
@@ -85,7 +85,8 @@ def main():
     # 1. Circuit Context: The physical loop setup
     circuit_context = SqueezeOnlyCircuit(
         tunable_phases=True, 
-        max_squeezing=1.38
+        max_squeezing=1.38,
+        num_single_photon = 1
     )
 
     circuit_context2 = ThreeModeGadgetCircuit(
@@ -98,6 +99,8 @@ def main():
 
     circuit_context4 = ThreeModeSqueezeOnlyCircuit(max_sq_r=1)
     
+    circuit_2mode_gadget = GadgetCircuit(max_squeezing=1.38, max_disp=1)
+
     # 2. Target Generator: The state we want to reach (Squeezed Cat)
     target1 = SqueezedCatTarget(
         alpha=3, 
@@ -122,11 +125,11 @@ def main():
                           mu=0)
     
     # 3. Reward Mechanism: How we calculate success
-    reward_mech = LogFidelityReward()
+    reward_mech = LogFidelityReward(is_terminate=False)
 
     # add target1 and 2 to the current gkp_targets list
-    gkp_targets.append(target1)
-    gkp_targets.append(target2)
+    # gkp_targets.append(target1)
+    # gkp_targets.append(target2)
 
     # Generate all Binomial Codes with max Fock state <= 12
     binomial_targets = []
@@ -137,7 +140,7 @@ def main():
                 binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=0))
                 binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=1))
     
-    gkp_targets.extend(binomial_targets)
+    # gkp_targets.extend(binomial_targets)
     
 
     # --- Setup Parallel Environments ---
@@ -151,7 +154,7 @@ def main():
         loss_channel=1.0, # Assumes no loss for now, consistent with basic setup
         initial_target_fidelity=INITIAL_DIFFICULTY,
         # INJECT MODULES HERE:
-        circuit_context=circuit_context4,
+        circuit_context=circuit_context,
         target_gens=gkp_targets,
         reward_mech=reward_mech
     )
@@ -199,7 +202,14 @@ def main():
         else:
             env = vec_env
             
-        model = PPO.load(latest_checkpoint, env=env, ent_coef=0)
+        model = PPO.load(latest_checkpoint, 
+                        learning_rate=LEARNING_RATE,
+                        n_steps=N_STEPS_PER_UPDATE,
+                        batch_size=BATCH_SIZE,
+                        n_epochs=N_EPOCHS,
+                        gamma=GAMMA,
+                        env=env, 
+                        ent_coef=0)
         print(f"Model loaded. Resuming from {current_steps} timesteps.")
     else:
         if USE_VEC_NORMALIZE:
@@ -240,7 +250,7 @@ def main():
     # or the reward mechanism should read it from the env state.
     curriculum_callback = CurriculumCallback(
         log_dir=log_dir,
-        success_threshold=0.5, 
+        success_threshold=0.98, 
         max_difficulty=0.98,
         initial_difficulty=INITIAL_DIFFICULTY,
         verbose=1
