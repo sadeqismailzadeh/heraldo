@@ -40,12 +40,12 @@ def main():
     # --- Configuration ---
     # Environment Parameters
     N_DIMS = 25
-    MAX_STEPS = 500
-    INITIAL_FIDELITY = 0.85
+    MAX_STEPS = 100
+    INITIAL_FIDELITY = 0.3
 
     # Training Parameters
     N_ENVS = 4
-    TARGET_TIMESTEPS = 10_000_000
+    TARGET_TIMESTEPS = 100_000_000
     CHECKPOINT_FREQ = 20_000
     USE_VEC_NORMALIZE = False
 

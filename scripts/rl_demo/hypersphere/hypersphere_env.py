@@ -52,8 +52,9 @@ class HypersphereNavigationEnv(gym.Env):
         
         # 2. Define "Gates" (Control Hamiltonian Axes)
         # STAR TOPOLOGY: Connect index 0 (Target) to all other indices 1..N-1
-        self.gate_planes = [(0, i) for i in range(1, n_dims)]
-            
+        # self.gate_planes = [(0, i) for i in range(1, n_dims)]
+        self.gate_planes = [(i-1, i) for i in range(1, n_dims)]
+        self.gate_planes.append((n_dims-1, 0))
         # 3. Define Drift (Hamiltonian Drift)
         # Drift acts on the target index to force the agent to actively correct
         self.drift_plane = (0, 1) 
@@ -79,11 +80,13 @@ class HypersphereNavigationEnv(gym.Env):
         
         # Start with a random state
         state = self.np_random.standard_normal(self.n_dims).astype(np.float32)
+        # state = np.ones(self.n_dims)
+        state[0] = 0
         state /= np.linalg.norm(state)
         
-        # Force start "far away" (dot product < 0) to ensure non-trivial episode
-        if np.dot(state, self.target_state) > 0.1:
-             state *= -1.0
+        # # Force start "far away" (dot product < 0) to ensure non-trivial episode
+        # if np.dot(state, self.target_state) > 0.1:
+        #      state *= -1.0
              
         self.state = state
         self.current_step = 0
@@ -110,7 +113,7 @@ class HypersphereNavigationEnv(gym.Env):
         safe_fid = min(fidelity, 1.0 - 1e-4)
         infidelity = 1.0 - safe_fid
         log_term = -np.log10(infidelity)
-        return ((safe_fid))**2
+        return ((safe_fid)**2 * log_term)**2
 
     def step(self, action):
         self.current_step += 1
@@ -126,7 +129,7 @@ class HypersphereNavigationEnv(gym.Env):
         c_theta = action[1] * self.action_scale
         
         # 3. Map sigma from [-1, 1] to [0.5, 5.0]
-        c_sigma = 0.5 + (action[2] + 1.0) / 2.0 * (4.5)
+        c_sigma = 0.1 + (action[2] + 1.0) / 2.0 * (4.9)
 
         # 1. Dynamics: Apply Variable Focus Scanning
         # Apply rotations to all star-topology planes based on Gaussian weights
@@ -155,8 +158,8 @@ class HypersphereNavigationEnv(gym.Env):
         shaped_val = self._calculate_shaped_val(fidelity)
         
         # Base reward: negative penalty for being away from max
-        # reward = shaped_val - max_val
-        reward = shaped_val
+        reward = shaped_val - max_val
+        # reward = shaped_val
         terminated = False
         is_success = fidelity >= self.target_fidelity
         
