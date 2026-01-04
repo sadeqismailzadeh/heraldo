@@ -3,6 +3,22 @@ import numpy as np
 from scipy.optimize import basinhopping
 import strawberryfields as sf
 
+
+# disable caching to save memory for large cutoff dims
+from quantum_agent.patches.sf_operations_no_cache import disable_fock_caching
+disable_fock_caching()
+
+# optimized loss channel
+from quantum_agent.patches.monitored_loss_measure_fock_patch import MonitoredLossMeasureFock, patch_monitored_loss_measure_fock, decode_measurement_result
+patch_monitored_loss_measure_fock()
+
+from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter
+patch_beamsplitter()
+
+from quantum_agent.patches.prepare_multimode_patch import patch_prepare_multimode
+patch_prepare_multimode()
+
+
 from quantum_agent.components.targets import TargetGenerator
 from quantum_agent.optimization.interfaces import OptimizableCircuit
 from quantum_agent.envs.modular_env import fidelity_max_rotation
@@ -20,7 +36,8 @@ class BatchOptimizationRunner:
                  measure_modes: list[int],
                  penalty_strength: float = 10.0,
                  success_threshold: float = 0.98,
-                 success_weight: float = 10.0):
+                 success_weight: float = 10.0,
+                 max_post_select: int = None):
         
         self.circuit = circuit
         self.cutoff_dim = cutoff_dim
@@ -28,15 +45,18 @@ class BatchOptimizationRunner:
         self.penalty_strength = penalty_strength
         self.success_threshold = success_threshold
         self.success_weight = success_weight
+        self.max_post_select = max_post_select
         
         # Precompute all target kets once
         self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
         print(f"[BatchRunner] Loaded {len(self.target_kets)} target states.")
+        self.eval_count = 0
         
     def _loss_function(self, params):
         """
         Calculates loss: -Expected_Fidelity + Penalties
         """
+        self.eval_count += 1
         # 1. Run Circuit
         eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
         
@@ -52,35 +72,28 @@ class BatchOptimizationRunner:
             return 100.0
 
         # 2. Extract All Possible Outputs (Branches)
-        # Returns list of (normalized_ket, prob, outcome_tuple)
-        branches = self.circuit.extract_all_outputs(state, self.measure_modes)
+        # Returns arrays directly
+        kets, probs, outcomes = self.circuit.extract_all_outputs(state, self.measure_modes)
         
         expected_fidelity = 0.0
         soft_success_prob = 0.0
-        total_prob = 0.0
         
         # Sigmoid steepness for soft indicator
         steepness = 500.0
         
         # 3. Vectorized Expected Fidelity and Soft Success Probability
-        total_prob = sum(b[1] for b in branches)
+        total_prob = np.sum(probs)
         
         # Filter branches: outcome sum > 0 AND prob > 1e-6
-        # We collect them into lists first to construct the batch arrays
-        valid_data = [
-            (b[0], b[1]) 
-            for b in branches 
-            if sum(b[2]) > 0 and b[1] > 1e-6
-        ]
+        mask = (np.sum(outcomes, axis=1) > 0) & (probs > 1e-6)
+        if self.max_post_select is not None:
+             mask &= (np.max(outcomes, axis=1) <= self.max_post_select)
+             
+        filtered_kets = kets[mask]
+        filtered_probs = probs[mask]
 
-        if valid_data:
-            # Unzip into arrays
-            # filtered_kets shape: (N_branches, D)
-            # filtered_probs shape: (N_branches,)
-            filtered_kets_list, filtered_probs_list = zip(*valid_data)
-            filtered_kets = np.array(filtered_kets_list)
-            filtered_probs = np.array(filtered_probs_list)
-
+        if len(filtered_kets) > 0:
+            # filtered_kets is already an array
             # Targets shape: (N_targets, D)
             targets_arr = np.array(self.target_kets)
 
@@ -94,7 +107,7 @@ class BatchOptimizationRunner:
             
             # Perform Batched FFT along the Fock dimension (axis -1)
             # Using n=2048 to match standard resolution for phase optimization
-            fft_vals = np.fft.fft(product_matrix, n=2048, axis=-1)
+            fft_vals = np.fft.fft(product_matrix, n=256, axis=-1)
             
             # Compute squared magnitude and find max over rotation angle (FFT axis)
             # Shape: (N_branches, N_targets)
@@ -113,7 +126,7 @@ class BatchOptimizationRunner:
             # Logarithmic Reward
             infidelities = np.maximum(1.0 - best_fids, 1e-2)
             log_vals = -np.log10(infidelities)
-            expected_fidelity = np.sum((filtered_probs**0.7) * log_vals)
+            expected_fidelity = np.sum((filtered_probs**0.1) * log_vals)
 
         # 4. Calculate Penalties
         
@@ -134,7 +147,8 @@ class BatchOptimizationRunner:
     def callback(self, x, f, accept):
         """Optional callback to print progress."""
         if accept:
-            print(f"  [Accept] Loss: {f:.5f}")
+            print(f"  [Accept] Loss: {f:.5f} (Evals: {self.eval_count})")
+        self.eval_count = 0
 
     def run(self, n_iter=20, method="SLSQP"):
         """
@@ -167,12 +181,16 @@ class BatchOptimizationRunner:
         # --- Evaluate final statistics ---
         eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
         final_state = self.circuit.run_circuit(result.x, eng)
-        branches = self.circuit.extract_all_outputs(final_state, self.measure_modes)
+        kets, probs, outcomes = self.circuit.extract_all_outputs(final_state, self.measure_modes)
         
         final_expected_fid = 0.0
         branch_details = []
         
-        for branch_ket, prob, outcome in branches:
+        for i in range(len(probs)):
+            branch_ket = kets[i]
+            prob = probs[i]
+            outcome = tuple(outcomes[i])
+
             best_fid = 0.0
             best_target_idx = -1
             

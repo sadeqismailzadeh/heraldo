@@ -67,7 +67,7 @@ class OptimizableCircuit(abc.ABC):
 
         return normalized_ket, float(prob)
 
-    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
+    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Extracts states for all possible measurement outcomes on specified modes.
 
@@ -76,7 +76,9 @@ class OptimizableCircuit(abc.ABC):
             measure_modes: List of mode indices to measure.
 
         Returns:
-            List of tuples: (normalized_ket, probability, outcome_tuple)
+            normalized_kets: (N_outcomes, cutoff)
+            valid_probs: (N_outcomes,)
+            outcomes: (N_outcomes, num_measured_modes)
         """
         full_ket = state.ket()
         num_modes = len(full_ket.shape)
@@ -109,7 +111,7 @@ class OptimizableCircuit(abc.ABC):
         valid_indices = np.where(probs > 1e-9)[0]
 
         if len(valid_indices) == 0:
-            return []
+            return np.empty((0, cutoff), dtype=np.complex128), np.array([]), np.empty((0, len(sorted_measure_modes)), dtype=int)
 
         # 6. Normalization
         valid_kets = reshaped_ket[valid_indices]
@@ -122,16 +124,7 @@ class OptimizableCircuit(abc.ABC):
         dims = [cutoff] * len(sorted_measure_modes)
         # returns tuple of arrays (arr_dim1, arr_dim2, ...)
         unraveled = np.unravel_index(valid_indices, dims)
-        # Zip them to get list of tuples
-        outcome_tuples = list(zip(*unraveled))
+        # Stack into (N_outcomes, num_measured_modes)
+        outcomes = np.stack(unraveled, axis=-1)
 
-        # 8. Assemble results
-        results = []
-        for i in range(len(valid_indices)):
-            results.append((
-                normalized_kets[i],
-                float(valid_probs[i]),
-                outcome_tuples[i]
-            ))
-
-        return results
+        return normalized_kets, valid_probs, outcomes

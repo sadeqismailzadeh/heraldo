@@ -1,6 +1,6 @@
 import numpy as np
 import strawberryfields as sf
-from strawberryfields.ops import Sgate, Dgate, BSgate
+from strawberryfields.ops import Sgate, Dgate, BSgate, Fock
 
 from quantum_agent.optimization.interfaces import OptimizableCircuit
 
@@ -18,8 +18,9 @@ class TwoModeGadget(OptimizableCircuit):
     sq0_r, sq0_phi, disp0_r, disp0_phi, sq1_r, sq1_phi, disp1_r, disp1_phi, theta, phi
     """
     
-    def __init__(self, clip_size=1.0):
+    def __init__(self, clip_size=1.0, num_single_photon=0):
         self.clip_size = clip_size
+        self.num_single_photon = num_single_photon
         self._param_names = [
             'sq0_r', 'sq0_phi', 'disp0_r', 'disp0_phi',
             'sq1_r', 'sq1_phi', 'disp1_r', 'disp1_phi',
@@ -51,6 +52,9 @@ class TwoModeGadget(OptimizableCircuit):
 
         prog = sf.Program(2)
         with prog.context as q:
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
+
             Sgate(sq0_r, sq0_phi) | q[0]
             Dgate(disp0_r, disp0_phi) | q[0]
             
@@ -83,8 +87,9 @@ class ThreeModeSqueezeOnly(OptimizableCircuit):
     sq_r(0,1,2), sq_phi(0,1,2), bs_theta(1,2,3), bs_phi(1,2,3)
     """
 
-    def __init__(self, clip_size=1.0):
+    def __init__(self, clip_size=1.0, num_single_photon=0):
         self.clip_size = clip_size
+        self.num_single_photon = num_single_photon
         self._param_names = [
             'sq0_r', 'sq1_r', 'sq2_r',
             'sq0_phi', 'sq1_phi', 'sq2_phi',
@@ -119,6 +124,11 @@ class ThreeModeSqueezeOnly(OptimizableCircuit):
 
         prog = sf.Program(3)
         with prog.context as q:
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
+            if self.num_single_photon >= 2:
+                Fock(1) | q[2]
+
             # Squeezing
             for k in range(3):
                 Sgate(sq_r[k], sq_phi[k]) | q[k]
@@ -150,8 +160,9 @@ class TwoModeSqueezeOnly(OptimizableCircuit):
     sq0_r, sq0_phi, sq1_r, sq1_phi, bs_theta, bs_phi
     """
     
-    def __init__(self, clip_size=1.0):
+    def __init__(self, clip_size=1.0, num_single_photon=0):
         self.clip_size = clip_size
+        self.num_single_photon = num_single_photon
         self._param_names = [
             'sq0_r', 'sq0_phi',
             'sq1_r', 'sq1_phi',
@@ -179,6 +190,9 @@ class TwoModeSqueezeOnly(OptimizableCircuit):
 
         prog = sf.Program(2)
         with prog.context as q:
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
+
             Sgate(sq0_r, sq0_phi) | q[0]
             Sgate(sq1_r, sq1_phi) | q[1]
             
@@ -208,8 +222,9 @@ class ThreeModeGadget(OptimizableCircuit):
     sq_r(0,1,2), sq_phi(0,1,2), d_r(0,1,2), bs_theta(1,2,3), bs_phi(1,2,3)
     """
     
-    def __init__(self, clip_size=1.0):
+    def __init__(self, clip_size=1.0, num_single_photon=0):
         self.clip_size = clip_size
+        self.num_single_photon = num_single_photon
         self._param_names = [
             'sq0_r', 'sq1_r', 'sq2_r',
             'sq0_phi', 'sq1_phi', 'sq2_phi',
@@ -248,6 +263,11 @@ class ThreeModeGadget(OptimizableCircuit):
 
         prog = sf.Program(3)
         with prog.context as q:
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
+            if self.num_single_photon >= 2:
+                Fock(1) | q[2]
+
             # Squeezing + Displacement
             for k in range(3):
                 Sgate(sq_r[k], sq_phi[k]) | q[k]
