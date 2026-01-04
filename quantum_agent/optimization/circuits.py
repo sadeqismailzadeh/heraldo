@@ -62,47 +62,7 @@ class TwoModeGadget(OptimizableCircuit):
         result = engine.run(prog)
         return result.state
 
-    def extract_output(self, state: sf.backends.BaseState, post_select_dict: dict) -> tuple[np.ndarray, float]:
-        """
-        Projects the 2-mode pure state based on post-selection.
-        
-        Args:
-            state: SF state object
-            post_select_dict: e.g. {0: 1} means measure mode 0, find Fock |1>
-        
-        Returns:
-            (ket, probability)
-        """
-        # Get the full tensor (ket)
-        # Shape: (cutoff, cutoff) for 2 modes
-        # Ordering is (mode0, mode1)
-        full_ket = state.ket()
-        
-        # Assume only one mode is post-selected for the 2-mode gadget
-        if len(post_select_dict) != 1:
-            raise ValueError("TwoModeGadget expects exactly one post-selection constraint.")
-            
-        measure_mode, measure_val = list(post_select_dict.items())[0]
-        
-        if measure_mode == 0:
-            # Project mode 0 onto |n>. We slice the first dimension.
-            # Remaining vector corresponds to mode 1.
-            projected_ket = full_ket[measure_val, :]
-        else:
-            # Project mode 1 onto |n>. We slice the second dimension.
-            projected_ket = full_ket[:, measure_val]
-            
-        # Probability is the squared norm of the projected vector
-        prob = np.linalg.norm(projected_ket)**2
-        
-        if prob < 1e-12:
-            # Avoid division by zero, return zero vector and zero prob
-            return np.zeros_like(projected_ket), 0.0
-            
-        # Normalize
-        normalized_ket = projected_ket / np.sqrt(prob)
-        
-        return normalized_ket, prob
+
 
 
 
@@ -171,36 +131,7 @@ class ThreeModeSqueezeOnly(OptimizableCircuit):
         result = engine.run(prog)
         return result.state
 
-    def extract_output(self, state: sf.backends.BaseState, post_select_dict: dict) -> tuple[np.ndarray, float]:
-        """
-        Projects the 3-mode pure state based on post-selection.
 
-        Args:
-            state: SF state object
-            post_select_dict: {mode_idx: fock_val, ...} (must have 2 entries)
-        """
-        full_ket = state.ket()
-
-        if len(post_select_dict) != 2:
-            raise ValueError("ThreeModeSqueezeOnly expects exactly two post-selection constraints.")
-
-        # Construct slices for projection
-        indices = [slice(None)] * 3
-
-        for mode, val in post_select_dict.items():
-            indices[mode] = val
-
-        # This reduces the array to 1D (the unmeasured mode)
-        projected_ket = full_ket[tuple(indices)]
-
-        prob = np.linalg.norm(projected_ket)**2
-
-        if prob < 1e-12:
-            return np.zeros_like(projected_ket), 0.0
-
-        normalized_ket = projected_ket / np.sqrt(prob)
-
-        return normalized_ket, prob
 
 
 
@@ -256,30 +187,7 @@ class TwoModeSqueezeOnly(OptimizableCircuit):
         result = engine.run(prog)
         return result.state
 
-    def extract_output(self, state: sf.backends.BaseState, post_select_dict: dict) -> tuple[np.ndarray, float]:
-        """
-        Projects the 2-mode pure state based on post-selection.
-        """
-        full_ket = state.ket()
-        
-        if len(post_select_dict) != 1:
-            raise ValueError("TwoModeSqueezeOnly expects exactly one post-selection constraint.")
-            
-        measure_mode, measure_val = list(post_select_dict.items())[0]
-        
-        if measure_mode == 0:
-            projected_ket = full_ket[measure_val, :]
-        else:
-            projected_ket = full_ket[:, measure_val]
-            
-        prob = np.linalg.norm(projected_ket)**2
-        
-        if prob < 1e-12:
-            return np.zeros_like(projected_ket), 0.0
-            
-        normalized_ket = projected_ket / np.sqrt(prob)
-        
-        return normalized_ket, prob
+
 
 
 
@@ -353,38 +261,6 @@ class ThreeModeGadget(OptimizableCircuit):
         result = engine.run(prog)
         return result.state
 
-    def extract_output(self, state: sf.backends.BaseState, post_select_dict: dict) -> tuple[np.ndarray, float]:
-        """
-        Projects the 3-mode pure state based on post-selection.
-        
-        Args:
-            state: SF state object
-            post_select_dict: {mode_idx: fock_val, ...} (must have 2 entries)
-        
-        Returns:
-            (ket, probability)
-        """
-        full_ket = state.ket()
-        
-        if len(post_select_dict) != 2:
-            raise ValueError("ThreeModeGadget expects exactly two post-selection constraints.")
-            
-        # Construct slices for projection
-        indices = [slice(None)] * 3
-        
-        for mode, val in post_select_dict.items():
-            indices[mode] = val
-            
-        # This reduces the array to 1D (the unmeasured mode)
-        projected_ket = full_ket[tuple(indices)]
-            
-        prob = np.linalg.norm(projected_ket)**2
-        
-        if prob < 1e-12:
-            return np.zeros_like(projected_ket), 0.0
-            
-        normalized_ket = projected_ket / np.sqrt(prob)
-        
-        return normalized_ket, prob
+
 
 

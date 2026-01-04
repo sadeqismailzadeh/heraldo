@@ -31,7 +31,6 @@ class OptimizableCircuit(abc.ABC):
         """
         pass
     
-    @abc.abstractmethod
     def extract_output(self, state: sf.backends.BaseState, post_select_dict: dict) -> tuple[np.ndarray, float]:
         """
         Performs post-selection/projection logic on the output state.
@@ -43,7 +42,30 @@ class OptimizableCircuit(abc.ABC):
         Returns:
             (normalized_ket, probability)
         """
-        pass
+        full_ket = state.ket()
+        num_modes = len(full_ket.shape)
+
+        # Construct slices for projection
+        indices = [slice(None)] * num_modes
+
+        for mode, val in post_select_dict.items():
+            if mode < 0 or mode >= num_modes:
+                 raise ValueError(f"Measurement mode {mode} out of bounds for {num_modes}-mode system.")
+            indices[mode] = val
+
+        # Project the state
+        projected_ket = full_ket[tuple(indices)]
+
+        # Calculate probability (squared norm)
+        # projected_ket might be multi-dimensional if multiple modes are left unmeasured
+        prob = np.linalg.norm(projected_ket.flatten())**2
+
+        if prob < 1e-12:
+            return np.zeros_like(projected_ket), 0.0
+
+        normalized_ket = projected_ket / np.sqrt(prob)
+
+        return normalized_ket, float(prob)
 
     def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
         """
