@@ -104,41 +104,7 @@ class TwoModeGadget(OptimizableCircuit):
         
         return normalized_ket, prob
 
-    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
-        """
-        Projects onto all possible Fock states for the measured mode.
-        Vectorized implementation.
-        """
-        full_ket = state.ket()
-        
-        if len(measure_modes) != 1:
-            raise ValueError("TwoModeGadget expects exactly one measurement mode.")
-        
-        m_idx = measure_modes[0]
-        unmeasured_idx = 1 - m_idx
-        
-        # Calculate probabilities for the measured mode by summing over the unmeasured mode
-        probs = np.sum(np.abs(full_ket)**2, axis=unmeasured_idx)
-        
-        # Find indices with non-negligible probability
-        valid_indices = np.argwhere(probs > 1e-9).flatten()
-        
-        results = []
-        for n in valid_indices:
-            prob = probs[n]
-            
-            # Slice the ket
-            if m_idx == 0:
-                # Measured mode 0 is 'n'
-                vec = full_ket[n, :]
-            else:
-                # Measured mode 1 is 'n'
-                vec = full_ket[:, n]
-                
-            norm_ket = vec / np.sqrt(prob)
-            results.append((norm_ket, float(prob), (n,)))
-        
-        return results
+
 
 
 class ThreeModeSqueezeOnly(OptimizableCircuit):
@@ -236,49 +202,7 @@ class ThreeModeSqueezeOnly(OptimizableCircuit):
 
         return normalized_ket, prob
 
-    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
-        """
-        Iterates through all Fock combinations for the two measured modes.
-        Vectorized implementation to avoid nested loops O(D^2).
-        """
-        full_ket = state.ket()
 
-        if len(measure_modes) != 2:
-             raise ValueError("ThreeModeSqueezeOnly expects exactly two measurement modes.")
-        
-        meas_set = set(measure_modes)
-        all_modes = {0, 1, 2}
-        unmeasured_mode = list(all_modes - meas_set)[0]
-        
-        # Calculate probabilities P(n_a, n_b) by summing over the unmeasured mode
-        probs = np.sum(np.abs(full_ket)**2, axis=unmeasured_mode)
-        
-        # Identify valid indices (n_a, n_b) where probability is significant
-        valid_indices = np.argwhere(probs > 1e-9)
-        
-        # Map axes of 'probs' to mode indices.
-        # If unmeasured is k, remaining modes are 0..k-1 and k+1..2 in sorted order.
-        remaining_modes = sorted(list(meas_set))
-        
-        results = []
-        for idx in valid_indices:
-            prob = probs[tuple(idx)]
-            
-            # Construct slice for full_ket
-            slicer = [slice(None)] * 3
-            slicer[remaining_modes[0]] = idx[0]
-            slicer[remaining_modes[1]] = idx[1]
-            
-            vec = full_ket[tuple(slicer)]
-            norm_ket = vec / np.sqrt(prob)
-            
-            # Map indices to outcome tuple in the requested order of measure_modes
-            val_map = {remaining_modes[0]: idx[0], remaining_modes[1]: idx[1]}
-            outcome = tuple(val_map[m] for m in measure_modes)
-            
-            results.append((norm_ket, float(prob), outcome))
-        
-        return results
 
 
 class TwoModeSqueezeOnly(OptimizableCircuit):
@@ -357,35 +281,7 @@ class TwoModeSqueezeOnly(OptimizableCircuit):
         
         return normalized_ket, prob
 
-    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
-        """
-        Projects onto all possible Fock states for the measured mode.
-        Vectorized implementation.
-        """
-        full_ket = state.ket()
-        
-        if len(measure_modes) != 1:
-            raise ValueError("TwoModeSqueezeOnly expects exactly one measurement mode.")
-        
-        m_idx = measure_modes[0]
-        unmeasured_idx = 1 - m_idx
-        
-        probs = np.sum(np.abs(full_ket)**2, axis=unmeasured_idx)
-        valid_indices = np.argwhere(probs > 1e-9).flatten()
-        
-        results = []
-        for n in valid_indices:
-            prob = probs[n]
-            
-            if m_idx == 0:
-                vec = full_ket[n, :]
-            else:
-                vec = full_ket[:, n]
-                
-            norm_ket = vec / np.sqrt(prob)
-            results.append((norm_ket, float(prob), (n,)))
-        
-        return results
+
 
 
 class ThreeModeGadget(OptimizableCircuit):
@@ -491,42 +387,4 @@ class ThreeModeGadget(OptimizableCircuit):
         
         return normalized_ket, prob
 
-    def extract_all_outputs(self, state: sf.backends.BaseState, measure_modes: list[int]) -> list[tuple[np.ndarray, float, tuple]]:
-        """
-        Iterates through all Fock combinations for the two measured modes.
-        Vectorized implementation.
-        """
-        full_ket = state.ket()
 
-        if len(measure_modes) != 2:
-             raise ValueError("ThreeModeGadget expects exactly two measurement modes.")
-        
-        meas_set = set(measure_modes)
-        all_modes = {0, 1, 2}
-        unmeasured_mode = list(all_modes - meas_set)[0]
-        
-        # Calculate probabilities P(n_a, n_b) by summing over the unmeasured mode
-        probs = np.sum(np.abs(full_ket)**2, axis=unmeasured_mode)
-        
-        # Identify valid indices
-        valid_indices = np.argwhere(probs > 1e-9)
-        
-        remaining_modes = sorted(list(meas_set))
-        
-        results = []
-        for idx in valid_indices:
-            prob = probs[tuple(idx)]
-            
-            slicer = [slice(None)] * 3
-            slicer[remaining_modes[0]] = idx[0]
-            slicer[remaining_modes[1]] = idx[1]
-            
-            vec = full_ket[tuple(slicer)]
-            norm_ket = vec / np.sqrt(prob)
-            
-            val_map = {remaining_modes[0]: idx[0], remaining_modes[1]: idx[1]}
-            outcome = tuple(val_map[m] for m in measure_modes)
-            
-            results.append((norm_ket, float(prob), outcome))
-        
-        return results
