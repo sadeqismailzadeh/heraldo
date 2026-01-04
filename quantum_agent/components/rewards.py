@@ -48,13 +48,14 @@ class LogFidelityReward(RewardMechanism):
         # reward -= 1 * max_reward
         
         # Stagnation penalty: penalize if state hasn't changed much
-        self_fidelity = fidelity_max_rotation(past_ket, current_ket)
-        if self_fidelity > 0.95:
-            reward -=  0.1*max_reward
+        if self.is_terminate:
+            self_fidelity = fidelity_max_rotation(past_ket, current_ket)
+            if self_fidelity > 0.95:
+                reward -=  0.1*max_reward
 
         # Success bonus
         if hit_target:
-            reward = 5*max_reward + 5*self._calculate_reward(fidelity)
+            reward = 1*max_reward +  9*self._calculate_reward(fidelity)
             if self.is_terminate:
                 terminated = True
 
