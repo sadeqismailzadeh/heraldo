@@ -64,7 +64,7 @@ def fidelity_pure_state(target_ket, state_ket):
     return np.clip(fidelity, 0.0, 1.0)
 
 
-def fidelity_max_rotation(target_ket, state_ket, n_fft=2048):
+def fidelity_max_rotation(target_ket, state_ket, n_fft=256):
     """
     Calculates the maximum fidelity between state_ket and target_ket
     optimizing over any global phase space rotation z-rotation R(phi).
