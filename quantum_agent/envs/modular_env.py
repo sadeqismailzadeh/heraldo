@@ -35,6 +35,9 @@ patch_monitored_loss_measure_fock()
 from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter
 patch_beamsplitter()
 
+from quantum_agent.patches.prepare_multimode_patch import patch_prepare_multimode
+patch_prepare_multimode()
+
 # --- Utility Functions ---
 
 
@@ -250,6 +253,7 @@ class ModularQuantumEnv(gym.Env):
             
             # Update state tracking immediately after every sub-program
             self.current_state = result.state
+            assert self.current_state.is_pure
             self.current_ket = self.circuit_context._get_current_ket(self.current_state)
             
             # Check inner product (Critical for the "split" logic)
