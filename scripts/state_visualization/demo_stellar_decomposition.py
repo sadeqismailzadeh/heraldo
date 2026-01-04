@@ -8,7 +8,7 @@ from strawberryfields.ops import Ket, Sgate, Dgate
 
 
 from quantum_agent.utils import decompose_target_to_stellar
-from quantum_agent.components.targets import GKPTarget
+from quantum_agent.components.targets import *
 
 def plot_wigner(state, ax, title):
     """Calculates and plots the Wigner function of a Strawberry Fields state."""
@@ -30,15 +30,22 @@ def plot_wigner(state, ax, title):
 def main():
     # Simulation parameters
     # INCREASED CUTOFF to avoid simulation artifacts during reconstruction
-    cutoff = 100  
-    n_max_core = 6 # Truncation for the core state (Stellar rank approximation)
+    cutoff = 80  
+    n_max_core = 12 # Truncation for the core state (Stellar rank approximation)
     
     print("=== Stellar Representation Decomposition Test ===")
     
     # 1. Generate Target State (Square GKP)
     # mu=0 (logical 0), delta=0.3 (~10dB squeezing)
     target_gen = GKPTarget(gkp_type='square', mu=0, delta=0.33)
-    target_ket = target_gen.get_target_ket(cutoff)
+    cubic = CubicPhaseTarget(gamma=-0.2, r=-0.7, alpha=1.25)
+    resource = CubicResourceTarget(a=0.61)
+    quartic = QuarticPhaseTarget(delta=0.05, s_r=0.5)
+    Tri = TrisqueezedTarget(r=0.3)
+    Quad = QuadsqueezedTarget(r=0.2)
+
+    cat = SqueezedCatTarget(alpha=3.0, r=1.38, p=1) # p=1 for odd parity
+    target_ket = Quad.get_target_ket(cutoff)
     
     # 2. Perform Decomposition
     print(f"\nDecomposing GKP target (mu=0, delta=0.3) with core size n_max={n_max_core}...")
