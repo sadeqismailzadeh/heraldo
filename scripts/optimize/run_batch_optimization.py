@@ -5,13 +5,6 @@ import operator
 import numpy as np
 from sklearn.cluster import KMeans
 
-# 1. Apply Performance Patches
-from quantum_agent.patches.sf_operations_no_cache import disable_fock_caching
-disable_fock_caching()
-
-from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter
-patch_beamsplitter()
-
 # 2. Imports
 from quantum_agent.optimization.circuits import ThreeModeSqueezeOnly, TwoModeGadget, TwoModeSqueezeOnly
 from quantum_agent.optimization.batch_runner import BatchOptimizationRunner
@@ -38,10 +31,12 @@ def main():
         SqueezedCatTarget(alpha=3.0, r=1.38, p =0),
         SqueezedCatTarget(alpha=3.0, r=1.38, p =1),
     ]
+
+    circuit = circuit2
     
     # 3. Runner
     runner = BatchOptimizationRunner(
-        circuit=circuit2,
+        circuit=circuit,
         target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         measure_modes=MEASURE_MODES,
@@ -149,11 +144,47 @@ def main():
     print(f"{'Outcome':<10} {'Prob':<10} {'Fidelity':<10} {'Best Target':<15}")
     print("-" * 60)
     
+    # Dynamic target naming for large lists
+    get_tgt_name = lambda idx: target_names[idx] if idx < len(target_names) else f"Target_{idx}"
+
     for b in best_res['branches']:
         if b['prob'] > 0.01:
             outcome_str = str(b['outcome'])
-            tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
+            tgt_name = get_tgt_name(b['target_idx'])
             print(f"{outcome_str:<10} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name:<15}")
+
+    # --- Target Analysis ---
+    print("-" * 60)
+    print("Target Distribution Analysis (Aggregated Success):")
+    print(f"{'Rank':<5} {'Target Name':<20} {'Tot. Prob':<10} {'Outcomes (Top 3)'}")
+    print("-" * 60)
+
+    # Aggregate stats per target
+    target_stats = {} # idx -> {'prob': float, 'outcomes': list of (outcome, prob)}
+    
+    for b in best_res['branches']:
+        # Only count successful branches towards the target's score
+        if b['fidelity'] > SUCCESS_THRESHOLD:
+            idx = b['target_idx']
+            if idx not in target_stats:
+                target_stats[idx] = {'prob': 0.0, 'outcomes': []}
+            
+            target_stats[idx]['prob'] += b['prob']
+            target_stats[idx]['outcomes'].append((b['outcome'], b['prob']))
+
+    # Sort targets by total probability mass
+    sorted_targets = sorted(target_stats.items(), key=lambda x: x[1]['prob'], reverse=True)
+
+    for rank, (idx, stats) in enumerate(sorted_targets):
+        # Sort outcomes for this target by probability
+        stats['outcomes'].sort(key=lambda x: x[1], reverse=True)
+        top_outcomes = [str(o[0]) for o in stats['outcomes'][:3]]
+        outcome_str = ", ".join(top_outcomes)
+        if len(stats['outcomes']) > 3:
+            outcome_str += ", ..."
+            
+        print(f"{rank+1:<5} {get_tgt_name(idx):<20} {stats['prob']:<10.4f} {outcome_str}")
+
     print("="*60)
 
 if __name__ == "__main__":
