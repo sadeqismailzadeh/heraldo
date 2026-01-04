@@ -4,11 +4,12 @@ Script to run batch optimization maximizing Expected Fidelity across multiple ta
 import operator
 import numpy as np
 from sklearn.cluster import KMeans
+from pathlib import Path
 
 # 2. Imports
 from quantum_agent.optimization.circuits import ThreeModeSqueezeOnly, TwoModeGadget, TwoModeSqueezeOnly
 from quantum_agent.optimization.batch_runner import BatchOptimizationRunner
-from quantum_agent.components.targets import CubicResourceTarget, SqueezedCatTarget
+from quantum_agent.components.targets import *
 
 def main():
     # --- Configuration ---
@@ -32,6 +33,11 @@ def main():
         SqueezedCatTarget(alpha=3.0, r=1.38, p =1),
     ]
 
+    gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
+                                n_max=n, delta_db=10.4, mu=m)
+                for n in [4, 6, 8, 10, 12] for m in [0, 1]]
+
+    targets = gkp_targets
     circuit = circuit2
     
     # 3. Runner
@@ -42,7 +48,8 @@ def main():
         measure_modes=MEASURE_MODES,
         penalty_strength=10.0,
         success_threshold=SUCCESS_THRESHOLD,
-        success_weight=20.0
+        success_weight=20.0,
+        max_post_select = 12
     )
     
     # --- Execution ---
@@ -58,7 +65,14 @@ def main():
 
     print(f"Starting {niter} global optimization runs (each with {nhp} hops)...")
 
-    target_names = ["Cat0", "Cat1"]
+    target_names = []
+    for i, t in enumerate(targets):
+        if hasattr(t, "n_max") and hasattr(t, "mu"):
+            target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
+        elif hasattr(t, "p"):
+            target_names.append(f"Cat_p{t.p}")
+        else:
+            target_names.append(f"Target_{i}")
 
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
