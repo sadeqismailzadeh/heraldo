@@ -27,11 +27,13 @@ class OptimizationRunner:
         
         # Generate target ket once
         self.target_ket = target_gen.get_target_ket(cutoff_dim)
+        self.eval_count = 0
         
     def _loss_function(self, params):
         """
         Calculates loss: -Fidelity - alpha * Prob + Penalties
         """
+        self.eval_count += 1
         # 1. Run Circuit
         eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
         
@@ -64,7 +66,8 @@ class OptimizationRunner:
     def callback(self, x, f, accept):
         """Optional callback to print progress."""
         if accept:
-            print(f"  [Accept] Loss: {f:.5f}")
+            print(f"  [Accept] Loss: {f:.5f} (Evals: {self.eval_count})")
+        self.eval_count = 0
 
 
     def run(self, n_iter=20, method="SLSQP"):
