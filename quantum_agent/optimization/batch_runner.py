@@ -62,39 +62,58 @@ class BatchOptimizationRunner:
         # Sigmoid steepness for soft indicator
         steepness = 500.0
         
-        # 3. Calculate Expected Fidelity and Soft Success Probability
-        for branch_ket, prob, outcome in branches:
-            total_prob += prob
-            
-            if sum(outcome) == 0:
-                continue
-            
-            # Optimization: Skip negligible branches to save FFT calls
-            if prob < 1e-6:
-                continue
-
-            # Find best match among all targets for this specific branch
-            best_branch_fid = 0.0
-            for target_ket in self.target_kets:
-                fid = fidelity_max_rotation(target_ket, branch_ket)
-                if fid > best_branch_fid:
-                    best_branch_fid = fid
-            
-             
-            # Soft Indicator: sigmoid(fidelity)
-            # This approximates a step function at self.success_threshold
+        # 3. Vectorized Expected Fidelity and Soft Success Probability
+        total_prob = sum(b[1] for b in branches)
         
+        # Filter branches: outcome sum > 0 AND prob > 1e-6
+        # We collect them into lists first to construct the batch arrays
+        valid_data = [
+            (b[0], b[1]) 
+            for b in branches 
+            if sum(b[2]) > 0 and b[1] > 1e-6
+        ]
 
-            sigmoid = 1.0 / (1.0 + np.exp(-steepness * (best_branch_fid - self.success_threshold)))
-            soft_success_prob += prob * sigmoid
+        if valid_data:
+            # Unzip into arrays
+            # filtered_kets shape: (N_branches, D)
+            # filtered_probs shape: (N_branches,)
+            filtered_kets_list, filtered_probs_list = zip(*valid_data)
+            filtered_kets = np.array(filtered_kets_list)
+            filtered_probs = np.array(filtered_probs_list)
 
-            # Accumulate expectation
-            def _calculate_reward(fidelity):
-                """Calculates logarithmic reward based on infidelity."""
-                infidelity = max(1.0 - fidelity, 1e-2)
-                log_val = -np.log10(infidelity)
-                return (log_val)
-            expected_fidelity += (prob**0.7) * _calculate_reward(best_branch_fid)
+            # Targets shape: (N_targets, D)
+            targets_arr = np.array(self.target_kets)
+
+            # --- Batched Fidelity Max Rotation ---
+            # We need max_phi |<target | e^{i n phi} | state>|^2
+            # This is equivalent to: max |FFT(conj(state) * target)|^2
+            
+            # Broadcast element-wise multiplication: 
+            # (N_branches, 1, D) * (1, N_targets, D) -> (N_branches, N_targets, D)
+            product_matrix = np.conj(filtered_kets[:, None, :]) * targets_arr[None, :, :]
+            
+            # Perform Batched FFT along the Fock dimension (axis -1)
+            # Using n=2048 to match standard resolution for phase optimization
+            fft_vals = np.fft.fft(product_matrix, n=2048, axis=-1)
+            
+            # Compute squared magnitude and find max over rotation angle (FFT axis)
+            # Shape: (N_branches, N_targets)
+            pairwise_fidelities = np.max(np.abs(fft_vals)**2, axis=-1)
+            
+            # Find best fidelity across all targets for each branch
+            # Shape: (N_branches,)
+            best_fids = np.max(pairwise_fidelities, axis=1)
+
+            # --- Vectorized Aggregation ---
+            
+            # Soft Indicator: sigmoid(fidelity)
+            sigmoids = 1.0 / (1.0 + np.exp(-steepness * (best_fids - self.success_threshold)))
+            soft_success_prob = np.sum(filtered_probs * sigmoids)
+
+            # Logarithmic Reward
+            infidelities = np.maximum(1.0 - best_fids, 1e-2)
+            log_vals = -np.log10(infidelities)
+            expected_fidelity = np.sum((filtered_probs**0.7) * log_vals)
 
         # 4. Calculate Penalties
         
