@@ -5,6 +5,7 @@ import os
 import operator
 import numpy as np
 from sklearn.cluster import KMeans
+from pathlib import Path
 
 # 1. Apply Performance Patches (Crucial for speed)
 # We must do this before any SF operations
@@ -15,36 +16,56 @@ from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter
 patch_beamsplitter()
 
 # 2. Imports
-from quantum_agent.optimization.circuits import TwoModeGadget
+from quantum_agent.optimization.circuits import ThreeModeGadget, ThreeModeSqueezeOnly, TwoModeGadget, TwoModeSqueezeOnly
 from quantum_agent.optimization.runner import OptimizationRunner
-from quantum_agent.components.targets import CubicResourceTarget
+from quantum_agent.components.targets import *
 
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 15
+    CUTOFF_DIM = 20
     TARGET_A = 0.3          # Cubic phase parameter
-    POST_SELECT_VAL = 2     # |2>
+    POST_SELECT_VAL = 8     # |2>
     
     # Setup
     print("--- Setting up Optimization ---")
     
     # 1. Circuit
-    circuit = TwoModeGadget(clip_size=1.0)
+    circuit1 = TwoModeGadget(clip_size=1.0)
+
+    circuit2 = TwoModeSqueezeOnly(clip_size=1.38)
+
+    circuit3 = ThreeModeGadget(clip_size=1)
+
+    circuit4 = ThreeModeSqueezeOnly(clip_size=1)
     
     # 2. Target (Cubic Phase Resource State)
     target = CubicResourceTarget(a=TARGET_A)
+
+    target1 = SqueezedCatTarget(
+        alpha=3, 
+        r=1.38,
+        p=0
+    )
+
+    csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
+    target3=CoreGKPTarget(csv_path=csv_path, 
+                          n_max=12, 
+                          delta_db=10.4, 
+                          mu=0)
     
     # 3. Runner
     # We want to measure mode 0 and find Fock state 2.
     # The dictionary maps {mode_index: fock_value}
     post_select = {0: POST_SELECT_VAL} 
+    post_select_3mode = {0: 5, 1: 7}
     
+    current_circuit = circuit1
     runner = OptimizationRunner(
-        circuit=circuit,
-        target_gen=target,
+        circuit=circuit4,
+        target_gen=target1,
         cutoff_dim=CUTOFF_DIM,
-        post_select_dict=post_select,
-        alpha_prob=0.0,      # Weight for probability in loss
+        post_select_dict=post_select_3mode,
+        alpha_prob=0.1,      # Weight for probability in loss
         penalty_strength=10.0
     )
     
@@ -53,7 +74,7 @@ def main():
     print(f"Post-selection: Measure Mode 0 -> |{POST_SELECT_VAL}>")
 
     # Parameters matching two_mode.py
-    nhp = 20       # Number of hops per global search
+    nhp = 50       # Number of hops per global search
     niter = 30     # Number of global searches
 
     fid_ls = []
@@ -123,7 +144,7 @@ def main():
     print(f"Probability: {best_prob:.6f}")
     print("-" * 40)
     print("Best Parameters:")
-    for name, val in zip(circuit.parameter_names, best_x):
+    for name, val in zip(current_circuit.parameter_names, best_x):
         print(f"  {name:<12}: {val:.4f}")
     print("="*40)
 

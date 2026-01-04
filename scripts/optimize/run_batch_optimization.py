@@ -13,22 +13,24 @@ from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter
 patch_beamsplitter()
 
 # 2. Imports
-from quantum_agent.optimization.circuits import TwoModeGadget, TwoModeSqueezeOnly
+from quantum_agent.optimization.circuits import ThreeModeSqueezeOnly, TwoModeGadget, TwoModeSqueezeOnly
 from quantum_agent.optimization.batch_runner import BatchOptimizationRunner
 from quantum_agent.components.targets import CubicResourceTarget, SqueezedCatTarget
 
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 50
-    MEASURE_MODES = [0]  # Measure mode 0, leaving state on mode 1
+    CUTOFF_DIM = 20
+    MEASURE_MODES = [1, 2]  # Measure mode 0, leaving state on mode 1
+    SUCCESS_THRESHOLD = 0.98
     
     # Setup
     print("--- Setting up Batch Optimization ---")
     
     # 1. Circuit
-    circuit = TwoModeSqueezeOnly(clip_size=1.38)
+    circuit1 = TwoModeSqueezeOnly(clip_size=1.38)
 
-    circuit2 = TwoModeGadget(clip_size=1.38)
+    circuit2 = ThreeModeSqueezeOnly(clip_size=1)
+    circuit3 = TwoModeGadget(clip_size=1.38)
     
     # 2. Targets (List)
     # The optimizer will reward the circuit if the output is close to EITHER of these
@@ -39,11 +41,13 @@ def main():
     
     # 3. Runner
     runner = BatchOptimizationRunner(
-        circuit=circuit,
+        circuit=circuit2,
         target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         measure_modes=MEASURE_MODES,
-        penalty_strength=10.0
+        penalty_strength=10.0,
+        success_threshold=SUCCESS_THRESHOLD,
+        success_weight=20.0
     )
     
     # --- Execution ---
@@ -65,11 +69,18 @@ def main():
         print(f"Global explore {e+1}/{niter}")
         res = runner.run(n_iter=nhp, method="SLSQP")
         
+        # Calculate success probability
+        success_prob = sum(b['prob'] for b in res['branches'] if b['fidelity'] > SUCCESS_THRESHOLD)
+
         print(f"  -> Final Expected Fidelity: {res['expected_fidelity']:.5f}")
+        print(f"  -> Success Prob (> {SUCCESS_THRESHOLD}): {success_prob:.5f}")
         print(f"  {'Outcome':<10} {'Prob':<10} {'Fidelity':<10} {'Best Target'}")
+        
+        # Only print branches with significant probability to avoid spam
         for b in res['branches']:
-             tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
-             print(f"  {str(b['outcome']):<10} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name}")
+             if b['prob'] > 0.002:
+                 tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
+                 print(f"  {str(b['outcome']):<10} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name}")
         print("")
 
         exp_fid_ls.append(res['expected_fidelity'])
@@ -118,12 +129,15 @@ def main():
     best_x = hpx[index]
     best_res = results_ls[index]
     
+    best_success_prob = sum(b['prob'] for b in best_res['branches'] if b['fidelity'] > SUCCESS_THRESHOLD)
+
     # --- Report ---
     print("\n" + "="*60)
     print(f" Batch Optimization Results (Best of {niter}) ")
     print("="*60)
     print(f"Final Loss:          {best_res['loss']:.5f}")
     print(f"Expected Fidelity:   {best_res['expected_fidelity']:.5f}")
+    print(f"Success Prob (> {SUCCESS_THRESHOLD}): {best_success_prob:.5f}")
     print(f"Duration:            {best_res['duration']:.2f}s")
     print("-" * 60)
     print("Best Parameters:")
@@ -136,9 +150,10 @@ def main():
     print("-" * 60)
     
     for b in best_res['branches']:
-        outcome_str = str(b['outcome'])
-        tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
-        print(f"{outcome_str:<10} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name:<15}")
+        if b['prob'] > 0.01:
+            outcome_str = str(b['outcome'])
+            tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
+            print(f"{outcome_str:<10} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name:<15}")
     print("="*60)
 
 if __name__ == "__main__":
