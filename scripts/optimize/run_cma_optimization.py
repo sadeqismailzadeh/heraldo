@@ -15,10 +15,10 @@ from quantum_agent.components.targets import SqueezedCatTarget, CoreGKPTarget
 def main():
     # --- Configuration ---
     CUTOFF_DIM = 30          # Simulation cutoff
-    STEPS = 4                # Time steps (depth of the circuit)
-    BEAM_WIDTH = 100          # Number of branches to keep
+    STEPS = 8                # Time steps (depth of the circuit)
+    BEAM_WIDTH = 200          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
-    MEASURE_CUTOFF = 10       # Max Fock state to measure on Ancilla (0, 1)
+    MEASURE_CUTOFF = 12       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 0.98
     
     # Setup
@@ -32,7 +32,7 @@ def main():
     ]
     gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
                             n_max=n, delta_db=10.4, mu=m)
-            for n in [4, 6, 8, 10, 12] for m in [0, 1]]
+            for n in [4, 6, 8, 10, 12] for m in [1]]
     
     targets = gkp_targets
     
@@ -52,27 +52,32 @@ def main():
                                             clip_size=1,
                                             measure_fock_cutoff=MEASURE_CUTOFF)
     
+    
+    circuit = circuit1
+    
     # 3. Runner
     runner = CMAESOptimizationRunner(
         num_processes=4,
-        circuit=circuit1,
+        circuit=circuit,
         target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
         penalty_strength=10.0,
         success_threshold = 0.98,
-        success_weight = 20.0
+        success_weight = 20.0,
+        ng_weight = 5.0,
+        ng_threshold = 0.1,
     )
     
     # --- Execution ---
-    nhp = 20       # Number of hops per global search
-    niter = 1      # Number of global searches
+    n_generations = 50       # Number of hops per global search
+    niter = 5      # Number of global searches
 
     exp_fid_ls = []
     hpx = []
     results_ls = []
 
-    print(f"Starting {niter} global optimization runs (each with {nhp} hops)...")
+    print(f"Starting {niter} global optimization runs (each with {n_generations} hops)...")
 
     target_names = []
     for i, t in enumerate(targets):
@@ -86,7 +91,7 @@ def main():
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
         try:
-            res = runner.run(n_generations=50)
+            res = runner.run(n_generations=n_generations)
             
             # Recalculate expected fidelity from branches
             # (TimeDomainRunner objective is -ExpFid + Penalty, but we want pure ExpFid for stats)

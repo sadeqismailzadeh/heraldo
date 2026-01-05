@@ -28,6 +28,8 @@ class CMAESOptimizationRunner:
                  penalty_strength: float = 10.0,
                  success_threshold: float = 0.99,
                  success_weight: float = 5.0,
+                 ng_weight: float = 0.0,
+                 ng_threshold: float = 0.1,
                  num_processes: int = 4,
                  sigma0: float = 0.5):
         
@@ -37,6 +39,8 @@ class CMAESOptimizationRunner:
         self.penalty_strength = penalty_strength
         self.success_threshold = success_threshold
         self.success_weight = success_weight
+        self.ng_weight = ng_weight
+        self.ng_threshold = ng_threshold
         self.num_processes = num_processes
         self.sigma0 = sigma0
 
@@ -79,7 +83,7 @@ class CMAESOptimizationRunner:
             
         es = cma.CMAEvolutionStrategy(x0, self.sigma0, opts)
         
-        print(f"Starting CMA-ES (Generations={n_generations}, PopSize={es.popsize}, Processes={self.num_processes})...")
+        print(f"Starting CMA-ES (Generations={n_generations}, PopSize={es.popsize}, Processes={self.num_processes}, NG_Weight={self.ng_weight})...")
         start_time = time.time()
         
         # Create a partial function with fixed arguments for the worker
@@ -92,7 +96,9 @@ class CMAESOptimizationRunner:
             beam_width=self.beam_width,
             penalty_strength=self.penalty_strength,
             success_threshold=self.success_threshold,
-            success_weight=self.success_weight
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold
         )
         
         best_loss = float('inf')
@@ -232,4 +238,4 @@ class CMAESOptimizationRunner:
             "duration": duration,
             "branches": branch_details,
             "message": "CMA-ES Finished"
-        }
+        }

@@ -6,12 +6,69 @@ import numpy as np
 from scipy.optimize import basinhopping
 import strawberryfields as sf
 from strawberryfields.ops import Ket
+import scipy.sparse as sp
+from functools import lru_cache
 
 from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
 from quantum_agent.components.targets import TargetGenerator
 from quantum_agent.envs.modular_env import fidelity_max_rotation
 
-def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, beam_width, penalty_strength, success_threshold=0.99, success_weight=5.0):
+@lru_cache(maxsize=8)
+def _get_ng_operators(dim):
+    """Cached retrieval of sparse quadrature operators."""
+    sqrt_n = np.sqrt(np.arange(1, dim))
+    a = sp.diags([sqrt_n], [1], shape=(dim, dim), format='csr')
+    a_dag = a.T
+    
+    x = (a + a_dag) / np.sqrt(2)
+    p = 1j * (a_dag - a) / np.sqrt(2)
+    
+    # Precompute powers
+    x2 = x.dot(x)
+    x3 = x2.dot(x)
+    x4 = x2.dot(x2)
+    
+    p2 = p.dot(p)
+    p3 = p2.dot(p)
+    p4 = p2.dot(p2)
+    
+    return (x, x2, x3, x4), (p, p2, p3, p4)
+
+def _compute_ng_scores(kets, cutoff_dim):
+    """Computes Non-Gaussianity (Negativity proxy via cumulants) for a batch of kets."""
+    (xs, ps) = _get_ng_operators(cutoff_dim)
+    
+    scores = np.zeros(len(kets))
+    
+    for i, ket in enumerate(kets):
+        # Helper to compute moments
+        def get_moments(ops):
+            # Expectation <psi|O|psi>
+            m1 = np.real(np.vdot(ket, ops[0].dot(ket)))
+            m2 = np.real(np.vdot(ket, ops[1].dot(ket)))
+            m3 = np.real(np.vdot(ket, ops[2].dot(ket)))
+            m4 = np.real(np.vdot(ket, ops[3].dot(ket)))
+            return m1, m2, m3, m4
+            
+        def get_val(m1, m2, m3, m4):
+            var = m2 - m1**2
+            if var < 1e-6:
+                return 0.0
+            sigma = np.sqrt(var)
+            m3_c = m3 - 3*m1*m2 + 2*(m1**3)
+            m4_c = m4 - 4*m1*m3 + 6*(m1**2)*m2 - 3*(m1**4)
+            skew = m3_c / (sigma**3)
+            kurt = (m4_c / (var**2)) - 3.0
+            return np.abs(skew) + np.abs(kurt)
+            
+        mx = get_moments(xs)
+        mp = get_moments(ps)
+        
+        scores[i] = get_val(*mx) + get_val(*mp)
+        
+    return scores
+
+def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, beam_width, penalty_strength, success_threshold=0.99, success_weight=5.0, ng_weight=0.0, ng_threshold=0.1):
     """
     Evaluates the circuit using Beam Search and returns the loss.
     """
@@ -126,6 +183,10 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
     # Filter out zero-outcome branches for reward calculation
     mask_nonzero = active_outcome_sums > 0
     
+    expected_fidelity = 0.0
+    soft_success_prob = 0.0
+    ng_loss = 0.0
+
     if np.any(mask_nonzero):
         final_kets = active_kets[mask_nonzero]
         final_probs = active_probs[mask_nonzero]
@@ -156,16 +217,23 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
         steepness = 500.0
         sigmoids = 1.0 / (1.0 + np.exp(-steepness * (fidelities - success_threshold)))
         soft_success_prob = np.sum(final_probs * sigmoids)
-    
-    else:
-        expected_fidelity = 0.0
-        soft_success_prob = 0.0
         
+        # Non-Gaussianity Penalty
+        if ng_weight > 1e-6:
+            ng_scores = _compute_ng_scores(final_kets, cutoff_dim)
+            # Sigmoid penalty: High if score < threshold
+            # S(x) = 1 / (1 + exp(k*(x-thresh)))
+            # If x < thresh, exponent < 0 => exp is small => S ~ 1
+            # If x > thresh, exponent > 0 => exp is big => S ~ 0
+            ng_steepness = 20.0
+            ng_penalty_terms = 1.0 / (1.0 + np.exp(ng_steepness * (ng_scores - ng_threshold)))
+            ng_loss = np.sum(final_probs * ng_penalty_terms)
+    
     # Penalties
     # 1. Total Probability Loss (indicates truncation or dropped branches)
     loss_prob = np.abs(1.0 - total_prob)
     
-    return -expected_fidelity - (success_weight * soft_success_prob) + (penalty_strength * loss_prob)
+    return -expected_fidelity - (success_weight * soft_success_prob) + (penalty_strength * loss_prob) + (ng_weight * ng_loss)
 
 
 class TimeDomainRunner:
@@ -188,7 +256,9 @@ class TimeDomainRunner:
                  beam_width: int = 5,
                  penalty_strength: float = 10.0,
                  success_threshold: float = 0.99,
-                 success_weight: float = 5.0):
+                 success_weight: float = 5.0,
+                 ng_weight: float = 0.0,
+                 ng_threshold: float = 0.1):
         
         self.circuit = circuit
 
@@ -201,6 +271,8 @@ class TimeDomainRunner:
         self.penalty_strength = penalty_strength
         self.success_threshold = success_threshold
         self.success_weight = success_weight
+        self.ng_weight = ng_weight
+        self.ng_threshold = ng_threshold
         self.eval_count = 0
         
     def _loss_function(self, flat_params):
@@ -216,7 +288,9 @@ class TimeDomainRunner:
             self.beam_width, 
             self.penalty_strength,
             self.success_threshold,
-            self.success_weight
+            self.success_weight,
+            self.ng_weight,
+            self.ng_threshold
         )
 
     def callback(self, x, f, accept):
@@ -244,7 +318,7 @@ class TimeDomainRunner:
             "tol": 1e-4
         }
         
-        print(f"Starting Time-Domain Beam Search (Width={self.beam_width}, Steps={self.circuit.steps})...")
+        print(f"Starting Time-Domain Beam Search (Width={self.beam_width}, Steps={self.circuit.steps}, NG_Weight={self.ng_weight})...")
         start_time = time.time()
         
         result = basinhopping(
