@@ -208,9 +208,103 @@ class TimeDomainRunner:
             stepsize=0.5
         )
         
+        # --- Evaluate final details with history ---
+        mapped_params = self.circuit.map_parameters(result.x)
+        _, meas_cutoff = self.circuit.get_measurement_spec()
+
+        # Initialize Beam
+        active_kets = np.zeros((1, self.cutoff_dim), dtype=np.complex128)
+        active_kets[0, 0] = 1.0
+        active_probs = np.array([1.0])
+        active_outcomes = [()]  # List of tuples
+
+        for step in range(self.circuit.steps):
+            step_params = mapped_params[step]
+
+            branch_raw_probs = []
+            branch_tensors = []
+
+            # Phase A: Evolution
+            for idx in range(len(active_kets)):
+                parent_ket = active_kets[idx]
+                eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
+
+                prog_prep = sf.Program(2)
+                with prog_prep.context as q:
+                    Ket(parent_ket) | q[0]
+                eng.run(prog_prep)
+
+                result_step = self.circuit.run_step(None, step, step_params, eng)
+                state = result_step.state
+                full_ket = state.ket()
+
+                if full_ket.shape[1] > meas_cutoff:
+                    sliced_ket = full_ket[:, :meas_cutoff]
+                else:
+                    sliced_ket = full_ket
+
+                branch_tensors.append(sliced_ket)
+                probs_n = np.sum(np.abs(sliced_ket) ** 2, axis=0)
+                branch_raw_probs.append(probs_n)
+
+            # Phase B: Virtual Branching
+            P_parent = active_probs
+            P_raw = np.stack(branch_raw_probs)
+            P_total = P_parent[:, None] * P_raw
+
+            # Phase C: Pruning
+            flat_P = P_total.flatten()
+            current_n_candidates = flat_P.size
+            k = min(self.beam_width, current_n_candidates)
+
+            # Find indices of the top K probabilities
+            top_indices = np.argpartition(flat_P, -k)[-k:]
+            # Sort for stability
+            top_indices = top_indices[np.argsort(flat_P[top_indices])[::-1]]
+
+            parent_indices, outcome_indices = np.unravel_index(top_indices, P_total.shape)
+
+            # Phase D: Realization
+            tensor_stack = np.stack(branch_tensors)
+            raw_new_kets = tensor_stack[parent_indices, :, outcome_indices]
+            norms = np.linalg.norm(raw_new_kets, axis=1)
+            selected_probs = P_total[parent_indices, outcome_indices]
+
+            mask = (norms > 1e-9) & (selected_probs > 1e-12)
+
+            if not np.any(mask):
+                break
+
+            active_kets = raw_new_kets[mask] / norms[mask][:, None]
+            active_probs = selected_probs[mask]
+
+            # Track history
+            new_outcomes = []
+            masked_parent_indices = parent_indices[mask]
+            masked_outcome_indices = outcome_indices[mask]
+
+            for p_idx, o_val in zip(masked_parent_indices, masked_outcome_indices):
+                new_outcomes.append(active_outcomes[p_idx] + (int(o_val),))
+            active_outcomes = new_outcomes
+
+        branch_details = []
+        if len(active_kets) > 0:
+            prod = np.conj(self.target_ket) * active_kets
+            fft_vals = np.fft.fft(prod, n=256, axis=-1)
+            fidelities = np.max(np.abs(fft_vals) ** 2, axis=-1)
+
+            for i in range(len(active_probs)):
+                branch_details.append({
+                    "outcome": active_outcomes[i],
+                    "prob": float(active_probs[i]),
+                    "fidelity": float(fidelities[i]),
+                    "target_idx": 0
+                })
+
         return {
             "x": result.x,
             "loss": result.fun,
             "duration": time.time() - start_time,
-            "message": result.message
+            "message": result.message,
+            "branches": branch_details
         }
