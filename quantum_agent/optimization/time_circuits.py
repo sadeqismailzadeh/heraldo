@@ -78,13 +78,12 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
 
 class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     """
-    Time-domain gadget with Squeezing on both Loop (0) and Ancilla (1), no displacement.
+    Time-domain gadget with Squeezing on Ancilla (1) only, no displacement.
     
     Architecture per step:
     1. Prepare Ancilla (Mode 1).
-    2. Squeeze Loop (Mode 0).
-    3. Squeeze Ancilla (Mode 1).
-    4. BS Interaction between Loop (0) and Ancilla (1).
+    2. Squeeze Ancilla (Mode 1).
+    3. BS Interaction between Loop (0) and Ancilla (1).
     """
     
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, measure_fock_cutoff: int = 5, num_single_photon=0):
@@ -94,16 +93,13 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         self.num_single_photon = num_single_photon
         
         self._param_names = [
-            'sq0_r', 'sq0_phi', 
-            'sq1_r', 'sq1_phi', 
+            'sq_r', 'sq_phi', 
             'bs_theta', 'bs_phi'
         ]
         
         self._bounds = [
-            (0.0, self.clip_size),  # sq0_r
-            (-np.pi, np.pi),        # sq0_phi
-            (0.0, self.clip_size),  # sq1_r
-            (-np.pi, np.pi),        # sq1_phi
+            (0.0, self.clip_size),  # sq_r
+            (-np.pi, np.pi),        # sq_phi
             (0.0, 2 * np.pi),       # bs_theta
             (-np.pi, np.pi)         # bs_phi
         ]
@@ -120,7 +116,7 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         return [(1, self.measure_fock_cutoff)]
 
     def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
-        sq0_r, sq0_phi, sq1_r, sq1_phi, bs_theta, bs_phi = step_params
+        sq_r, sq_phi, bs_theta, bs_phi = step_params
         
         prog = sf.Program(2)
         with prog.context as q:
@@ -129,8 +125,7 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
                 Fock(1) | q[1]
             
             # 2. Ops
-            Sgate(sq0_r, sq0_phi) | q[0]
-            Sgate(sq1_r, sq1_phi) | q[1]
+            Sgate(sq_r, sq_phi) | q[1]
             
             BSgate(bs_theta, bs_phi) | (q[0], q[1])
             
@@ -140,11 +135,11 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
 class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     """
     Time-domain gadget with 1 Loop (0) and 2 Ancillas (1, 2).
-    Squeezing on all modes, 3 BS interactions.
+    Squeezing on ancillas 1 & 2 only, 3 BS interactions.
     
     Architecture per step:
     1. Reset Ancillas 1, 2.
-    2. Squeeze 0, 1, 2.
+    2. Squeeze 1, 2.
     3. BS(0,1), BS(1,2), BS(0,1).
     """
     
@@ -155,15 +150,15 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         self.num_single_photon = num_single_photon
         
         self._param_names = [
-            'sq0_r', 'sq1_r', 'sq2_r',
-            'sq0_phi', 'sq1_phi', 'sq2_phi',
+            'sq1_r', 'sq2_r',
+            'sq1_phi', 'sq2_phi',
             'bs_theta1', 'bs_theta2', 'bs_theta3',
             'bs_phi1', 'bs_phi2', 'bs_phi3'
         ]
         
         self._bounds = []
-        self._bounds.extend([(0.0, self.clip_size)] * 3) # sq_r
-        self._bounds.extend([(-np.pi, np.pi)] * 3)       # sq_phi
+        self._bounds.extend([(0.0, self.clip_size)] * 2) # sq_r (only 2 now)
+        self._bounds.extend([(-np.pi, np.pi)] * 2)       # sq_phi (only 2 now)
         self._bounds.extend([(0.0, 2 * np.pi)] * 3)      # bs_theta
         self._bounds.extend([(-np.pi, np.pi)] * 3)       # bs_phi
 
@@ -180,10 +175,10 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         return [(1, self.measure_fock_cutoff), (2, self.measure_fock_cutoff)]
 
     def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
-        sq_r = step_params[:3]
-        sq_phi = step_params[3:6]
-        bs_theta = step_params[6:9]
-        bs_phi = step_params[9:]
+        sq_r = step_params[:2]
+        sq_phi = step_params[2:4]
+        bs_theta = step_params[4:7]
+        bs_phi = step_params[7:]
         
         prog = sf.Program(3)
         with prog.context as q:
@@ -193,9 +188,9 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             if self.num_single_photon >= 2:
                 Fock(1) | q[2]
             
-            # 2. Squeezing
-            for k in range(3):
-                Sgate(sq_r[k], sq_phi[k]) | q[k]
+            # 2. Squeezing (ancillas only)
+            Sgate(sq_r[0], sq_phi[0]) | q[1]
+            Sgate(sq_r[1], sq_phi[1]) | q[2]
                 
             # 3. Interferometer
             BSgate(bs_theta[0], bs_phi[0]) | (q[0], q[1])
