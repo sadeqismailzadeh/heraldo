@@ -23,6 +23,7 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
     active_kets = np.zeros((1, cutoff_dim), dtype=np.complex128)
     active_kets[0, 0] = 1.0
     active_probs = np.array([1.0])
+    active_outcome_sums = np.zeros(1, dtype=int)
     
     # Precompute slicing info
     meas_modes = [m for m, c in meas_specs]
@@ -99,6 +100,14 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
         norms = np.linalg.norm(raw_new_kets, axis=1)
         selected_probs = P_total[parent_indices, outcome_indices_flat]
         
+        # Calculate step outcome sums for the top K candidates
+        if len(outcomes_unraveled) > 0:
+            step_outcome_sums = np.sum(np.stack(outcomes_unraveled), axis=0)
+        else:
+            step_outcome_sums = np.zeros(len(parent_indices), dtype=int)
+            
+        candidate_outcome_sums = active_outcome_sums[parent_indices] + step_outcome_sums
+
         # Filter
         mask = (norms > 1e-9) & (selected_probs > 1e-12)
         
@@ -108,36 +117,49 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
         # Update Active Beam
         active_kets = raw_new_kets[mask] / norms[mask][:, None]
         active_probs = selected_probs[mask]
+        active_outcome_sums = candidate_outcome_sums[mask]
 
     # --- Final Objective (Vectorized) ---
     
-    # Batched Fidelity Max Rotation
-    # max_phi |<target | e^{i n phi} | state>|^2
-    # Equivalent to max |FFT(conj(target) * state)|^2 along Fock axis
-    
-    # Product: (N_branches, 1, D) * (1, N_targets, D) -> (N_branches, N_targets, D)
-    targets_arr = np.array(target_kets)
-    prod = np.conj(active_kets[:, None, :]) * targets_arr[None, :, :]
-    
-    # FFT (n=256 for phase resolution)
-    fft_vals = np.fft.fft(prod, n=256, axis=-1)
-    
-    # Max over phase (axis -1) -> (N_branches, N_targets)
-    pairwise_fidelities = np.max(np.abs(fft_vals)**2, axis=-1)
-
-    # Best fidelity across all targets -> (N_branches,)
-    fidelities = np.max(pairwise_fidelities, axis=1)
-
-    # Logarithmic Reward
-    infidelities = np.maximum(1.0 - fidelities, 1e-2)
-    log_vals = -np.log10(infidelities)        
-    expected_fidelity = np.sum((active_probs**0.1) * log_vals)
     total_prob = np.sum(active_probs)
+
+    # Filter out zero-outcome branches for reward calculation
+    mask_nonzero = active_outcome_sums > 0
     
-    # Soft Success Calculation
-    steepness = 500.0
-    sigmoids = 1.0 / (1.0 + np.exp(-steepness * (fidelities - success_threshold)))
-    soft_success_prob = np.sum(active_probs * sigmoids)
+    if np.any(mask_nonzero):
+        final_kets = active_kets[mask_nonzero]
+        final_probs = active_probs[mask_nonzero]
+        
+        # Batched Fidelity Max Rotation
+        # max_phi |<target | e^{i n phi} | state>|^2
+        # Equivalent to max |FFT(conj(target) * state)|^2 along Fock axis
+        
+        # Product: (N_branches, 1, D) * (1, N_targets, D) -> (N_branches, N_targets, D)
+        targets_arr = np.array(target_kets)
+        prod = np.conj(final_kets[:, None, :]) * targets_arr[None, :, :]
+        
+        # FFT (n=256 for phase resolution)
+        fft_vals = np.fft.fft(prod, n=256, axis=-1)
+        
+        # Max over phase (axis -1) -> (N_branches, N_targets)
+        pairwise_fidelities = np.max(np.abs(fft_vals)**2, axis=-1)
+
+        # Best fidelity across all targets -> (N_branches,)
+        fidelities = np.max(pairwise_fidelities, axis=1)
+
+        # Logarithmic Reward
+        infidelities = np.maximum(1.0 - fidelities, 1e-2)
+        log_vals = -np.log10(infidelities)        
+        expected_fidelity = np.sum((final_probs**0.1) * log_vals)
+
+        # Soft Success Calculation
+        steepness = 500.0
+        sigmoids = 1.0 / (1.0 + np.exp(-steepness * (fidelities - success_threshold)))
+        soft_success_prob = np.sum(final_probs * sigmoids)
+    
+    else:
+        expected_fidelity = 0.0
+        soft_success_prob = 0.0
         
     # Penalties
     # 1. Total Probability Loss (indicates truncation or dropped branches)
