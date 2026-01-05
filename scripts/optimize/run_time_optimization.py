@@ -16,7 +16,7 @@ def main():
     # --- Configuration ---
     CUTOFF_DIM = 30          # Simulation cutoff
     STEPS = 4                # Time steps (depth of the circuit)
-    BEAM_WIDTH = 15          # Number of branches to keep
+    BEAM_WIDTH = 100          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
     MEASURE_CUTOFF = 10       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 0.98
@@ -26,15 +26,15 @@ def main():
     print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}")
 
     # 1. Target
-    targets = [
+    targets1 = [
         SqueezedCatTarget(alpha=2.5, r=1.0, p=0),
         SqueezedCatTarget(alpha=2.5, r=1.0, p=1)
     ]
-    # gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
-    #                         n_max=n, delta_db=10.4, mu=m)
-    #         for n in [4, 6, 8, 10, 12] for m in [0, 1]]
+    gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
+                            n_max=n, delta_db=10.4, mu=m)
+            for n in [4, 6, 8, 10, 12] for m in [0, 1]]
     
-    # targets = gkp_targets
+    targets = gkp_targets
     
     print(f"Optimizing for {len(targets)} targets.")
 
@@ -42,7 +42,7 @@ def main():
     circuit = TwoModeTimeDomainGadget(
         steps=STEPS,
         time_invariant=TIME_INVARIANT,
-        clip_size=1.5,
+        clip_size=1,
         measure_fock_cutoff=MEASURE_CUTOFF
     )
 
@@ -58,7 +58,9 @@ def main():
         target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
-        penalty_strength=10.0
+        penalty_strength=10.0,
+        success_threshold = 0.98,
+        success_weight = 5.0
     )
     
     # --- Execution ---
