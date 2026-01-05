@@ -4,6 +4,7 @@ Optimization runner for time-domain multiplexed circuits using Beam Search.
 import time
 import numpy as np
 from scipy.optimize import basinhopping
+from scipy.special import expit
 import strawberryfields as sf
 from strawberryfields.ops import Ket
 import scipy.sparse as sp
@@ -224,18 +225,21 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
 
         # Soft Success Calculation
         steepness = 500.0
-        sigmoids = 1.0 / (1.0 + np.exp(-steepness * (fidelities - success_threshold)))
+        # expit(-x) == 1 / (1 + exp(x))
+        sigmoids = expit(steepness * (fidelities - success_threshold))
         soft_success_prob = np.sum(final_probs * sigmoids)
         
         # Non-Gaussianity Penalty
         if ng_weight > 1e-6:
             ng_scores = _compute_ng_scores(final_kets, cutoff_dim)
-            # Sigmoid penalty: High if score < threshold
-            # S(x) = 1 / (1 + exp(k*(x-thresh)))
-            # If x < thresh, exponent < 0 => exp is small => S ~ 1
-            # If x > thresh, exponent > 0 => exp is big => S ~ 0
+            # Sigmoid penalty: High (1.0) if score < threshold (Gaussian), Low (0.0) if score > threshold
+            # S = 1 / (1 + exp(k * (score - threshold)))
+            #   = expit( -k * (score - threshold) )
             ng_steepness = 20.0
-            ng_penalty_terms = 1.0 / (1.0 + np.exp(ng_steepness * (ng_scores - ng_threshold)))
+            
+            # NOTE: We use expit(-z) to calculate 1/(1+exp(z)) safely
+            ng_penalty_terms = expit(-ng_steepness * (ng_scores - ng_threshold))
+            
             ng_loss = np.sum(final_probs * ng_penalty_terms)
     
     # Penalties
