@@ -26,13 +26,17 @@ class TimeDomainRunner:
     """
     def __init__(self, 
                  circuit: TimeMultiplexedCircuit, 
-                 target_gen: TargetGenerator, 
+                 target_gens: list[TargetGenerator], 
                  cutoff_dim: int,
                  beam_width: int = 5,
                  penalty_strength: float = 10.0):
         
         self.circuit = circuit
-        self.target_ket = target_gen.get_target_ket(cutoff_dim)
+
+        if not isinstance(target_gens, list):
+            target_gens = [target_gens]
+        
+        self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
         self.cutoff_dim = cutoff_dim
         self.beam_width = beam_width
         self.penalty_strength = penalty_strength
@@ -144,14 +148,23 @@ class TimeDomainRunner:
         # max_phi |<target | e^{i n phi} | state>|^2
         # Equivalent to max |FFT(conj(target) * state)|^2 along Fock axis
         
-        # Product: (N_branches, D)
-        prod = np.conj(self.target_ket) * active_kets
+        # Product: (N_branches, 1, D) * (1, N_targets, D) -> (N_branches, N_targets, D)
+        targets_arr = np.array(self.target_kets)
+        prod = np.conj(active_kets[:, None, :]) * targets_arr[None, :, :]
         
         # FFT (n=256 for phase resolution)
         fft_vals = np.fft.fft(prod, n=256, axis=-1)
-        fidelities = np.max(np.abs(fft_vals)**2, axis=-1)
         
-        expected_fidelity = np.sum((active_probs**0.1) * fidelities)
+        # Max over phase (axis -1) -> (N_branches, N_targets)
+        pairwise_fidelities = np.max(np.abs(fft_vals)**2, axis=-1)
+
+        # Best fidelity across all targets -> (N_branches,)
+        fidelities = np.max(pairwise_fidelities, axis=1)
+
+                # Logarithmic Reward
+        infidelities = np.maximum(1.0 - fidelities, 1e-2)
+        log_vals = -np.log10(infidelities)        
+        expected_fidelity = np.sum((active_probs**0.1) * log_vals)
         total_prob = np.sum(active_probs)
             
         # Penalties
@@ -282,16 +295,20 @@ class TimeDomainRunner:
 
         branch_details = []
         if len(active_kets) > 0:
-            prod = np.conj(self.target_ket) * active_kets
+            targets_arr = np.array(self.target_kets)
+            prod = np.conj(active_kets[:, None, :]) * targets_arr[None, :, :]
             fft_vals = np.fft.fft(prod, n=256, axis=-1)
-            fidelities = np.max(np.abs(fft_vals) ** 2, axis=-1)
+            pairwise_fidelities = np.max(np.abs(fft_vals) ** 2, axis=-1)
+
+            best_fidelities = np.max(pairwise_fidelities, axis=1)
+            best_target_idxs = np.argmax(pairwise_fidelities, axis=1)
 
             for i in range(len(active_probs)):
                 branch_details.append({
                     "outcome": active_outcomes[i],
                     "prob": float(active_probs[i]),
-                    "fidelity": float(fidelities[i]),
-                    "target_idx": 0
+                    "fidelity": float(best_fidelities[i]),
+                    "target_idx": int(best_target_idxs[i])
                 })
 
         return {
