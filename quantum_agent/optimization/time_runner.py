@@ -29,7 +29,9 @@ class TimeDomainRunner:
                  target_gens: list[TargetGenerator], 
                  cutoff_dim: int,
                  beam_width: int = 5,
-                 penalty_strength: float = 10.0):
+                 penalty_strength: float = 10.0,
+                 success_threshold: float = 0.99,
+                 success_weight: float = 5.0):
         
         self.circuit = circuit
 
@@ -40,6 +42,8 @@ class TimeDomainRunner:
         self.cutoff_dim = cutoff_dim
         self.beam_width = beam_width
         self.penalty_strength = penalty_strength
+        self.success_threshold = success_threshold
+        self.success_weight = success_weight
         self.eval_count = 0
         
     def _loss_function(self, flat_params):
@@ -166,12 +170,17 @@ class TimeDomainRunner:
         log_vals = -np.log10(infidelities)        
         expected_fidelity = np.sum((active_probs**0.1) * log_vals)
         total_prob = np.sum(active_probs)
+        
+        # Soft Success Calculation
+        steepness = 500.0
+        sigmoids = 1.0 / (1.0 + np.exp(-steepness * (fidelities - self.success_threshold)))
+        soft_success_prob = np.sum(active_probs * sigmoids)
             
         # Penalties
         # 1. Total Probability Loss (indicates truncation or dropped branches)
         loss_prob = np.abs(1.0 - total_prob)
         
-        return -expected_fidelity + (self.penalty_strength * loss_prob)
+        return -expected_fidelity - (self.success_weight * soft_success_prob) + (self.penalty_strength * loss_prob)
 
     def callback(self, x, f, accept):
         if accept:
