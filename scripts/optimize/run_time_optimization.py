@@ -8,17 +8,17 @@ from pathlib import Path
 from sklearn.cluster import KMeans
 
 # Imports
-from quantum_agent.optimization.time_circuits import TwoModeTimeDomainGadget
+from quantum_agent.optimization.time_circuits import *
 from quantum_agent.optimization.time_runner import TimeDomainRunner
 from quantum_agent.components.targets import SqueezedCatTarget, CoreGKPTarget
 
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 24          # Simulation cutoff
+    CUTOFF_DIM = 30          # Simulation cutoff
     STEPS = 4                # Time steps (depth of the circuit)
-    BEAM_WIDTH = 50          # Number of branches to keep
+    BEAM_WIDTH = 15          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
-    MEASURE_CUTOFF = 2       # Max Fock state to measure on Ancilla (0, 1)
+    MEASURE_CUTOFF = 10       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 0.98
     
     # Setup
@@ -26,10 +26,17 @@ def main():
     print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}")
 
     # 1. Target
-    target = SqueezedCatTarget(alpha=2.5, r=1.0)
-    # target = CoreGKPTarget(n_max=4, delta_db=10.0, mu=0)
+    targets = [
+        SqueezedCatTarget(alpha=2.5, r=1.0, p=0),
+        SqueezedCatTarget(alpha=2.5, r=1.0, p=1)
+    ]
+    # gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
+    #                         n_max=n, delta_db=10.4, mu=m)
+    #         for n in [4, 6, 8, 10, 12] for m in [0, 1]]
     
-    print(f"Target: {target.__class__.__name__}")
+    # targets = gkp_targets
+    
+    print(f"Optimizing for {len(targets)} targets.")
 
     # 2. Circuit
     circuit = TwoModeTimeDomainGadget(
@@ -38,11 +45,17 @@ def main():
         clip_size=1.5,
         measure_fock_cutoff=MEASURE_CUTOFF
     )
+
+
+    circuit1 = TwoModeTimeDomainSqueezeOnly(steps=STEPS,
+                                            time_invariant=TIME_INVARIANT,
+                                            clip_size=1,
+                                            measure_fock_cutoff=MEASURE_CUTOFF)
     
     # 3. Runner
     runner = TimeDomainRunner(
-        circuit=circuit,
-        target_gen=target,
+        circuit=circuit1,
+        target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
         penalty_strength=10.0
@@ -50,7 +63,7 @@ def main():
     
     # --- Execution ---
     nhp = 20       # Number of hops per global search
-    niter = 5      # Number of global searches
+    niter = 1      # Number of global searches
 
     exp_fid_ls = []
     hpx = []
@@ -58,8 +71,14 @@ def main():
 
     print(f"Starting {niter} global optimization runs (each with {nhp} hops)...")
 
-    # Time domain usually targets a single state type, effectively "Target_0"
-    target_names = ["Target_0"]
+    target_names = []
+    for i, t in enumerate(targets):
+        if hasattr(t, "n_max") and hasattr(t, "mu"):
+            target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
+        elif hasattr(t, "p"):
+            target_names.append(f"Cat_p{t.p}")
+        else:
+            target_names.append(f"Target_{i}")
 
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
@@ -78,11 +97,12 @@ def main():
 
             print(f"  -> Final Expected Fidelity: {expected_fidelity:.5f}")
             print(f"  -> Success Prob (> {SUCCESS_THRESHOLD}): {success_prob:.5f}")
-            print(f"  {'Outcome':<15} {'Prob':<10} {'Fidelity':<10}")
+            print(f"  {'Outcome':<15} {'Prob':<10} {'Fidelity':<10} {'Best Target'}")
             
             for b in branches:
                  if b['prob'] > 0.002:
-                     print(f"  {str(b['outcome']):<15} {b['prob']:<10.4f} {b['fidelity']:<10.4f}")
+                     tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
+                     print(f"  {str(b['outcome']):<15} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name}")
             print("")
 
             exp_fid_ls.append(expected_fidelity)
