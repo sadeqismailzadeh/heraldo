@@ -59,11 +59,11 @@ class TimeMultiplexedCircuit(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_measurement_spec(self) -> tuple[int, int]:
+    def get_measurement_specs(self) -> list[tuple[int, int]]:
         """
-        Returns the measurement specification.
+        Returns the measurement specifications.
         
         Returns:
-            tuple: (measurement_mode_index, max_fock_cutoff)
+            list[tuple]: List of (measurement_mode_index, max_fock_cutoff)
         """
-        pass
+        pass

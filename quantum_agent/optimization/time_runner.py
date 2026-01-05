@@ -46,58 +46,53 @@ class TimeDomainRunner:
         
         # 0. Setup
         mapped_params = self.circuit.map_parameters(flat_params)
-        meas_mode, meas_cutoff = self.circuit.get_measurement_spec()
+        meas_specs = self.circuit.get_measurement_specs()
         
         # Initialize Beam: Single vacuum state on Mode 0 (Loop)
-        # We assume Mode 0 is the persistent loop mode.
         active_kets = np.zeros((1, self.cutoff_dim), dtype=np.complex128)
         active_kets[0, 0] = 1.0
         active_probs = np.array([1.0])
+        
+        # Precompute slicing info
+        meas_modes = [m for m, c in meas_specs]
+        meas_cutoffs = [c for m, c in meas_specs]
+        perm = [0] + meas_modes # Loop mode first, then measured
         
         # 1. Time Loop (Step 0 to T-1)
         for step in range(self.circuit.steps):
             step_params = mapped_params[step]
             
             # Containers for vectorized processing
-            branch_raw_probs = [] # List of 1D arrays (meas_cutoff,)
-            branch_tensors = []   # List of 2D arrays (cutoff, meas_cutoff)
+            branch_raw_probs = [] # List of flattened probability arrays
+            branch_tensors = []   # List of sliced kets
             
-            # --- Phase A: Evolution (Loop unavoidable for SF) ---
+            # --- Phase A: Evolution ---
             for idx in range(len(active_kets)):
                 parent_ket = active_kets[idx]
                 
-                # Instantiate engine per branch to ensure clean state (avoids _trunc errors)
                 eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
                 
-                # Load state into Mode 0 (Loop)
-                prog_prep = sf.Program(2)
+                prog_prep = sf.Program(len(meas_modes) + 1)
                 with prog_prep.context as q:
                     Ket(parent_ket) | q[0]
-                
-                # Run Preparation
                 eng.run(prog_prep)
                 
-                # Run Step (Applies Unitary)
-                # Note: circuit.run_step calls eng.run(prog), which appends to the execution
                 result = self.circuit.run_step(None, step, step_params, eng)
-                state = result.state
+                full_ket = result.state.ket()
                 
-                # Extract State Tensor: Indices [q0, q1] (Loop, Ancilla)
-                full_ket = state.ket()
+                # Transpose: (D_loop, D_m1, D_m2, ...)
+                transposed_ket = np.transpose(full_ket, axes=perm)
                 
-                # Optimization: Only keep columns up to meas_cutoff for Mode 1
-                if full_ket.shape[1] > meas_cutoff:
-                    sliced_ket = full_ket[:, :meas_cutoff]
-                else:
-                    sliced_ket = full_ket
-                    
-                # Store tensor for potential projection later
+                # Slice measured modes
+                slices = [slice(None)] + [slice(0, c) for c in meas_cutoffs]
+                sliced_ket = transposed_ket[tuple(slices)]
+                
                 branch_tensors.append(sliced_ket)
                 
-                # Calculate Probabilities for Mode 1 (Sum over Mode 0)
-                # P(n) = sum_m |<m, n| psi>|^2
-                probs_n = np.sum(np.abs(sliced_ket)**2, axis=0)
-                branch_raw_probs.append(probs_n)
+                # Calculate Probabilities: Sum over Loop (axis 0)
+                # Shape (c1, c2, ...) -> flatten
+                probs_tensor = np.sum(np.abs(sliced_ket)**2, axis=0)
+                branch_raw_probs.append(probs_tensor.flatten())
 
             # --- Phase B: Vectorized Virtual Branching ---
             
@@ -112,32 +107,26 @@ class TimeDomainRunner:
             P_total = P_parent[:, None] * P_raw
             
             # --- Phase C: Vectorized Pruning ---
-            
             flat_P = P_total.flatten()
-            current_n_candidates = flat_P.size
-            k = min(self.beam_width, current_n_candidates)
-            
-            # Find indices of the top K probabilities
-            # np.argpartition puts the k largest elements at the end (unsorted)
+            k = min(self.beam_width, flat_P.size)
             top_indices = np.argpartition(flat_P, -k)[-k:]
             
-            # Resolve flattened indices back to (parent_index, outcome_index)
-            parent_indices, outcome_indices = np.unravel_index(top_indices, P_total.shape)
+            # Resolve indices
+            parent_indices, outcome_indices_flat = np.unravel_index(top_indices, P_total.shape)
+            outcomes_unraveled = np.unravel_index(outcome_indices_flat, tuple(meas_cutoffs))
             
             # --- Phase D: Vectorized Realization ---
             
             # Stack tensors: (N_parents, cutoff, meas_cutoff)
             tensor_stack = np.stack(branch_tensors)
             
-            # Extract kets: (K, cutoff) via fancy indexing
-            # tensor_stack[p, :, o] selects the specific columns
-            raw_new_kets = tensor_stack[parent_indices, :, outcome_indices]
+            # Fancy indexing: [parent_idx, :, o1_idx, o2_idx...]
+            indexer = (parent_indices, slice(None)) + outcomes_unraveled
+            raw_new_kets = tensor_stack[indexer]
             
             # Normalize
             norms = np.linalg.norm(raw_new_kets, axis=1)
-            
-            # Probabilities for selected paths
-            selected_probs = P_total[parent_indices, outcome_indices]
+            selected_probs = P_total[parent_indices, outcome_indices_flat]
             
             # Filter
             mask = (norms > 1e-9) & (selected_probs > 1e-12)
@@ -210,7 +199,10 @@ class TimeDomainRunner:
         
         # --- Evaluate final details with history ---
         mapped_params = self.circuit.map_parameters(result.x)
-        _, meas_cutoff = self.circuit.get_measurement_spec()
+        meas_specs = self.circuit.get_measurement_specs()
+        meas_modes = [m for m, c in meas_specs]
+        meas_cutoffs = [c for m, c in meas_specs]
+        perm = [0] + meas_modes
 
         # Initialize Beam
         active_kets = np.zeros((1, self.cutoff_dim), dtype=np.complex128)
@@ -229,23 +221,21 @@ class TimeDomainRunner:
                 parent_ket = active_kets[idx]
                 eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
 
-                prog_prep = sf.Program(2)
+                prog_prep = sf.Program(len(meas_modes) + 1)
                 with prog_prep.context as q:
                     Ket(parent_ket) | q[0]
                 eng.run(prog_prep)
 
                 result_step = self.circuit.run_step(None, step, step_params, eng)
-                state = result_step.state
-                full_ket = state.ket()
+                full_ket = result_step.state.ket()
 
-                if full_ket.shape[1] > meas_cutoff:
-                    sliced_ket = full_ket[:, :meas_cutoff]
-                else:
-                    sliced_ket = full_ket
+                transposed_ket = np.transpose(full_ket, axes=perm)
+                slices = [slice(None)] + [slice(0, c) for c in meas_cutoffs]
+                sliced_ket = transposed_ket[tuple(slices)]
 
                 branch_tensors.append(sliced_ket)
-                probs_n = np.sum(np.abs(sliced_ket) ** 2, axis=0)
-                branch_raw_probs.append(probs_n)
+                probs_tensor = np.sum(np.abs(sliced_ket) ** 2, axis=0)
+                branch_raw_probs.append(probs_tensor.flatten())
 
             # Phase B: Virtual Branching
             P_parent = active_probs
@@ -254,21 +244,20 @@ class TimeDomainRunner:
 
             # Phase C: Pruning
             flat_P = P_total.flatten()
-            current_n_candidates = flat_P.size
-            k = min(self.beam_width, current_n_candidates)
-
-            # Find indices of the top K probabilities
+            k = min(self.beam_width, flat_P.size)
             top_indices = np.argpartition(flat_P, -k)[-k:]
-            # Sort for stability
             top_indices = top_indices[np.argsort(flat_P[top_indices])[::-1]]
 
-            parent_indices, outcome_indices = np.unravel_index(top_indices, P_total.shape)
+            parent_indices, outcome_indices_flat = np.unravel_index(top_indices, P_total.shape)
+            outcomes_unraveled = np.unravel_index(outcome_indices_flat, tuple(meas_cutoffs))
 
             # Phase D: Realization
             tensor_stack = np.stack(branch_tensors)
-            raw_new_kets = tensor_stack[parent_indices, :, outcome_indices]
+            indexer = (parent_indices, slice(None)) + outcomes_unraveled
+            raw_new_kets = tensor_stack[indexer]
+            
             norms = np.linalg.norm(raw_new_kets, axis=1)
-            selected_probs = P_total[parent_indices, outcome_indices]
+            selected_probs = P_total[parent_indices, outcome_indices_flat]
 
             mask = (norms > 1e-9) & (selected_probs > 1e-12)
 
@@ -281,10 +270,14 @@ class TimeDomainRunner:
             # Track history
             new_outcomes = []
             masked_parent_indices = parent_indices[mask]
-            masked_outcome_indices = outcome_indices[mask]
-
-            for p_idx, o_val in zip(masked_parent_indices, masked_outcome_indices):
-                new_outcomes.append(active_outcomes[p_idx] + (int(o_val),))
+            
+            # Re-slice outcomes unraveled based on mask
+            masked_outcomes_tuple = tuple(arr[mask] for arr in outcomes_unraveled)
+            
+            for i in range(len(masked_parent_indices)):
+                p_idx = masked_parent_indices[i]
+                step_outcome = tuple(int(arr[i]) for arr in masked_outcomes_tuple)
+                new_outcomes.append(active_outcomes[p_idx] + step_outcome)
             active_outcomes = new_outcomes
 
         branch_details = []
