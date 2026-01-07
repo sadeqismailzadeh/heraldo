@@ -365,15 +365,26 @@ class TimeDomainRunner:
         )
         
         # --- Evaluate final details with history ---
-        mapped_params = self.circuit.map_parameters(result.x)
+        
+        # Split parameters
+        n_init = self.circuit.num_initial_parameters
+        if n_init > 0:
+            init_params = result.x[:n_init]
+            step_params = result.x[n_init:]
+        else:
+            init_params = np.array([])
+            step_params = result.x
+
+        mapped_params = self.circuit.map_parameters(step_params)
         meas_specs = self.circuit.get_measurement_specs()
         meas_modes = [m for m, c in meas_specs]
         meas_cutoffs = [c for m, c in meas_specs]
         perm = [0] + meas_modes
 
         # Initialize Beam
+        initial_ket = self.circuit.get_initial_state_ket(init_params, self.cutoff_dim)
         active_kets = np.zeros((1, self.cutoff_dim), dtype=np.complex128)
-        active_kets[0, 0] = 1.0
+        active_kets[0] = initial_ket
         active_probs = np.array([1.0])
         active_outcomes = [()]  # List of tuples
 
@@ -603,15 +614,25 @@ class CMAESOptimizationRunner:
         # 4. Final Reconstruction (Re-run best to get details)
         # This logic mirrors TimeDomainRunner to produce the detailed 'branches' output
         
-        mapped_params = self.circuit.map_parameters(final_x)
+        # Split parameters
+        n_init = self.circuit.num_initial_parameters
+        if n_init > 0:
+            init_params = final_x[:n_init]
+            step_params = final_x[n_init:]
+        else:
+            init_params = np.array([])
+            step_params = final_x
+
+        mapped_params = self.circuit.map_parameters(step_params)
         meas_specs = self.circuit.get_measurement_specs()
         meas_modes = [m for m, c in meas_specs]
         meas_cutoffs = [c for m, c in meas_specs]
         perm = [0] + meas_modes
 
         # Initialize Beam
+        initial_ket = self.circuit.get_initial_state_ket(init_params, self.cutoff_dim)
         active_kets = np.zeros((1, self.cutoff_dim), dtype=np.complex128)
-        active_kets[0, 0] = 1.0
+        active_kets[0] = initial_ket
         active_probs = np.array([1.0])
         active_outcomes = [()]  # List of tuples
 
