@@ -14,6 +14,27 @@ class TimeMultiplexedCircuit(abc.ABC):
         self.steps = steps
         self.time_invariant = time_invariant
 
+
+    @property
+    def num_initial_parameters(self) -> int:
+        """Number of parameters used for initialization. Default 0."""
+        return 0
+
+    @property
+    def initial_parameter_bounds(self) -> list[tuple[float, float]]:
+        """Bounds for initialization parameters. Default empty."""
+        return []
+
+    def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
+        """
+        Generates the initial ket for Mode 0. 
+        Default implementation returns Vacuum |0>.
+        """
+        # Default: Vacuum
+        ket = np.zeros(cutoff_dim, dtype=np.complex128)
+        ket[0] = 1.0
+        return ket
+
     @property
     @abc.abstractmethod
     def per_step_parameter_names(self) -> list[str]:

@@ -83,12 +83,26 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
     Evaluates the circuit using Beam Search and returns the loss.
     """
     # 0. Setup
-    mapped_params = circuit.map_parameters(flat_params)
+     # 1. SPLIT PARAMETERS (Minimal Change)
+    n_init = circuit.num_initial_parameters
+    if n_init > 0:
+        init_params = flat_params[:n_init]
+        step_params = flat_params[n_init:]
+    else:
+        init_params = np.array([])
+        step_params = flat_params
+
+    # Map only the step parameters
+    mapped_params = circuit.map_parameters(step_params)
     meas_specs = circuit.get_measurement_specs()
     
-    # Initialize Beam: Single vacuum state on Mode 0 (Loop)
+    # 2. INITIALIZE BEAM (Modified)
+    # Get the custom initial ket (Vacuum or Squeezed)
+    initial_ket = circuit.get_initial_state_ket(init_params, cutoff_dim)
+
+    # Initialize Beam with this ket
     active_kets = np.zeros((1, cutoff_dim), dtype=np.complex128)
-    active_kets[0, 0] = 1.0
+    active_kets[0] = initial_ket 
     active_probs = np.array([1.0])
     active_outcome_sums = np.zeros(1, dtype=int)
     
@@ -219,9 +233,9 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
         fidelities = np.max(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        infidelities = np.maximum(1.0 - fidelities, 1e-2)
+        infidelities = np.maximum(1.0 - fidelities, 1e-6)
         log_vals = -np.log10(infidelities)        
-        expected_fidelity = np.sum((final_probs**0.1) * log_vals)
+        expected_fidelity = np.sum((final_probs**0.1) * (log_vals))
 
         # Soft Success Calculation
         steepness = 500.0
@@ -235,7 +249,7 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
             # Sigmoid penalty: High (1.0) if score < threshold (Gaussian), Low (0.0) if score > threshold
             # S = 1 / (1 + exp(k * (score - threshold)))
             #   = expit( -k * (score - threshold) )
-            ng_steepness = 20.0
+            ng_steepness = 500.0
             
             # NOTE: We use expit(-z) to calculate 1/(1+exp(z)) safely
             ng_penalty_terms = expit(-ng_steepness * (ng_scores - ng_threshold))
@@ -318,9 +332,16 @@ class TimeDomainRunner:
         # Construct full parameter bounds
         per_step_bounds = self.circuit.per_step_parameter_bounds
         if self.circuit.time_invariant:
-            full_bounds = per_step_bounds
+            step_bounds = per_step_bounds
         else:
-            full_bounds = per_step_bounds * self.circuit.steps
+            step_bounds = per_step_bounds * self.circuit.steps
+            
+        # 2. Init Bounds (NEW)
+        init_bounds = self.circuit.initial_parameter_bounds
+        
+        # 3. Concatenate
+        full_bounds = init_bounds + step_bounds
+        
             
         # Initial guess
         x0 = np.array([np.random.uniform(l, h) for l, h in full_bounds])
@@ -501,9 +522,16 @@ class CMAESOptimizationRunner:
         # 1. Setup Parameters and Bounds
         per_step_bounds = self.circuit.per_step_parameter_bounds
         if self.circuit.time_invariant:
-            full_bounds = per_step_bounds
+            step_bounds = per_step_bounds
         else:
-            full_bounds = per_step_bounds * self.circuit.steps
+            step_bounds = per_step_bounds * self.circuit.steps
+            
+        # 2. Init Bounds (NEW)
+        init_bounds = self.circuit.initial_parameter_bounds
+        
+        # 3. Concatenate
+        full_bounds = init_bounds + step_bounds
+        
             
         # CMA expects bounds in format [[lower_1, lower_2...], [upper_1, upper_2...]]
         lower_bounds = [b[0] for b in full_bounds]
