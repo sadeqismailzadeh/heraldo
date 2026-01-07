@@ -1,6 +1,23 @@
 """
 Script to run time-domain Beam Search optimization for a loop-based gadget.
 """
+
+
+import os
+import re
+import glob
+import platform
+import multiprocessing as mp
+from pathlib import Path
+
+# --- CRITICAL: Set thread limits BEFORE importing other libraries ---
+print("--- Configuring thread limits for NumPy/OpenBLAS/MKL ---")
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 import operator
 import numpy as np
 import time
@@ -9,15 +26,15 @@ from sklearn.cluster import KMeans
 
 # Imports
 from quantum_agent.optimization.time_circuits import *
-from quantum_agent.optimization.cma_runner import CMAESOptimizationRunner
+from quantum_agent.optimization.time_runner import CMAESOptimizationRunner
 from quantum_agent.components.targets import SqueezedCatTarget, CoreGKPTarget
 
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 30          # Simulation cutoff
-    STEPS = 8                # Time steps (depth of the circuit)
-    BEAM_WIDTH = 200          # Number of branches to keep
-    TIME_INVARIANT = False   # False = different params per step
+    CUTOFF_DIM = 50          # Simulation cutoff
+    STEPS = 5                # Time steps (depth of the circuit)
+    BEAM_WIDTH = 300          # Number of branches to keep
+    TIME_INVARIANT = True   # False = different params per step
     MEASURE_CUTOFF = 12       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 0.98
     
@@ -27,16 +44,15 @@ def main():
 
     # 1. Target
     targets1 = [
-        SqueezedCatTarget(alpha=2.5, r=1.0, p=0),
-        SqueezedCatTarget(alpha=2.5, r=1.0, p=1)
+        SqueezedCatTarget(alpha=3, r=1.38, p=0),
+        SqueezedCatTarget(alpha=3, r=1.38, p=1)
     ]
     gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
                             n_max=n, delta_db=10.4, mu=m)
             for n in [4, 6, 8, 10, 12] for m in [1]]
     
-    targets = gkp_targets
+
     
-    print(f"Optimizing for {len(targets)} targets.")
 
     # 2. Circuit
     circuit = TwoModeTimeDomainGadget(
@@ -49,12 +65,21 @@ def main():
 
     circuit1 = TwoModeTimeDomainSqueezeOnly(steps=STEPS,
                                             time_invariant=TIME_INVARIANT,
-                                            clip_size=1,
-                                            measure_fock_cutoff=MEASURE_CUTOFF)
+                                            clip_size=1.38,
+                                            measure_fock_cutoff=MEASURE_CUTOFF,
+                                            train_initial_state=True, 
+                                            initial_r=1.38 )
     
-    
+
+    circuit2 = ThreeModeTimeDomainSqueezeOnly(steps=STEPS,
+                                        time_invariant=TIME_INVARIANT,
+                                        clip_size=1,
+                                        measure_fock_cutoff=MEASURE_CUTOFF)
+
     circuit = circuit1
-    
+    targets = targets1
+    print(f"Optimizing for {len(targets)} targets.")
+
     # 3. Runner
     runner = CMAESOptimizationRunner(
         num_processes=4,
@@ -65,7 +90,7 @@ def main():
         penalty_strength=10.0,
         success_threshold = 0.98,
         success_weight = 20.0,
-        ng_weight = 5.0,
+        ng_weight = 20.0,
         ng_threshold = 0.1,
     )
     
@@ -166,6 +191,7 @@ def main():
     print("="*60)
     print(f"Final Loss:          {best_res['loss']:.5f}")
     print(f"Expected Fidelity:   {best_res['expected_fidelity']:.5f}")
+    print(f"Total Beam Prob:     {best_res.get('total_probability', 0.0):.5f}") 
     print(f"Success Prob (> {SUCCESS_THRESHOLD}): {best_success_prob:.5f}")
     print(f"Duration:            {best_res['duration']:.2f}s")
     print("-" * 60)

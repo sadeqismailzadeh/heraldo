@@ -17,7 +17,7 @@ def main():
     CUTOFF_DIM = 30          # Simulation cutoff
     STEPS = 4                # Time steps (depth of the circuit)
     BEAM_WIDTH = 100          # Number of branches to keep
-    TIME_INVARIANT = False   # False = different params per step
+    TIME_INVARIANT = True   # False = different params per step
     MEASURE_CUTOFF = 10       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 0.98
     
@@ -60,7 +60,9 @@ def main():
         beam_width=BEAM_WIDTH,
         penalty_strength=10.0,
         success_threshold = 0.98,
-        success_weight = 5.0
+        success_weight = 5.0,
+        ng_weight = 20.0,
+        ng_threshold = 0.1,
     )
     
     # --- Execution ---
@@ -160,6 +162,7 @@ def main():
     print("="*60)
     print(f"Final Loss:          {best_res['loss']:.5f}")
     print(f"Expected Fidelity:   {best_res['expected_fidelity']:.5f}")
+    print(f"Total Beam Prob:     {best_res.get('total_probability', 0.0):.5f}") 
     print(f"Success Prob (> {SUCCESS_THRESHOLD}): {best_success_prob:.5f}")
     print(f"Duration:            {best_res['duration']:.2f}s")
     print("-" * 60)

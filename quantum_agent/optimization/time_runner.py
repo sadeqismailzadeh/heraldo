@@ -465,12 +465,14 @@ class TimeDomainRunner:
                     "target_idx": int(best_target_idxs[i])
                 })
 
+        total_captured_prob = float(np.sum(active_probs))
         return {
             "x": result.x,
             "loss": result.fun,
             "duration": time.time() - start_time,
             "message": result.message,
-            "branches": branch_details
+            "branches": branch_details,
+            "total_probability": total_captured_prob 
         }
 
 
@@ -699,11 +701,12 @@ class CMAESOptimizationRunner:
                     "fidelity": float(best_fidelities[i]),
                     "target_idx": int(best_target_idxs[i])
                 })
-
+        total_captured_prob = float(np.sum(active_probs))
         return {
             "x": final_x,
             "loss": final_loss,
             "duration": duration,
             "branches": branch_details,
-            "message": "CMA-ES Finished"
+            "message": "CMA-ES Finished",
+            "total_probability": total_captured_prob # <--- ADD THIS
         }
