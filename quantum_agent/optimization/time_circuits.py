@@ -12,16 +12,21 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
     Time-domain gadget with Loop (Mode 0) and Ancilla (Mode 1).
     
     Architecture per step:
-    1. Prepare Ancilla (Mode 1) in Fock |1>.
+    1. Prepare Ancilla (Mode 1) (Optional Fock(1)).
     2. Squeeze Ancilla.
     3. Displace Ancilla.
     4. BS Interaction between Loop (0) and Ancilla (1).
     """
     
-    def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, measure_fock_cutoff: int = 5):
+    def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
+                 measure_fock_cutoff: int = 5, num_single_photon: int = 0,
+                 train_initial_state: bool = False, initial_r: float = 0.0):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
+        self.num_single_photon = num_single_photon
+        self.train_initial_state = train_initial_state
+        self.initial_r = initial_r
         
         self._param_names = [
             'sq_r', 'sq_phi', 
@@ -47,22 +52,54 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
         return self._bounds
 
     def get_measurement_specs(self) -> list[tuple[int, int]]:
-        """
-        Returns list of (measurement_mode_index, max_fock_cutoff).
-        """
         return [(1, self.measure_fock_cutoff)]
 
+    # --- Initial Parameter Logic ---
+
+    @property
+    def num_initial_parameters(self) -> int:
+        # Returns 2 (r, phi) if we are training the initial state of Mode 0
+        return 2 if self.train_initial_state else 0
+
+    @property
+    def initial_parameter_bounds(self) -> list[tuple[float, float]]:
+        if self.train_initial_state:
+            return [(0.0, self.clip_size), (-np.pi, np.pi)]
+        return []
+
+    def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
+        """Generates the starting state for the loop mode (Mode 0)."""
+        if self.train_initial_state:
+            r, phi = init_params[0], init_params[1]
+        else:
+            r, phi = self.initial_r, 0.0
+
+        if abs(r) < 1e-6:
+            ket = np.zeros(cutoff_dim, dtype=np.complex128)
+            ket[0] = 1.0
+            return ket
+
+        # Generate Squeezed State for initialization
+        prog = sf.Program(1)
+        with prog.context as q:
+            Sgate(r, phi) | q[0]
+        
+        eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+        result = eng.run(prog)
+        return result.state.ket().flatten()
+
+    # --- Execution Logic ---
+
     def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
-        """
-        Executes one step of the time-domain circuit.
-        """
+        """Executes one step of the time-domain circuit."""
         # Unpack parameters (6 params)
         sq_r, sq_phi, disp_r, disp_phi, bs_theta, bs_phi = step_params
         
         prog = sf.Program(2)
         with prog.context as q:
-            # 1. Prepare Ancilla |1> (Reset mode 1)
-            Fock(1) | q[1]
+            # 1. Conditionally Prepare Ancilla |1>
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
             
             # 2. Squeeze Ancilla
             Sgate(sq_r, sq_phi) | q[1]
@@ -74,8 +111,7 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
             BSgate(bs_theta, bs_phi) | (q[0], q[1])
             
         return engine.run(prog)
-
-
+    
 class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     """
     Time-domain gadget with Squeezing on Ancilla (1) only, no displacement.
