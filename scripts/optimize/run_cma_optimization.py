@@ -27,16 +27,65 @@ from sklearn.cluster import KMeans
 # Imports
 from quantum_agent.optimization.time_circuits import *
 from quantum_agent.optimization.time_runner import CMAESOptimizationRunner
-from quantum_agent.components.targets import SqueezedCatTarget, CoreGKPTarget
+from quantum_agent.components.targets import *
+
+
+
+def filter_zero_slot_arrays(targets, cutoff_dim, tolerance=1e-6):
+    """
+    Filters a list of arrays, keeping only those where exactly one slot is zero
+    (within a specified tolerance).
+
+    Args:
+        arrays (list of numpy arrays): The input list of arrays.
+        tolerance (float): The tolerance value for comparing floating-point numbers to zero.
+
+    Returns:
+        list of numpy arrays: A new list containing only the arrays that meet the criteria.
+    """
+    filtered_arrays = []
+    for target in targets:
+        if np.count_nonzero(target.get_target_ket(cutoff_dim) < tolerance) == 1:
+            filtered_arrays.append(target)
+    return filtered_arrays
+
+def print_targets(targets, cutoff_dim, tolerance=1e-6):
+    """Print target names and ket states for each target."""
+    
+    # Iterate over each target
+    for i, target in enumerate(targets):
+        # Determine the target name
+        if isinstance(target, CoreGKPTarget):
+            target_name = f"GKP_n{target.n_max}_mu{target.mu}"
+        elif isinstance(target, SqueezedCatTarget):
+            target_name = f"Cat_a{target.alpha}_p{target.p}"
+        elif isinstance(target, BinomialCodeTarget):
+            target_name = f"Binomial_N{target.N}_S{target.S}_mu{target.mu}"
+        else:
+            target_name = "UnknownTarget"
+        
+        # Print target name
+        print(f"\nTarget {i+1}: {target_name}")
+        print("-" * len(target_name))
+        
+        # Get and print ket states
+        ket_state = target.get_target_ket(cutoff_dim)
+        for n, val in enumerate(ket_state):
+            if np.abs(val) > tolerance:
+                # Print real part if imaginary is negligible, otherwise show complex
+                out_val = val.real if np.abs(val.imag) < 1e-8 else val
+                print(f"  |{n}>: {out_val:.6f}")
+        
+        print("\n")
 
 def main():
     # --- Configuration ---
     CUTOFF_DIM = 50          # Simulation cutoff
-    STEPS = 5                # Time steps (depth of the circuit)
-    BEAM_WIDTH = 300          # Number of branches to keep
-    TIME_INVARIANT = True   # False = different params per step
-    MEASURE_CUTOFF = 12       # Max Fock state to measure on Ancilla (0, 1)
-    SUCCESS_THRESHOLD = 0.98
+    STEPS = 2                # Time steps (depth of the circuit)
+    BEAM_WIDTH = 100          # Number of branches to keep
+    TIME_INVARIANT = False   # False = different params per step
+    MEASURE_CUTOFF = 16       # Max Fock state to measure on Ancilla (0, 1)
+    SUCCESS_THRESHOLD = 0.99
     
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
@@ -55,11 +104,13 @@ def main():
     
 
     # 2. Circuit
-    circuit = TwoModeTimeDomainGadget(
+    circuit_gadget = TwoModeTimeDomainGadget(
         steps=STEPS,
         time_invariant=TIME_INVARIANT,
         clip_size=1,
-        measure_fock_cutoff=MEASURE_CUTOFF
+        measure_fock_cutoff=MEASURE_CUTOFF,
+        train_initial_state=False, 
+        initial_r=1,
     )
 
 
@@ -67,19 +118,34 @@ def main():
                                             time_invariant=TIME_INVARIANT,
                                             clip_size=1.38,
                                             measure_fock_cutoff=MEASURE_CUTOFF,
-                                            train_initial_state=True, 
+                                            num_single_photon=1,
+                                            train_initial_state=False, 
                                             initial_r=1.38 )
     
 
     circuit2 = ThreeModeTimeDomainSqueezeOnly(steps=STEPS,
                                         time_invariant=TIME_INVARIANT,
                                         clip_size=1,
-                                        measure_fock_cutoff=MEASURE_CUTOFF)
+                                        measure_fock_cutoff=MEASURE_CUTOFF,
+                                        train_initial_state=False, 
+                                        initial_r=1 )
 
+
+
+    # Generate all Binomial Codes with max Fock state <= 12
+    binomial_targets = []
+    max_fock_n = 12
+    for S in range(1, max_fock_n):
+        for N in range(1, max_fock_n):
+            if (N + 1) * (S + 1) <= max_fock_n:
+                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=0))
+                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=1))
+    
+    binomial_targets = filter_zero_slot_arrays(binomial_targets, CUTOFF_DIM)
     circuit = circuit1
-    targets = targets1
+    targets = gkp_targets 
     print(f"Optimizing for {len(targets)} targets.")
-
+    print_targets(targets)
     # 3. Runner
     runner = CMAESOptimizationRunner(
         num_processes=4,
@@ -88,15 +154,15 @@ def main():
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
         penalty_strength=10.0,
-        success_threshold = 0.98,
-        success_weight = 20.0,
-        ng_weight = 20.0,
+        success_threshold = SUCCESS_THRESHOLD,
+        success_weight = 1000.0,
+        ng_weight = 10.0,
         ng_threshold = 0.1,
     )
     
     # --- Execution ---
-    n_generations = 50       # Number of hops per global search
-    niter = 5      # Number of global searches
+    n_generations = 100       # Number of hops per global search
+    niter = 30      # Number of global searches
 
     exp_fid_ls = []
     hpx = []
@@ -105,13 +171,15 @@ def main():
     print(f"Starting {niter} global optimization runs (each with {n_generations} hops)...")
 
     target_names = []
-    for i, t in enumerate(targets):
-        if hasattr(t, "n_max") and hasattr(t, "mu"):
+    for t in targets:
+        if isinstance(t, CoreGKPTarget):
             target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
-        elif hasattr(t, "p"):
-            target_names.append(f"Cat_p{t.p}")
+        elif isinstance(t, SqueezedCatTarget):
+            target_names.append(f"Cat_a{t.alpha}_p{t.p}")
+        elif isinstance(t, BinomialCodeTarget):
+            target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
         else:
-            target_names.append(f"Target_{i}")
+            target_names.append("UnknownTarget")
 
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
@@ -127,13 +195,17 @@ def main():
             res['expected_fidelity'] = expected_fidelity
 
             success_prob = sum(b['prob'] for b in branches if b['fidelity'] > SUCCESS_THRESHOLD)
+            
+            # Inject back into result dict
+            res['success_prob'] = success_prob
 
             print(f"  -> Final Expected Fidelity: {expected_fidelity:.5f}")
             print(f"  -> Success Prob (> {SUCCESS_THRESHOLD}): {success_prob:.5f}")
+            print(f"  -> Total Beam Prob: {res.get('total_probability', 0.0):.5f}")
             print(f"  {'Outcome':<15} {'Prob':<10} {'Fidelity':<10} {'Best Target'}")
             
             for b in branches:
-                 if b['prob'] > 0.002:
+                 if b['prob'] > 0.001:
                      tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
                      print(f"  {str(b['outcome']):<15} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name}")
             print("")
@@ -179,8 +251,13 @@ def main():
         except Exception as e:
             print(f"KMeans filtering skipped: {e}")
 
-    # Select best
-    index, value = max(enumerate(exp_fid_ls), key=operator.itemgetter(1))
+    # Select best based on Success Probability (filtered by clusters)
+    success_probs = np.array([r['success_prob'] for r in results_ls])
+    
+    # Zero out success probs for runs dropped by clustering (where exp_fid_ls was set to 0.0)
+    success_probs[exp_fid_ls == 0.0] = -1.0
+    
+    index, value = max(enumerate(success_probs), key=operator.itemgetter(1))
     
     best_res = results_ls[index]
     best_success_prob = sum(b['prob'] for b in best_res['branches'] if b['fidelity'] > SUCCESS_THRESHOLD)
