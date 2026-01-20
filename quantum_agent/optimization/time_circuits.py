@@ -240,7 +240,7 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         self._bounds = []
         self._bounds.extend([(0.0, self.clip_size)] * 2) # sq_r (only 2 now)
         self._bounds.extend([(-np.pi, np.pi)] * 2)       # sq_phi (only 2 now)
-        self._bounds.extend([(0.0, 2 * np.pi)] * 3)      # bs_theta
+        self._bounds.extend([(0.0, np.pi/2)] * 3)      # bs_theta
         self._bounds.extend([(-np.pi, np.pi)] * 3)       # bs_phi
 
     @property
