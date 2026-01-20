@@ -79,13 +79,33 @@ def _compute_ng_scores(kets, cutoff_dim):
     return scores
 
 def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, target_kets, cutoff_dim, beam_width,
-                                  penalty_strength, measurement_patterns, success_threshold=0.99, success_weight=5.0, ng_weight=0.0, ng_threshold=0.1, 
-                                  prob_power=1):
+                                  penalty_strength, measurement_patterns=None, success_threshold=0.99, 
+                                  success_weight=5.0, ng_weight=0.0, ng_threshold=0.1, prob_power=1):
     """
-    Evaluates the circuit using Beam Search and returns the loss.
+    Evaluates the circuit using either Beam Search or fixed measurement patterns.
+    
+    Args:
+        flat_params: Flat array of parameters
+        circuit: TimeMultiplexedCircuit instance
+        target_kets: List of target state vectors
+        cutoff_dim: Fock space cutoff dimension
+        beam_width: Beam width for beam search (ignored if measurement_patterns is provided)
+        penalty_strength: Penalty strength for truncation errors
+        measurement_patterns: Optional list of fixed measurement patterns.
+            - If None: Use beam search with given beam_width
+            - If provided: Follow exactly these measurement outcomes (list of tuples)
+              Format: [(step1_outcome1, step1_outcome2, ...), (step2_outcome1, step2_outcome2, ...), ...]
+              where each step's tuple contains outcomes for all measured modes in that step
+        success_threshold: Fidelity threshold for success
+        success_weight: Weight for success reward
+        ng_weight: Weight for non-Gaussianity penalty
+        ng_threshold: Threshold for non-Gaussianity
+        prob_power: Power for probability weighting
+    
+    Returns:
+        Loss value
     """
     # 0. Setup
-     # 1. SPLIT PARAMETERS (Minimal Change)
     n_init = circuit.num_initial_parameters
     if n_init > 0:
         init_params = flat_params[:n_init]
@@ -98,116 +118,196 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
     mapped_params = circuit.map_parameters(step_params)
     meas_specs = circuit.get_measurement_specs()
     
-    # 2. INITIALIZE BEAM (Modified)
+    # 1. INITIALIZE
     # Get the custom initial ket (Vacuum or Squeezed)
     initial_ket = circuit.get_initial_state_ket(init_params, cutoff_dim)
 
-    # Initialize Beam with this ket
-    active_kets = np.zeros((1, cutoff_dim), dtype=np.complex128)
-    active_kets[0] = initial_ket 
-    active_probs = np.array([1.0])
-    active_outcome_sums = np.zeros(1, dtype=int)
+    # Check if we're using fixed patterns
+    use_fixed_patterns = (measurement_patterns is not None)
     
-    # Precompute slicing info
-    meas_modes = [m for m, c in meas_specs]
-    meas_cutoffs = [c for m, c in meas_specs]
-    perm = [0] + meas_modes # Loop mode first, then measured
-
-    total_truncation_error = 0.0
-    
-    # 1. Time Loop (Step 0 to T-1)
-    for step in range(circuit.steps):
-        step_params = mapped_params[step]
+    if use_fixed_patterns:
+        # Fixed patterns mode: follow exactly the given measurement outcomes
+        if len(measurement_patterns) != circuit.steps:
+            raise ValueError(f"Number of measurement patterns ({len(measurement_patterns)}) "
+                           f"must match circuit steps ({circuit.steps})")
         
-        # Containers for vectorized processing
-        branch_raw_probs = [] # List of flattened probability arrays
-        branch_tensors = []   # List of sliced kets
+        # Initialize with single state
+        current_ket = initial_ket.copy()
+        total_prob = 1.0
+        total_truncation_error = 0.0
         
-        # --- Phase A: Evolution ---
-        for idx in range(len(active_kets)):
-            parent_ket = active_kets[idx]
+        meas_modes = [m for m, c in meas_specs]
+        meas_cutoffs = [c for m, c in meas_specs]
+        perm = [0] + meas_modes  # Loop mode first, then measured
+        
+        # Step through circuit with fixed measurement outcomes
+        for step in range(circuit.steps):
+            step_params = mapped_params[step]
             
+            # Prepare engine with current state
             eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
-            
             prog_prep = sf.Program(len(meas_modes) + 1)
             with prog_prep.context as q:
-                Ket(parent_ket) | q[0]
+                Ket(current_ket) | q[0]
             eng.run(prog_prep)
             
+            # Run circuit step
             result = circuit.run_step(None, step, step_params, eng)
             full_ket = result.state.ket()
             
             # Truncation check
             flat_ket = full_ket.flatten()
             norm_sq = np.real(np.vdot(flat_ket, flat_ket))
-            total_truncation_error += np.abs(1.0 - norm_sq) * active_probs[idx]
-
-            # Transpose: (D_loop, D_m1, D_m2, ...)
-            transposed_ket = np.transpose(full_ket, axes=perm)
+            total_truncation_error += np.abs(1.0 - norm_sq) * total_prob
             
-            # Slice measured modes
+            # Transpose and slice
+            transposed_ket = np.transpose(full_ket, axes=perm)
             slices = [slice(None)] + [slice(0, c) for c in meas_cutoffs]
             sliced_ket = transposed_ket[tuple(slices)]
             
-            branch_tensors.append(sliced_ket)
+            # Get fixed measurement outcomes for this step
+            step_outcomes = measurement_patterns[step]
+            if not isinstance(step_outcomes, tuple):
+                step_outcomes = (step_outcomes,)
             
-            # Calculate Probabilities: Sum over Loop (axis 0)
-            # Shape (c1, c2, ...) -> flatten
-            probs_tensor = np.sum(np.abs(sliced_ket)**2, axis=0)
-            branch_raw_probs.append(probs_tensor.flatten())
-
-        # --- Phase B: Vectorized Virtual Branching ---
-        
-        # P_parent: (N_branches,)
-        P_parent = active_probs
-        
-        # P_raw: (N_branches, meas_cutoff)
-        P_raw = np.stack(branch_raw_probs) 
-        
-        # Joint Probability: P(parent) * P(outcome|parent)
-        # Broadcasting: (N, 1) * (N, M) -> (N, M)
-        P_total = P_parent[:, None] * P_raw
-        
-        # --- Phase C: Vectorized Pruning ---
-        flat_P = P_total.flatten()
-        k = min(beam_width, flat_P.size)
-        top_indices = np.argpartition(flat_P, -k)[-k:]
-        
-        # Resolve indices
-        parent_indices, outcome_indices_flat = np.unravel_index(top_indices, P_total.shape)
-        outcomes_unraveled = np.unravel_index(outcome_indices_flat, tuple(meas_cutoffs))
-        
-        # --- Phase D: Vectorized Realization ---
-        
-        # Stack tensors: (N_parents, cutoff, meas_cutoff)
-        tensor_stack = np.stack(branch_tensors)
-        
-        # Fancy indexing: [parent_idx, :, o1_idx, o2_idx...]
-        indexer = (parent_indices, slice(None)) + outcomes_unraveled
-        raw_new_kets = tensor_stack[indexer]
-        
-        # Normalize
-        norms = np.linalg.norm(raw_new_kets, axis=1)
-        selected_probs = P_total[parent_indices, outcome_indices_flat]
-        
-        # Calculate step outcome sums for the top K candidates
-        if len(outcomes_unraveled) > 0:
-            step_outcome_sums = np.sum(np.stack(outcomes_unraveled), axis=0)
-        else:
-            step_outcome_sums = np.zeros(len(parent_indices), dtype=int)
+            if len(step_outcomes) != len(meas_modes):
+                raise ValueError(f"Step {step}: Expected {len(meas_modes)} measurement outcomes, "
+                               f"got {len(step_outcomes)}")
             
-        candidate_outcome_sums = active_outcome_sums[parent_indices] + step_outcome_sums
+            # Check if outcomes are within cutoffs
+            for i, (outcome, cutoff) in enumerate(zip(step_outcomes, meas_cutoffs)):
+                if outcome >= cutoff:
+                    raise ValueError(f"Step {step}, mode {i}: Measurement outcome {outcome} "
+                                   f"exceeds cutoff {cutoff}")
+            
+            # Project onto fixed outcomes
+            indexer = (slice(None),) + step_outcomes
+            projected_ket = sliced_ket[indexer]  # Shape: (cutoff_dim,)
+            
+            # Calculate probability of this outcome
+            prob_outcome = np.sum(np.abs(projected_ket)**2)
+            
+            if prob_outcome < 1e-12:
+                # If probability is zero, return high loss
+                return 100.0
+            
+            # Update state and probability
+            current_ket = projected_ket / np.sqrt(prob_outcome)
+            total_prob *= prob_outcome
+        
+        # Prepare for final objective calculation
+        active_kets = current_ket.reshape(1, -1)  # Shape: (1, cutoff_dim)
+        active_probs = np.array([total_prob])
+        active_outcome_sums = np.array([sum(sum(step_outcomes) for step_outcomes in measurement_patterns)])
+    
+    else:
+        # BEAM SEARCH MODE (original implementation)
+        # Initialize Beam with this ket
+        active_kets = np.zeros((1, cutoff_dim), dtype=np.complex128)
+        active_kets[0] = initial_ket 
+        active_probs = np.array([1.0])
+        active_outcome_sums = np.zeros(1, dtype=int)
+        
+        # Precompute slicing info
+        meas_modes = [m for m, c in meas_specs]
+        meas_cutoffs = [c for m, c in meas_specs]
+        perm = [0] + meas_modes
 
-        # Filter
-        mask = (norms > 1e-9) & (selected_probs > 1e-12)
+        total_truncation_error = 0.0
         
-        if not np.any(mask):
-            return 100.0
-        
-        # Update Active Beam
-        active_kets = raw_new_kets[mask] / norms[mask][:, None]
-        active_probs = selected_probs[mask]
-        active_outcome_sums = candidate_outcome_sums[mask]
+        # 1. Time Loop (Step 0 to T-1)
+        for step in range(circuit.steps):
+            step_params = mapped_params[step]
+            
+            # Containers for vectorized processing
+            branch_raw_probs = [] # List of flattened probability arrays
+            branch_tensors = []   # List of sliced kets
+            
+            # --- Phase A: Evolution ---
+            for idx in range(len(active_kets)):
+                parent_ket = active_kets[idx]
+                
+                eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+                
+                prog_prep = sf.Program(len(meas_modes) + 1)
+                with prog_prep.context as q:
+                    Ket(parent_ket) | q[0]
+                eng.run(prog_prep)
+                
+                result = circuit.run_step(None, step, step_params, eng)
+                full_ket = result.state.ket()
+                
+                # Truncation check
+                flat_ket = full_ket.flatten()
+                norm_sq = np.real(np.vdot(flat_ket, flat_ket))
+                total_truncation_error += np.abs(1.0 - norm_sq) * active_probs[idx]
+
+                # Transpose: (D_loop, D_m1, D_m2, ...)
+                transposed_ket = np.transpose(full_ket, axes=perm)
+                
+                # Slice measured modes
+                slices = [slice(None)] + [slice(0, c) for c in meas_cutoffs]
+                sliced_ket = transposed_ket[tuple(slices)]
+                
+                branch_tensors.append(sliced_ket)
+                
+                # Calculate Probabilities: Sum over Loop (axis 0)
+                # Shape (c1, c2, ...) -> flatten
+                probs_tensor = np.sum(np.abs(sliced_ket)**2, axis=0)
+                branch_raw_probs.append(probs_tensor.flatten())
+
+            # --- Phase B: Vectorized Virtual Branching ---
+            
+            # P_parent: (N_branches,)
+            P_parent = active_probs
+            
+            # P_raw: (N_branches, meas_cutoff)
+            P_raw = np.stack(branch_raw_probs) 
+            
+            # Joint Probability: P(parent) * P(outcome|parent)
+            # Broadcasting: (N, 1) * (N, M) -> (N, M)
+            P_total = P_parent[:, None] * P_raw
+            
+            # --- Phase C: Vectorized Pruning ---
+            flat_P = P_total.flatten()
+            k = min(beam_width, flat_P.size)
+            top_indices = np.argpartition(flat_P, -k)[-k:]
+            
+            # Resolve indices
+            parent_indices, outcome_indices_flat = np.unravel_index(top_indices, P_total.shape)
+            outcomes_unraveled = np.unravel_index(outcome_indices_flat, tuple(meas_cutoffs))
+            
+            # --- Phase D: Vectorized Realization ---
+            
+            # Stack tensors: (N_parents, cutoff, meas_cutoff)
+            tensor_stack = np.stack(branch_tensors)
+            
+            # Fancy indexing: [parent_idx, :, o1_idx, o2_idx...]
+            indexer = (parent_indices, slice(None)) + outcomes_unraveled
+            raw_new_kets = tensor_stack[indexer]
+            
+            # Normalize
+            norms = np.linalg.norm(raw_new_kets, axis=1)
+            selected_probs = P_total[parent_indices, outcome_indices_flat]
+            
+            # Calculate step outcome sums for the top K candidates
+            if len(outcomes_unraveled) > 0:
+                step_outcome_sums = np.sum(np.stack(outcomes_unraveled), axis=0)
+            else:
+                step_outcome_sums = np.zeros(len(parent_indices), dtype=int)
+                
+            candidate_outcome_sums = active_outcome_sums[parent_indices] + step_outcome_sums
+
+            # Filter
+            mask = (norms > 1e-9) & (selected_probs > 1e-12)
+            
+            if not np.any(mask):
+                return 100.0
+            
+            # Update Active Beam
+            active_kets = raw_new_kets[mask] / norms[mask][:, None]
+            active_probs = selected_probs[mask]
+            active_outcome_sums = candidate_outcome_sums[mask]
 
     # --- Final Objective (Vectorized) ---
     
@@ -272,19 +372,19 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             
             ng_loss = np.sum(final_probs * ng_penalty_terms)
 
-        # Similarity penalty: 1 if all kets are >0.95 similar, 0 if all <0.95 similar
-        similarity_matrix = np.abs(np.dot(final_kets, final_kets.T))  # Pairwise overlaps
-        similarity_avg = np.mean(similarity_matrix)
-        similarity_penalty = expit(-5 * (similarity_avg - 0.8))  # Steep sigmoid: ~1 if avg > 0.95, ~0 if < 0.95
+        # Similarity penalty
+        if len(final_kets) > 1:
+            similarity_matrix = np.abs(np.dot(final_kets, final_kets.T))
+            similarity_avg = np.mean(similarity_matrix)
+            similarity_penalty = expit(-5 * (similarity_avg - 0.8))
+        else:
+            similarity_penalty = 0.0
 
-    # Penalties
-    # 1. Total Probability Loss (indicates truncation or dropped branches)
-    loss_prob = np.abs(1.0 - total_prob)
-    # return  -expected_fidelity - (success_weight * (soft_success_prob+ 4*soft_success_prob2)) + (penalty_strength * loss_prob) + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
-    return     -expected_fidelity - (success_weight*(soft_success_prob)) \
-             + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)  \
-
-    # return  -expected_fidelity - (success_weight * (soft_success_prob+ 4*soft_success_prob2)) + (penalty_strength * loss_prob) + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
+    # Return loss
+    loss = -expected_fidelity - (success_weight * soft_success_prob) \
+           + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
+    
+    return loss
 
 
 class TimeDomainRunner:
@@ -309,7 +409,8 @@ class TimeDomainRunner:
                  success_threshold: float = 0.99,
                  success_weight: float = 5.0,
                  ng_weight: float = 0.0,
-                 ng_threshold: float = 0.1):
+                 ng_threshold: float = 0.1,
+                 measurement_patterns = None):
         
         self.circuit = circuit
 
@@ -324,6 +425,7 @@ class TimeDomainRunner:
         self.success_weight = success_weight
         self.ng_weight = ng_weight
         self.ng_threshold = ng_threshold
+        self.measurement_patterns = measurement_patterns
         self.eval_count = 0
         
     def _loss_function(self, flat_params):
@@ -338,6 +440,7 @@ class TimeDomainRunner:
             self.cutoff_dim, 
             self.beam_width, 
             self.penalty_strength,
+            self.measurement_patterns,
             self.success_threshold,
             self.success_weight,
             self.ng_weight,
@@ -515,8 +618,6 @@ class TimeDomainRunner:
 class CMAESOptimizationRunner:
     """
     Optimizes time-domain circuits using CMA-ES (Covariance Matrix Adaptation Evolution Strategy).
-    
-    This runner parallelizes the evaluation of candidates using multiprocessing.
     """
     def __init__(self, 
                  circuit: TimeMultiplexedCircuit, 
@@ -529,7 +630,8 @@ class CMAESOptimizationRunner:
                  ng_weight: float = 0.0,
                  ng_threshold: float = 0.1,
                  num_processes: int = 4,
-                 sigma0: float = 0.5):
+                 sigma0: float = 0.5,
+                 measurement_patterns = None):
         
         self.circuit = circuit
         self.cutoff_dim = cutoff_dim
@@ -541,6 +643,7 @@ class CMAESOptimizationRunner:
         self.ng_threshold = ng_threshold
         self.num_processes = num_processes
         self.sigma0 = sigma0
+        self.measurement_patterns = measurement_patterns
 
         if not isinstance(target_gens, list):
             target_gens = [target_gens]
@@ -558,19 +661,19 @@ class CMAESOptimizationRunner:
         """
         # 1. Setup Parameters and Bounds
         per_step_bounds = self.circuit.per_step_parameter_bounds
-        self.prob_power=prob_power
+        self.prob_power = prob_power
+        
         if self.circuit.time_invariant:
             step_bounds = per_step_bounds
         else:
             step_bounds = per_step_bounds * self.circuit.steps
             
-        # 2. Init Bounds (NEW)
+        # 2. Init Bounds
         init_bounds = self.circuit.initial_parameter_bounds
         
         # 3. Concatenate
         full_bounds = init_bounds + step_bounds
         
-            
         # CMA expects bounds in format [[lower_1, lower_2...], [upper_1, upper_2...]]
         lower_bounds = [b[0] for b in full_bounds]
         upper_bounds = [b[1] for b in full_bounds]
@@ -589,7 +692,9 @@ class CMAESOptimizationRunner:
             
         es = cma.CMAEvolutionStrategy(x0, self.sigma0, opts)
         
-        print(f"Starting CMA-ES (Generations={n_generations}, PopSize={es.popsize}, Processes={self.num_processes}, NG_Weight={self.ng_weight})...")
+        print(f"Starting CMA-ES (Generations={n_generations}, PopSize={es.popsize}, "
+              f"Processes={self.num_processes}, NG_Weight={self.ng_weight}, "
+              f"Patterns={'fixed' if self.measurement_patterns is not None else 'beam'})...")
         start_time = time.time()
         
         # Create a partial function with fixed arguments for the worker
@@ -601,6 +706,7 @@ class CMAESOptimizationRunner:
             cutoff_dim=self.cutoff_dim,
             beam_width=self.beam_width,
             penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
             success_threshold=self.success_threshold,
             success_weight=self.success_weight,
             ng_weight=self.ng_weight,
@@ -624,7 +730,6 @@ class CMAESOptimizationRunner:
                 
                 es.tell(X, fitness_values)
                 es.logger.add()  # write to cma files
-                # es.disp()      # print info
                 
                 current_best_loss = min(fitness_values)
                 if current_best_loss < best_loss:
@@ -635,7 +740,7 @@ class CMAESOptimizationRunner:
 
         duration = time.time() - start_time
         final_x = es.result.xbest
-        final_loss = best_loss # strictly tracked best
+        final_loss = best_loss
         
         # 4. Final Reconstruction (Re-run best to get details)
         # This logic mirrors TimeDomainRunner to produce the detailed 'branches' output
