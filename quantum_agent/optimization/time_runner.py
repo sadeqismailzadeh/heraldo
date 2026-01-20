@@ -12,7 +12,7 @@ from functools import lru_cache
 
 from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
 from quantum_agent.components.targets import TargetGenerator
-from quantum_agent.envs.modular_env import fidelity_max_rotation
+from quantum_agent.utils import fidelity_max_rotation
 
 
 import multiprocessing
@@ -78,7 +78,9 @@ def _compute_ng_scores(kets, cutoff_dim):
         
     return scores
 
-def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, beam_width, penalty_strength, success_threshold=0.99, success_weight=5.0, ng_weight=0.0, ng_threshold=0.1):
+def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, target_kets, cutoff_dim, beam_width,
+                                  penalty_strength, measurement_patterns, success_threshold=0.99, success_weight=5.0, ng_weight=0.0, ng_threshold=0.1, 
+                                  prob_power=1):
     """
     Evaluates the circuit using Beam Search and returns the loss.
     """
@@ -110,6 +112,8 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
     meas_modes = [m for m, c in meas_specs]
     meas_cutoffs = [c for m, c in meas_specs]
     perm = [0] + meas_modes # Loop mode first, then measured
+
+    total_truncation_error = 0.0
     
     # 1. Time Loop (Step 0 to T-1)
     for step in range(circuit.steps):
@@ -133,6 +137,11 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
             result = circuit.run_step(None, step, step_params, eng)
             full_ket = result.state.ket()
             
+            # Truncation check
+            flat_ket = full_ket.flatten()
+            norm_sq = np.real(np.vdot(flat_ket, flat_ket))
+            total_truncation_error += np.abs(1.0 - norm_sq) * active_probs[idx]
+
             # Transpose: (D_loop, D_m1, D_m2, ...)
             transposed_ket = np.transpose(full_ket, axes=perm)
             
@@ -233,34 +242,49 @@ def evaluate_time_domain_circuit(flat_params, circuit, target_kets, cutoff_dim, 
         fidelities = np.max(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        infidelities = np.maximum(1.0 - fidelities, 1e-6)
-        log_vals = -np.log10(infidelities)        
-        expected_fidelity = np.sum((final_probs**0.1) * (log_vals))
+        min_infidel=1e-3
+        infidelities = np.maximum(1.0 - fidelities, min_infidel)
+        log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
+        capped_fidlities=np.maximum(fidelities, 1-min_infidel)
+        expected_fidelity = np.sum((final_probs**0.01)
+                                   * (capped_fidlities**2  *log_vals)**8)
 
         # Soft Success Calculation
-        steepness = 500.0
+        steepness = 50.0
         # expit(-x) == 1 / (1 + exp(x))
-        sigmoids = expit(steepness * (fidelities - success_threshold))
-        soft_success_prob = np.sum(final_probs * sigmoids)
+        diff = success_threshold - fidelities
+        x = np.log(np.maximum(1.0 - diff, 1e-12))
+        sigmoids = expit(steepness * x)
+        soft_success_prob = np.sum(sigmoids * (capped_fidlities + 0.1*final_probs))  
         
         # Non-Gaussianity Penalty
         if ng_weight > 1e-6:
             ng_scores = _compute_ng_scores(final_kets, cutoff_dim)
+
+
             # Sigmoid penalty: High (1.0) if score < threshold (Gaussian), Low (0.0) if score > threshold
             # S = 1 / (1 + exp(k * (score - threshold)))
             #   = expit( -k * (score - threshold) )
-            ng_steepness = 500.0
+            ng_steepness = 50.0
             
             # NOTE: We use expit(-z) to calculate 1/(1+exp(z)) safely
             ng_penalty_terms = expit(-ng_steepness * (ng_scores - ng_threshold))
             
             ng_loss = np.sum(final_probs * ng_penalty_terms)
-    
+
+        # Similarity penalty: 1 if all kets are >0.95 similar, 0 if all <0.95 similar
+        similarity_matrix = np.abs(np.dot(final_kets, final_kets.T))  # Pairwise overlaps
+        similarity_avg = np.mean(similarity_matrix)
+        similarity_penalty = expit(-5 * (similarity_avg - 0.8))  # Steep sigmoid: ~1 if avg > 0.95, ~0 if < 0.95
+
     # Penalties
     # 1. Total Probability Loss (indicates truncation or dropped branches)
     loss_prob = np.abs(1.0 - total_prob)
-    
-    return -expected_fidelity - (success_weight * soft_success_prob) + (penalty_strength * loss_prob) + (ng_weight * ng_loss)
+    # return  -expected_fidelity - (success_weight * (soft_success_prob+ 4*soft_success_prob2)) + (penalty_strength * loss_prob) + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
+    return     -expected_fidelity - (success_weight*(soft_success_prob)) \
+             + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)  \
+
+    # return  -expected_fidelity - (success_weight * (soft_success_prob+ 4*soft_success_prob2)) + (penalty_strength * loss_prob) + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
 
 
 class TimeDomainRunner:
@@ -524,7 +548,7 @@ class CMAESOptimizationRunner:
         # Precompute targets
         self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
 
-    def run(self, n_generations=50, population_size=None):
+    def run(self, n_generations=50, population_size=None, prob_power=1):
         """
         Runs the CMA-ES optimization.
         
@@ -534,6 +558,7 @@ class CMAESOptimizationRunner:
         """
         # 1. Setup Parameters and Bounds
         per_step_bounds = self.circuit.per_step_parameter_bounds
+        self.prob_power=prob_power
         if self.circuit.time_invariant:
             step_bounds = per_step_bounds
         else:
@@ -579,7 +604,8 @@ class CMAESOptimizationRunner:
             success_threshold=self.success_threshold,
             success_weight=self.success_weight,
             ng_weight=self.ng_weight,
-            ng_threshold=self.ng_threshold
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power
         )
         
         best_loss = float('inf')
