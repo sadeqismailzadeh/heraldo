@@ -28,12 +28,13 @@ from sklearn.cluster import KMeans
 from quantum_agent.optimization.time_circuits import *
 from quantum_agent.optimization.time_runner import CMAESOptimizationRunner
 from quantum_agent.components.targets import *
+from quantum_agent.utils import db_to_r
 
 
 
-def filter_zero_slot_arrays(targets, cutoff_dim, tolerance=1e-6):
+def filter_zero_slot_arrays(targets: list[TargetGenerator], cutoff_dim, tolerance=1e-6):
     """
-    Filters a list of arrays, keeping only those where exactly one slot is zero
+    Filters a list of arrays, keeping only those where exactly one element is zero
     (within a specified tolerance).
 
     Args:
@@ -45,7 +46,7 @@ def filter_zero_slot_arrays(targets, cutoff_dim, tolerance=1e-6):
     """
     filtered_arrays = []
     for target in targets:
-        if np.count_nonzero(target.get_target_ket(cutoff_dim) < tolerance) == 1:
+        if np.count_nonzero(target.get_target_ket(cutoff_dim) > tolerance) > 1:
             filtered_arrays.append(target)
     return filtered_arrays
 
@@ -80,25 +81,52 @@ def print_targets(targets, cutoff_dim, tolerance=1e-6):
 
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 50          # Simulation cutoff
-    STEPS = 2                # Time steps (depth of the circuit)
+    CUTOFF_DIM = 30          # Simulation cutoff
+    STEPS = 1                # Time steps (depth of the circuit)
     BEAM_WIDTH = 100          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
-    MEASURE_CUTOFF = 16       # Max Fock state to measure on Ancilla (0, 1)
-    SUCCESS_THRESHOLD = 0.99
+    MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
+    SUCCESS_THRESHOLD = 1 - 1e-2
     
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
     print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}")
 
+
+    squeezing = db_to_r(12)
+    print(f"squeezing r = {squeezing}")
     # 1. Target
     targets1 = [
         SqueezedCatTarget(alpha=3, r=1.38, p=0),
         SqueezedCatTarget(alpha=3, r=1.38, p=1)
     ]
+
+    target_cat = [
+        CatTarget(alpha=2, p=0),
+        CatTarget(alpha=2, p=1)
+    ]
     gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
-                            n_max=n, delta_db=10.4, mu=m)
+                            n_max=n, delta_db=10, mu=m)
             for n in [4, 6, 8, 10, 12] for m in [1]]
+    
+
+        # Generate all Binomial Codes with max Fock state <= 12
+    binomial_targets = []
+    max_fock_n = 14
+    for S in range(1, max_fock_n):
+        for N in range(2, max_fock_n):
+            if (N + 1) * (S + 1) <= max_fock_n:
+                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=0))
+                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=1))
+    binomial_targets = filter_zero_slot_arrays(binomial_targets, CUTOFF_DIM)
+
+    csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
+    target3=CoreGKPTarget(csv_path=csv_path, 
+                          n_max=8, 
+                          delta_db=10, 
+                          mu=0)
+    
+    target_cubic = CubicResourceTarget(a=0.61)
     
 
     
@@ -116,36 +144,32 @@ def main():
 
     circuit1 = TwoModeTimeDomainSqueezeOnly(steps=STEPS,
                                             time_invariant=TIME_INVARIANT,
-                                            clip_size=1.38,
+                                            clip_size=squeezing,
                                             measure_fock_cutoff=MEASURE_CUTOFF,
-                                            num_single_photon=1,
-                                            train_initial_state=False, 
-                                            initial_r=1.38 )
+                                            num_single_photon=0,
+                                            train_initial_state=True, 
+                                            initial_r=squeezing )
     
 
     circuit2 = ThreeModeTimeDomainSqueezeOnly(steps=STEPS,
                                         time_invariant=TIME_INVARIANT,
-                                        clip_size=1,
+                                        clip_size=squeezing,
                                         measure_fock_cutoff=MEASURE_CUTOFF,
-                                        train_initial_state=False, 
-                                        initial_r=1 )
+                                        num_single_photon=0,
+                                        train_initial_state=True, 
+                                        initial_r=squeezing )
 
 
 
-    # Generate all Binomial Codes with max Fock state <= 12
-    binomial_targets = []
-    max_fock_n = 12
-    for S in range(1, max_fock_n):
-        for N in range(1, max_fock_n):
-            if (N + 1) * (S + 1) <= max_fock_n:
-                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=0))
-                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=1))
+
+
     
-    binomial_targets = filter_zero_slot_arrays(binomial_targets, CUTOFF_DIM)
-    circuit = circuit1
-    targets = gkp_targets 
+    circuit = circuit2
+    targets = [target3]
     print(f"Optimizing for {len(targets)} targets.")
-    print_targets(targets)
+    print_targets(targets, CUTOFF_DIM)
+
+
     # 3. Runner
     runner = CMAESOptimizationRunner(
         num_processes=4,
@@ -153,18 +177,19 @@ def main():
         target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
-        penalty_strength=10.0,
+        penalty_strength=0.1,
         success_threshold = SUCCESS_THRESHOLD,
-        success_weight = 1000.0,
-        ng_weight = 10.0,
-        ng_threshold = 0.1,
+        success_weight = 0.0,
+        ng_weight = 0,
+        ng_threshold = 00.0,
+        sigma0=1
     )
     
     # --- Execution ---
-    n_generations = 100       # Number of hops per global search
-    niter = 30      # Number of global searches
+    n_generations = 1000       # Number of hops per global search
+    niter = 100      # Number of global searches
 
-    exp_fid_ls = []
+    suc_pb_ls = []
     hpx = []
     results_ls = []
 
@@ -175,6 +200,8 @@ def main():
         if isinstance(t, CoreGKPTarget):
             target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
         elif isinstance(t, SqueezedCatTarget):
+            target_names.append(f"Sq_cat_a{t.alpha}_r{t.r}_p{t.p}")
+        elif isinstance(t, CatTarget):
             target_names.append(f"Cat_a{t.alpha}_p{t.p}")
         elif isinstance(t, BinomialCodeTarget):
             target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
@@ -184,7 +211,9 @@ def main():
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
         try:
-            res = runner.run(n_generations=n_generations)
+            prob_power = np.random.uniform(0.01, 1)
+            print(f"prob_power = {prob_power:.5f}")
+            res = runner.run(n_generations=n_generations, prob_power=0.2)
             
             # Recalculate expected fidelity from branches
             # (TimeDomainRunner objective is -ExpFid + Penalty, but we want pure ExpFid for stats)
@@ -210,7 +239,7 @@ def main():
                      print(f"  {str(b['outcome']):<15} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name}")
             print("")
 
-            exp_fid_ls.append(expected_fidelity)
+            suc_pb_ls.append(success_prob)
             hpx.append(res['x'])
             results_ls.append(res)
             
@@ -218,12 +247,12 @@ def main():
             print(f"Run {e+1} failed: {exc}")
 
     # Convert to arrays
-    exp_fid_ls = np.array(exp_fid_ls)
+    suc_pb_ls = np.array(suc_pb_ls)
     hpx = np.array(hpx)  # Array of flat parameters
     
     # Filter NaNs
-    valid_mask = ~np.isnan(exp_fid_ls)
-    exp_fid_ls = exp_fid_ls[valid_mask]
+    valid_mask = ~np.isnan(suc_pb_ls)
+    suc_pb_ls = suc_pb_ls[valid_mask]
     
     # Filter results list as well (hpx might be ragged if filtering happens, but usually fixed size)
     # We just rebuild results_ls based on mask
@@ -231,23 +260,23 @@ def main():
     if len(hpx) > 0:
         hpx = hpx[valid_mask]
 
-    if len(exp_fid_ls) == 0:
+    if len(suc_pb_ls) == 0:
         print("All runs failed.")
         return
 
     # Clustering logic
-    if len(exp_fid_ls) > 1:
+    if len(suc_pb_ls) > 1:
         try:
-            res_kmeans = KMeans(n_clusters=2, n_init='auto').fit(exp_fid_ls.reshape(-1, 1))
-            mean0 = np.mean(exp_fid_ls[np.where(res_kmeans.labels_ == 0)])
-            mean1 = np.mean(exp_fid_ls[np.where(res_kmeans.labels_ == 1)])
+            res_kmeans = KMeans(n_clusters=2, n_init='auto').fit(suc_pb_ls.reshape(-1, 1))
+            mean0 = np.mean(suc_pb_ls[np.where(res_kmeans.labels_ == 0)])
+            mean1 = np.mean(suc_pb_ls[np.where(res_kmeans.labels_ == 1)])
 
             if np.abs(mean0 - mean1) < 0.01:
                 print("Clusters indistinguishable, keeping all.")
             else:
                 drop = 1 if mean0 > mean1 else 0
                 print(f"Mean cluster 0: {mean0:.4f}, Mean cluster 1: {mean1:.4f}. Dropping cluster {drop}.")
-                exp_fid_ls[np.where(res_kmeans.labels_ == drop)] = 0.0
+                suc_pb_ls[np.where(res_kmeans.labels_ == drop)] = 0.0
         except Exception as e:
             print(f"KMeans filtering skipped: {e}")
 
@@ -255,7 +284,7 @@ def main():
     success_probs = np.array([r['success_prob'] for r in results_ls])
     
     # Zero out success probs for runs dropped by clustering (where exp_fid_ls was set to 0.0)
-    success_probs[exp_fid_ls == 0.0] = -1.0
+    success_probs[suc_pb_ls == 0.0] = -1.0
     
     index, value = max(enumerate(success_probs), key=operator.itemgetter(1))
     
