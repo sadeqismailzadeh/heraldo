@@ -92,10 +92,13 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         beam_width: Beam width for beam search (ignored if measurement_patterns is provided)
         penalty_strength: Penalty strength for truncation errors
         measurement_patterns: Optional list of fixed measurement patterns.
-            - If None: Use beam search with given beam_width
-            - If provided: Follow exactly these measurement outcomes (list of tuples)
-              Format: [(step1_outcome1, step1_outcome2, ...), (step2_outcome1, step2_outcome2, ...), ...]
-              where each step's tuple contains outcomes for all measured modes in that step
+            Format options:
+            - None: Use beam search with given beam_width
+            - List of tuples: Each tuple contains outcomes for all measured modes in that step
+              [(step1_outcome1, step1_outcome2, ...), (step2_outcome1, step2_outcome2, ...), ...]
+            - List of lists: Multiple complete measurement sequences to average over
+              [[(step1_outcome1, step1_outcome2, ...), (step2_outcome1, ...), ...],  # Sequence 1
+               [(step1_outcome1, step1_outcome2, ...), (step2_outcome1, ...), ...]]  # Sequence 2
         success_threshold: Fidelity threshold for success
         success_weight: Weight for success reward
         ng_weight: Weight for non-Gaussianity penalty
@@ -126,79 +129,117 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
     use_fixed_patterns = (measurement_patterns is not None)
     
     if use_fixed_patterns:
-        # Fixed patterns mode: follow exactly the given measurement outcomes
-        if len(measurement_patterns) != circuit.steps:
-            raise ValueError(f"Number of measurement patterns ({len(measurement_patterns)}) "
-                           f"must match circuit steps ({circuit.steps})")
+        # Check if we have multiple patterns (list of lists) or a single pattern (list of tuples)
+        is_multi_pattern = (len(measurement_patterns) > 0 and 
+                           isinstance(measurement_patterns[0], list))
         
-        # Initialize with single state
-        current_ket = initial_ket.copy()
-        total_prob = 1.0
-        total_truncation_error = 0.0
+        if is_multi_pattern:
+            # Multiple patterns: average over all of them
+            pattern_sequences = measurement_patterns
+        else:
+            # Single pattern: wrap it in a list
+            pattern_sequences = [measurement_patterns]
         
-        meas_modes = [m for m, c in meas_specs]
-        meas_cutoffs = [c for m, c in meas_specs]
-        perm = [0] + meas_modes  # Loop mode first, then measured
+        # Validate each pattern sequence
+        for seq_idx, pattern in enumerate(pattern_sequences):
+            if len(pattern) != circuit.steps:
+                raise ValueError(f"Pattern sequence {seq_idx}: Length ({len(pattern)}) "
+                               f"must match circuit steps ({circuit.steps})")
         
-        # Step through circuit with fixed measurement outcomes
-        for step in range(circuit.steps):
-            step_params = mapped_params[step]
-            
-            # Prepare engine with current state
-            eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
-            prog_prep = sf.Program(len(meas_modes) + 1)
-            with prog_prep.context as q:
-                Ket(current_ket) | q[0]
-            eng.run(prog_prep)
-            
-            # Run circuit step
-            result = circuit.run_step(None, step, step_params, eng)
-            full_ket = result.state.ket()
-            
-            # Truncation check
-            flat_ket = full_ket.flatten()
-            norm_sq = np.real(np.vdot(flat_ket, flat_ket))
-            total_truncation_error += np.abs(1.0 - norm_sq) * total_prob
-            
-            # Transpose and slice
-            transposed_ket = np.transpose(full_ket, axes=perm)
-            slices = [slice(None)] + [slice(0, c) for c in meas_cutoffs]
-            sliced_ket = transposed_ket[tuple(slices)]
-            
-            # Get fixed measurement outcomes for this step
-            step_outcomes = measurement_patterns[step]
-            if not isinstance(step_outcomes, tuple):
-                step_outcomes = (step_outcomes,)
-            
-            if len(step_outcomes) != len(meas_modes):
-                raise ValueError(f"Step {step}: Expected {len(meas_modes)} measurement outcomes, "
-                               f"got {len(step_outcomes)}")
-            
-            # Check if outcomes are within cutoffs
-            for i, (outcome, cutoff) in enumerate(zip(step_outcomes, meas_cutoffs)):
-                if outcome >= cutoff:
-                    raise ValueError(f"Step {step}, mode {i}: Measurement outcome {outcome} "
-                                   f"exceeds cutoff {cutoff}")
-            
-            # Project onto fixed outcomes
-            indexer = (slice(None),) + step_outcomes
-            projected_ket = sliced_ket[indexer]  # Shape: (cutoff_dim,)
-            
-            # Calculate probability of this outcome
-            prob_outcome = np.sum(np.abs(projected_ket)**2)
-            
-            if prob_outcome < 1e-12:
-                # If probability is zero, return high loss
-                return 100.0
-            
-            # Update state and probability
-            current_ket = projected_ket / np.sqrt(prob_outcome)
-            total_prob *= prob_outcome
+        # Process each pattern sequence and collect results
+        seq_active_kets = []
+        seq_active_probs = []
+        seq_active_outcome_sums = []
+        seq_total_truncation_errors = []
         
-        # Prepare for final objective calculation
-        active_kets = current_ket.reshape(1, -1)  # Shape: (1, cutoff_dim)
-        active_probs = np.array([total_prob])
-        active_outcome_sums = np.array([sum(sum(step_outcomes) for step_outcomes in measurement_patterns)])
+        for pattern in pattern_sequences:
+            # Initialize with single state for this sequence
+            current_ket = initial_ket.copy()
+            total_prob = 1.0
+            total_truncation_error = 0.0
+            
+            meas_modes = [m for m, c in meas_specs]
+            meas_cutoffs = [c for m, c in meas_specs]
+            perm = [0] + meas_modes  # Loop mode first, then measured
+            
+            # Step through circuit with fixed measurement outcomes
+            for step in range(circuit.steps):
+                step_params = mapped_params[step]
+                
+                # Prepare engine with current state
+                eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+                prog_prep = sf.Program(len(meas_modes) + 1)
+                with prog_prep.context as q:
+                    Ket(current_ket) | q[0]
+                eng.run(prog_prep)
+                
+                # Run circuit step
+                result = circuit.run_step(None, step, step_params, eng)
+                full_ket = result.state.ket()
+                
+                # Truncation check
+                flat_ket = full_ket.flatten()
+                norm_sq = np.real(np.vdot(flat_ket, flat_ket))
+                total_truncation_error += np.abs(1.0 - norm_sq) * total_prob
+                
+                # Transpose and slice
+                transposed_ket = np.transpose(full_ket, axes=perm)
+                slices = [slice(None)] + [slice(0, c) for c in meas_cutoffs]
+                sliced_ket = transposed_ket[tuple(slices)]
+                
+                # Get fixed measurement outcomes for this step
+                step_outcomes = pattern[step]
+                if not isinstance(step_outcomes, tuple):
+                    step_outcomes = (step_outcomes,)
+                
+                if len(step_outcomes) != len(meas_modes):
+                    raise ValueError(f"Step {step}: Expected {len(meas_modes)} measurement outcomes, "
+                                   f"got {len(step_outcomes)}")
+                
+                # Check if outcomes are within cutoffs
+                for i, (outcome, cutoff) in enumerate(zip(step_outcomes, meas_cutoffs)):
+                    if outcome >= cutoff:
+                        raise ValueError(f"Step {step}, mode {i}: Measurement outcome {outcome} "
+                                       f"exceeds cutoff {cutoff}")
+                
+                # Project onto fixed outcomes
+                indexer = (slice(None),) + step_outcomes
+                projected_ket = sliced_ket[indexer]  # Shape: (cutoff_dim,)
+                
+                # Calculate probability of this outcome
+                prob_outcome = np.sum(np.abs(projected_ket)**2)
+                
+                if prob_outcome < 1e-12:
+                    # If probability is zero, this pattern sequence is impossible
+                    total_prob = 0.0
+                    break
+                
+                # Update state and probability
+                current_ket = projected_ket / np.sqrt(prob_outcome)
+                total_prob *= prob_outcome
+            
+            # Store results for this sequence if it had non-zero probability
+            if total_prob > 1e-12:
+                seq_active_kets.append(current_ket.reshape(1, -1))
+                seq_active_probs.append(total_prob)
+                seq_active_outcome_sums.append(sum(sum(step_outcomes) for step_outcomes in pattern))
+                seq_total_truncation_errors.append(total_truncation_error)
+        
+        # If all patterns had zero probability, return high loss
+        if len(seq_active_probs) == 0:
+            return 100.0
+        
+        # Combine results from all sequences
+        # Normalize probabilities across sequences (each sequence equally weighted)
+        seq_weights = 1.0 / len(pattern_sequences)
+        
+        # Combine kets and probabilities
+        active_kets = np.vstack([k.squeeze() for k in seq_active_kets]) if len(seq_active_kets) > 1 else seq_active_kets[0]
+        active_probs = np.array([p * seq_weights for p in seq_active_probs])
+        active_outcome_sums = np.array(seq_active_outcome_sums)
+        
+        # Average truncation error
+        total_truncation_error = np.mean(seq_total_truncation_errors)
     
     else:
         # BEAM SEARCH MODE (original implementation)
@@ -346,8 +387,8 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidlities=np.maximum(fidelities, 1-min_infidel)
-        expected_fidelity = np.sum((final_probs**0.01)
-                                   * (capped_fidlities**2  *log_vals)**8)
+        expected_fidelity = np.sum((final_probs**0.2)
+                                   * (capped_fidlities**2  *log_vals)**4)
 
         # Soft Success Calculation
         steepness = 50.0
