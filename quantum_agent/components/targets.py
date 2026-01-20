@@ -138,6 +138,34 @@ class SqueezedCatTarget(TargetGenerator):
         state = eng.run(prog).state
         
         return state.ket()
+    
+
+
+class CatTarget(TargetGenerator):
+    """
+    Generates squeezed cat states (even and odd parity superposition).
+    
+    Parameters:
+    - alpha: Cat state amplitude
+    - r: Squeezing parameter
+    """
+    
+    def __init__(self, alpha=3.0, p=0):
+        self.alpha = alpha
+        self.p=p
+    
+    def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
+        """Generate squeezed cat target state. Returns the even parity state."""
+        print(f"Generating Squeezed Cat Target (alpha={self.alpha}, p={self.p})...")
+        
+        prog = sf.Program(1)
+        with prog.context as q:
+            Catstate(a=self.alpha, p=self.p) | q[0]
+        
+        eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+        state = eng.run(prog).state
+        
+        return state.ket()
 
 
 class CubicPhaseTarget(TargetGenerator):
@@ -285,7 +313,9 @@ class CoreGKPTarget(TargetGenerator):
     
     def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
         """Load coefficients from CSV and apply squeezing to the core state."""
-        print(f"Generating Core GKP Target (|{self.mu}>_A, n_max={self.n_max}, Delta={self.delta_db}dB)...")
+        verbose = 0
+        if (verbose > 0):
+            print(f"Generating Core GKP Target (|{self.mu}>_A, n_max={self.n_max}, Delta={self.delta_db}dB)...")
 
         # 1. Load CSV data
         try:
@@ -323,13 +353,14 @@ class CoreGKPTarget(TargetGenerator):
         # Ensure core is normalized
         base_ket /= np.linalg.norm(base_ket)
 
-        # Print the core state coefficients
-        print(f"Core state (stellar representation) for n_max={self.n_max}:")
-        for n, val in enumerate(base_ket):
-            if np.abs(val) > 1e-6:
-                # Print real part if imaginary is negligible, otherwise show complex
-                out_val = val.real if np.abs(val.imag) < 1e-8 else val
-                print(f"  |{n}>: {out_val:.6f}")
+        if (verbose > 0):
+           # Print the core state coefficients
+            print(f"Core state (stellar representation) for n_max={self.n_max}:")
+            for n, val in enumerate(base_ket):
+                if np.abs(val) > 1e-6:
+                    # Print real part if imaginary is negligible, otherwise show complex
+                    out_val = val.real if np.abs(val.imag) < 1e-8 else val
+                    print(f"  |{n}>: {out_val:.6f}")
 
         # 4. Use Strawberry Fields to apply Squeezing to the core ket
         prog = sf.Program(1)
