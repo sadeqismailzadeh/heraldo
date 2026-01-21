@@ -80,7 +80,8 @@ def _compute_ng_scores(kets, cutoff_dim):
 
 def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, target_kets, cutoff_dim, beam_width,
                                   penalty_strength, measurement_patterns=None, success_threshold=0.99, 
-                                  success_weight=5.0, ng_weight=0.0, ng_threshold=0.1, prob_power=1):
+                                  success_weight=5.0, ng_weight=0.0, ng_threshold=0.1, prob_power=1,
+                                  return_details: bool = False):
     """
     Evaluates the circuit using either Beam Search or fixed measurement patterns.
     
@@ -387,8 +388,10 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidlities=np.maximum(fidelities, 1-min_infidel)
-        expected_fidelity = np.sum((final_probs**0.2)
-                                   * (capped_fidlities**2  *log_vals)**4)
+        # expected_fidelity = np.sum((final_probs**prob_power)
+        #                            * (capped_fidlities**2  *log_vals)**4)
+        expected_fidelity = np.sum(final_probs +
+                            (capped_fidlities))
 
         # Soft Success Calculation
         steepness = 50.0
@@ -413,20 +416,43 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             
             ng_loss = np.sum(final_probs * ng_penalty_terms)
 
-        # Similarity penalty
-        if len(final_kets) > 1:
-            similarity_matrix = np.abs(np.dot(final_kets, final_kets.T))
-            similarity_avg = np.mean(similarity_matrix)
-            similarity_penalty = expit(-5 * (similarity_avg - 0.8))
-        else:
-            similarity_penalty = 0.0
 
     # Return loss
     loss = -expected_fidelity - (success_weight * soft_success_prob) \
            + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
     
-    return loss
+    
+    if not return_details:
+        return loss
 
+    # --- Build branch details (shared for beam + fixed patterns) ---
+    branch_details = []
+
+    if np.any(mask_nonzero):
+        for i in range(len(final_probs)):
+            # Fixed-pattern mode → outcome is the full pattern
+            if measurement_patterns is not None:
+                outcome = tuple(
+                    measurement_patterns[i]
+                    if isinstance(measurement_patterns[0], tuple)
+                    else tuple(measurement_patterns[i])
+                )
+            else:
+                outcome = None  # Beam search outcome not tracked here
+
+            branch_details.append({
+                "outcome": outcome,
+                "prob": float(final_probs[i]),
+                "fidelity": float(fidelities[i]),
+                "target_idx": int(np.argmax(pairwise_fidelities[i]))
+            })
+
+    return {
+        "loss": loss,
+        "expected_fidelity": float(expected_fidelity),
+        "branches": branch_details,
+        "total_probability": float(np.sum(final_probs)) if np.any(mask_nonzero) else 0.0
+    }
 
 class TimeDomainRunner:
     """
@@ -783,123 +809,30 @@ class CMAESOptimizationRunner:
         final_x = es.result.xbest
         final_loss = best_loss
         
-        # 4. Final Reconstruction (Re-run best to get details)
-        # This logic mirrors TimeDomainRunner to produce the detailed 'branches' output
         
-        # Split parameters
-        n_init = self.circuit.num_initial_parameters
-        if n_init > 0:
-            init_params = final_x[:n_init]
-            step_params = final_x[n_init:]
-        else:
-            init_params = np.array([])
-            step_params = final_x
+        # 4. Final Evaluation (UNIFIED PATH)
+        final_eval = evaluate_time_domain_circuit(
+            final_x,
+            circuit=self.circuit,
+            target_kets=self.target_kets,
+            cutoff_dim=self.cutoff_dim,
+            beam_width=self.beam_width,
+            penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
+            success_threshold=self.success_threshold,
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power,
+            return_details=True
+        )
 
-        mapped_params = self.circuit.map_parameters(step_params)
-        meas_specs = self.circuit.get_measurement_specs()
-        meas_modes = [m for m, c in meas_specs]
-        meas_cutoffs = [c for m, c in meas_specs]
-        perm = [0] + meas_modes
-
-        # Initialize Beam
-        initial_ket = self.circuit.get_initial_state_ket(init_params, self.cutoff_dim)
-        active_kets = np.zeros((1, self.cutoff_dim), dtype=np.complex128)
-        active_kets[0] = initial_ket
-        active_probs = np.array([1.0])
-        active_outcomes = [()]  # List of tuples
-
-        for step in range(self.circuit.steps):
-            step_params = mapped_params[step]
-            branch_raw_probs = []
-            branch_tensors = []
-
-            # Phase A: Evolution
-            for idx in range(len(active_kets)):
-                parent_ket = active_kets[idx]
-                eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
-
-                prog_prep = sf.Program(len(meas_modes) + 1)
-                with prog_prep.context as q:
-                    Ket(parent_ket) | q[0]
-                eng.run(prog_prep)
-
-                result_step = self.circuit.run_step(None, step, step_params, eng)
-                full_ket = result_step.state.ket()
-
-                transposed_ket = np.transpose(full_ket, axes=perm)
-                slices = [slice(None)] + [slice(0, c) for c in meas_cutoffs]
-                sliced_ket = transposed_ket[tuple(slices)]
-
-                branch_tensors.append(sliced_ket)
-                probs_tensor = np.sum(np.abs(sliced_ket) ** 2, axis=0)
-                branch_raw_probs.append(probs_tensor.flatten())
-
-            # Phase B: Virtual Branching
-            P_parent = active_probs
-            P_raw = np.stack(branch_raw_probs)
-            P_total = P_parent[:, None] * P_raw
-
-            # Phase C: Pruning
-            flat_P = P_total.flatten()
-            k = min(self.beam_width, flat_P.size)
-            top_indices = np.argpartition(flat_P, -k)[-k:]
-            top_indices = top_indices[np.argsort(flat_P[top_indices])[::-1]]
-
-            parent_indices, outcome_indices_flat = np.unravel_index(top_indices, P_total.shape)
-            outcomes_unraveled = np.unravel_index(outcome_indices_flat, tuple(meas_cutoffs))
-
-            # Phase D: Realization
-            tensor_stack = np.stack(branch_tensors)
-            indexer = (parent_indices, slice(None)) + outcomes_unraveled
-            raw_new_kets = tensor_stack[indexer]
-            
-            norms = np.linalg.norm(raw_new_kets, axis=1)
-            selected_probs = P_total[parent_indices, outcome_indices_flat]
-
-            mask = (norms > 1e-9) & (selected_probs > 1e-12)
-
-            if not np.any(mask):
-                break
-
-            active_kets = raw_new_kets[mask] / norms[mask][:, None]
-            active_probs = selected_probs[mask]
-
-            # Track history
-            new_outcomes = []
-            masked_parent_indices = parent_indices[mask]
-            
-            # Re-slice outcomes unraveled based on mask
-            masked_outcomes_tuple = tuple(arr[mask] for arr in outcomes_unraveled)
-            
-            for i in range(len(masked_parent_indices)):
-                p_idx = masked_parent_indices[i]
-                step_outcome = tuple(int(arr[i]) for arr in masked_outcomes_tuple)
-                new_outcomes.append(active_outcomes[p_idx] + step_outcome)
-            active_outcomes = new_outcomes
-
-        branch_details = []
-        if len(active_kets) > 0:
-            targets_arr = np.array(self.target_kets)
-            prod = np.conj(active_kets[:, None, :]) * targets_arr[None, :, :]
-            fft_vals = np.fft.fft(prod, n=256, axis=-1)
-            pairwise_fidelities = np.max(np.abs(fft_vals) ** 2, axis=-1)
-
-            best_fidelities = np.max(pairwise_fidelities, axis=1)
-            best_target_idxs = np.argmax(pairwise_fidelities, axis=1)
-
-            for i in range(len(active_probs)):
-                branch_details.append({
-                    "outcome": active_outcomes[i],
-                    "prob": float(active_probs[i]),
-                    "fidelity": float(best_fidelities[i]),
-                    "target_idx": int(best_target_idxs[i])
-                })
-        total_captured_prob = float(np.sum(active_probs))
         return {
             "x": final_x,
-            "loss": final_loss,
+            "loss": final_eval["loss"],
+            "expected_fidelity": final_eval["expected_fidelity"],
+            "branches": final_eval["branches"],
+            "total_probability": final_eval["total_probability"],
             "duration": duration,
-            "branches": branch_details,
-            "message": "CMA-ES Finished",
-            "total_probability": total_captured_prob # <--- ADD THIS
+            "message": "CMA-ES Finished"
         }
