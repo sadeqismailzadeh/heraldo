@@ -13,7 +13,7 @@ from functools import lru_cache
 
 from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
 from quantum_agent.components.targets import TargetGenerator
-from quantum_agent.utils import fidelity_max_rotation
+from quantum_agent.utils import *
 
 
 import multiprocessing
@@ -24,60 +24,6 @@ try:
 except ImportError:
     raise ImportError("CMA-ES runner requires the 'cma' package. Please install it via 'pip install cma'.")
 
-@lru_cache(maxsize=8)
-def _get_ng_operators(dim):
-    """Cached retrieval of sparse quadrature operators."""
-    sqrt_n = np.sqrt(np.arange(1, dim))
-    a = sp.diags([sqrt_n], [1], shape=(dim, dim), format='csr')
-    a_dag = a.T
-    
-    x = (a + a_dag) / np.sqrt(2)
-    p = 1j * (a_dag - a) / np.sqrt(2)
-    
-    # Precompute powers
-    x2 = x.dot(x)
-    x3 = x2.dot(x)
-    x4 = x2.dot(x2)
-    
-    p2 = p.dot(p)
-    p3 = p2.dot(p)
-    p4 = p2.dot(p2)
-    
-    return (x, x2, x3, x4), (p, p2, p3, p4)
-
-def _compute_ng_scores(kets, cutoff_dim):
-    """Computes Non-Gaussianity (Negativity proxy via cumulants) for a batch of kets."""
-    (xs, ps) = _get_ng_operators(cutoff_dim)
-    
-    scores = np.zeros(len(kets))
-    
-    for i, ket in enumerate(kets):
-        # Helper to compute moments
-        def get_moments(ops):
-            # Expectation <psi|O|psi>
-            m1 = np.real(np.vdot(ket, ops[0].dot(ket)))
-            m2 = np.real(np.vdot(ket, ops[1].dot(ket)))
-            m3 = np.real(np.vdot(ket, ops[2].dot(ket)))
-            m4 = np.real(np.vdot(ket, ops[3].dot(ket)))
-            return m1, m2, m3, m4
-            
-        def get_val(m1, m2, m3, m4):
-            var = m2 - m1**2
-            if var < 1e-6:
-                return 0.0
-            sigma = np.sqrt(var)
-            m3_c = m3 - 3*m1*m2 + 2*(m1**3)
-            m4_c = m4 - 4*m1*m3 + 6*(m1**2)*m2 - 3*(m1**4)
-            skew = m3_c / (sigma**3)
-            kurt = (m4_c / (var**2)) - 3.0
-            return np.abs(skew) + np.abs(kurt)
-            
-        mx = get_moments(xs)
-        mp = get_moments(ps)
-        
-        scores[i] = get_val(*mx) + get_val(*mp)
-        
-    return scores
 
 def _compute_photon_distribution(ket, max_photon_dist, normalize=True):
     """
@@ -564,7 +510,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         
         # Non-Gaussianity Penalty
         if ng_weight > 1e-6:
-            ng_scores = _compute_ng_scores(final_kets, cutoff_dim)
+            ng_scores = compute_ng_scores(final_kets, cutoff_dim)
 
             # Sigmoid penalty: High (1.0) if score < threshold (Gaussian), Low (0.0) if score > threshold
             # S = 1 / (1 + exp(k * (score - threshold)))
