@@ -32,6 +32,10 @@ from quantum_agent.optimization.time_runner import CMAESOptimizationRunner
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 
+import json
+import pickle
+from datetime import datetime
+
 
 def prepare_measurement_patterns(patterns):
     """
@@ -190,6 +194,12 @@ def main():
     print("--- Setting up Time-Domain Optimization ---")
     print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}")
 
+    # Results directory (per run-session)
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    results_dir = Path(__file__).resolve().parent.parent.parent / "results" / f"cma_run_{timestamp}"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Saving per-run results to: {results_dir}")
+
 
     squeezing = db_to_r(12)
     print(f"squeezing r = {squeezing}")
@@ -279,7 +289,7 @@ def main():
     # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
     # patterns = [(2,2,4)]
     # patterns = [(4,4)]
-    patterns = [[(1,3)]]
+    # patterns = [[(1,3)]]
     # patterns = None
     print(patterns)
     patterns = prepare_measurement_patterns(patterns)
@@ -366,6 +376,31 @@ def main():
             suc_pb_ls.append(success_prob)
             hpx.append(res['x'])
             results_ls.append(res)
+
+            # --- Save per-run result (pickle + small JSON summary) ---
+            try:
+                run_meta = {
+                    "run_index": e+1,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "prob_power": prob_power,
+                    "expected_fidelity": float(expected_fidelity),
+                    "success_prob": float(success_prob),
+                }
+                run_file = results_dir / f"run_{e+1:04d}.pkl"
+                with open(run_file, "wb") as f:
+                    # store both meta and raw res for later inspection
+                    pickle.dump({"meta": run_meta, "res": res}, f)
+
+                summary = {
+                    "run_index": e+1,
+                    "expected_fidelity": float(expected_fidelity),
+                    "success_prob": float(success_prob),
+                    "total_probability": float(res.get("total_probability", 0.0))
+                }
+                with open(results_dir / f"run_{e+1:04d}_summary.json", "w") as f:
+                    json.dump(summary, f, indent=2)
+            except Exception as save_exc:
+                print(f"  Warning: failed to save run {e+1} result: {save_exc}")
             
         except Exception as exc:
             print(f"Run {e+1} failed: {exc}")
@@ -429,6 +464,30 @@ def main():
     # Map flat parameters to (Steps, Params) matrix
     mapped_params = circuit.map_parameters(best_res['x'])
     param_names = circuit.per_step_parameter_names
+
+    # --- Save best result and parameters ---
+    try:
+        best_dir = results_dir / "best"
+        best_dir.mkdir(exist_ok=True)
+
+        with open(best_dir / "best_result.pkl", "wb") as f:
+            pickle.dump(best_res, f)
+
+        # save flat vector
+        np.save(best_dir / "best_x.npy", best_res['x'])
+
+        # save mapped params as npz (and JSON human-readable schedule)
+        np.savez(best_dir / "mapped_params.npz", mapped_params=mapped_params)
+        schedule = {
+            "param_names": param_names,
+            "mapped_params": mapped_params.tolist() if hasattr(mapped_params, "tolist") else [[float(v) for v in row] for row in mapped_params]
+        }
+        with open(best_dir / "schedule.json", "w") as f:
+            json.dump(schedule, f, indent=2)
+
+        print(f"Saved best result to {best_dir}")
+    except Exception as save_best_exc:
+        print(f"Warning: failed to save best result: {save_best_exc}")
 
     print("Optimized Parameters Schedule:")
     header = f"{'Step':<6} | " + " | ".join([f"{name:<10}" for name in param_names])
