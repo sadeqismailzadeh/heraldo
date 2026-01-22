@@ -220,24 +220,36 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Load CMA results and visualize a post-selected branch state.")
-    parser.add_argument("--results", type=str, default=None,
-                        help="Path to results/cma_run_* directory. If omitted, latest will be used from ../results")
-    parser.add_argument("--branch-index", type=int, default=0,
-                        help="Index of branch in best_result['branches'] to visualize (default: 0).")
-    parser.add_argument("--measurement", type=str, default=None,
-                        help="Explicit measurement tuple per step, e.g. '3,1' for one-step two-ancilla or '3,1;2,0' for two steps (semicolon-separated). Overrides branch-index.")
-    parser.add_argument("--cutoff", type=int, default=40, help="Cutoff dim for visualization (default 40)")
-    parser.add_argument("--circuit", type=str, default="ThreeModeTimeDomainSqueezeOnly",
-                        help="Circuit class to instantiate (default ThreeModeTimeDomainSqueezeOnly). Change if you used a different one.")
-    args = parser.parse_args()
+    # Configuration - set these variables directly instead of using command-line arguments
+    results_path = None  # Set to specific path if desired, e.g., "results/cma_run_20240101_120000"
+    branch_index = 0  # Index of branch to visualize from best_result['branches']
+    measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
+    cutoff = 40  # Cutoff dimension for visualization
+    circuit_class = "ThreeModeTimeDomainSqueezeOnly"  # Circuit class to use
 
+
+    # Optional: define a target to compute fidelity against the post-selected state.
+    # If left as None, no fidelity will be computed.
+    # Examples:
+    #   - Core GKP target:
+    #     target = CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", n_max=8, delta_db=10, mu=0)
+    #   - Squeezed cat:
+    #     target = SqueezedCatTarget(alpha=3, r=1.38, p=0)
+    #   - Or create your own TargetGenerator implementation that supports get_target_ket(cutoff)
+    target = None
+        
+    # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
-    results_dir = Path(args.results) if args.results else _find_latest_results_dir(base)
+    
+    if results_path:
+        results_dir = Path(results_path)
+    else:
+        results_dir = _find_latest_results_dir(base)
+    
     if results_dir is None or not results_dir.exists():
         print(f"No results directory found at {base}. Run the optimization first and make sure results exist.")
         return
-
+    
     print(f"Using results dir: {results_dir}")
     best = _load_best_from_results(results_dir)
     if not best:
@@ -249,10 +261,9 @@ def main():
         print("Could not find flat parameter vector (best_x).")
         return
 
-    # Instantiate the circuit — default is ThreeModeTimeDomainSqueezeOnly like the original script.
-    # If you used a different circuit, change this block or pass --circuit with the correct class name.
+    # Instantiate the circuit
     squeezing = db_to_r(12)
-    if args.circuit == "ThreeModeTimeDomainSqueezeOnly":
+    if circuit_class == "ThreeModeTimeDomainSqueezeOnly":
         circuit = ThreeModeTimeDomainSqueezeOnly(steps=1,
                                                  time_invariant=False,
                                                  clip_size=squeezing,
@@ -260,7 +271,7 @@ def main():
                                                  num_single_photon=0,
                                                  train_initial_state=True,
                                                  initial_r=squeezing)
-    elif args.circuit == "TwoModeTimeDomainSqueezeOnly":
+    elif circuit_class == "TwoModeTimeDomainSqueezeOnly":
         circuit = TwoModeTimeDomainSqueezeOnly(steps=1,
                                                time_invariant=False,
                                                clip_size=squeezing,
@@ -269,13 +280,13 @@ def main():
                                                train_initial_state=True,
                                                initial_r=squeezing)
     else:
-        raise ValueError(f"Unknown circuit class: {args.circuit}")
+        raise ValueError(f"Unknown circuit class: {circuit_class}")
 
     # Determine measurement outcomes to evaluate
     measurement_outcomes = None
-    if args.measurement:
+    if measurement:
         # parse formats like "3,1" or "3,1;2,0" (semicolon between steps)
-        steps_raw = args.measurement.split(";")
+        steps_raw = measurement.split(";")
         parsed = []
         for s in steps_raw:
             parts = [int(x.strip()) for x in s.split(",") if x.strip() != ""]
@@ -286,11 +297,11 @@ def main():
         best_res = best.get('best_res')
         if best_res and 'branches' in best_res and len(best_res['branches']) > 0:
             branches = best_res['branches']
-            idx = min(args.branch_index, len(branches) - 1)
+            idx = min(branch_index, len(branches) - 1)
             branch = branches[idx]
             outcome_raw = branch.get('outcome')
             if outcome_raw is None:
-                print("Selected branch has no explicit 'outcome' stored. Try running with measurement argument.")
+                print("Selected branch has no explicit 'outcome' stored. Try specifying a measurement.")
             else:
                 try:
                     measurement_outcomes = _reshape_outcome_flat(outcome_raw, circuit)
@@ -299,12 +310,11 @@ def main():
                     measurement_outcomes = None
 
     if measurement_outcomes is None:
-        print("No measurement outcomes selected. Provide --measurement or check stored best_result['branches'].")
+        print("No measurement outcomes selected. Specify a measurement or check stored best_result['branches'].")
         return
 
     print(f"Evaluating measurement outcomes (per step): {measurement_outcomes}")
     # Run deterministic path
-    cutoff = args.cutoff
     res = run_deterministic_path(circuit, np.asarray(flat_x), measurement_outcomes, cutoff)
     if res is None:
         print("The specified measurement path is not physically possible (zero probability).")
@@ -314,6 +324,24 @@ def main():
     ket = res['final_state_ket']
     print("Final ket (truncated):")
     print(ket[:min(len(ket), 20)])
+
+    # If a target is provided, compute fidelity between postselected ket and target ket
+    if target is not None:
+        try:
+            # Request the target ket at the visualization cutoff
+            target_ket = target.get_target_ket(cutoff)
+
+            # Make length consistent: pad shorter vector with zeros
+            max_len = max(len(target_ket), len(ket))
+            t = np.zeros(max_len, dtype=np.complex128)
+            s = np.zeros(max_len, dtype=np.complex128)
+            t[:len(target_ket)] = target_ket
+            s[:len(ket)] = ket
+
+            fid = fidelity_max_rotation(t, s)
+            print(f"Fidelity with provided target (cutoff={cutoff}): {fid:.6f}")
+        except Exception as e:
+            print(f"Failed to compute fidelity with target: {e}")
 
     # Visualize like demo_target
     plot_ket_wigner(ket, title=f"postselect {measurement_outcomes}", cutoff_dim=cutoff)
