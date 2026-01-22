@@ -1,16 +1,20 @@
+# Added imports for file loading, plotting and CLI handling; removed duplicate imports
+import argparse
+import glob
+import json
+import pickle
 import numpy as np
-import quantum_agent
+import os
+from pathlib import Path
+import matplotlib.pyplot as plt
+
 import strawberryfields as sf
 from strawberryfields.ops import Ket
-from quantum_agent.optimization.time_circuits import *
-from quantum_agent.optimization.time_runner import evaluate_time_domain_circuit
-from quantum_agent.components.targets import *
-from pathlib import Path
 
-import numpy as np
-import strawberryfields as sf
+from quantum_agent.optimization.time_circuits import *
 from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
 from quantum_agent.optimization.time_runner import evaluate_time_domain_circuit
+from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 
 
@@ -114,80 +118,205 @@ def run_deterministic_path(circuit: TimeMultiplexedCircuit, flat_params: np.ndar
     
     return result
 
+# Replaced the example main() with a full evaluator:
+# - loads latest (or user-specified) results/cma_run_* directory
+# - loads best_x / best_result
+# - allows selecting a branch by index or specifying a measurement tuple
+# - runs deterministic post-selection via run_deterministic_path()
+# - visualizes Wigner + Fock probs (re-using demo_target plotting style)
+def plot_ket_wigner(ket, title="State", cutoff_dim=40, grid_size=200, x_limit=5):
+    """Plot Wigner function and Fock probabilities for a single-mode ket using Strawberry Fields state tools."""
+    # Ensure normalization
+    norm = np.linalg.norm(ket)
+    if abs(norm - 1.0) > 1e-6:
+        ket = ket / norm
+
+    prog = sf.Program(1)
+    with prog.context as q:
+        Ket(ket) | q[0]
+    eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+    result = eng.run(prog)
+    state = result.state
+
+    xvec = np.linspace(-x_limit, x_limit, grid_size)
+    pvec = np.linspace(-x_limit, x_limit, grid_size)
+    W = state.wigner(mode=0, xvec=xvec, pvec=pvec)
+
+    probs = state.all_fock_probs(cutoff=cutoff_dim)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    X, P = np.meshgrid(xvec, pvec)
+    lim = np.max(np.abs(W))
+    c = ax1.pcolormesh(X, P, W, cmap='RdBu', shading='auto', vmin=-lim, vmax=lim)
+    fig.colorbar(c, ax=ax1, label='W(x, p)')
+    ax1.set_title(f"Wigner Function ({title})")
+    ax1.set_xlabel("x (Position)")
+    ax1.set_ylabel("p (Momentum)")
+    ax1.set_aspect('equal')
+    ax1.axhline(0, color='black', linestyle='--', alpha=0.3)
+    ax1.axvline(0, color='black', linestyle='--', alpha=0.3)
+
+    display_cutoff = min(cutoff_dim, 60)
+    ax2.bar(range(display_cutoff), probs[:display_cutoff], color='teal', alpha=0.7, edgecolor='black')
+    ax2.set_title("Fock State Probabilities")
+    ax2.set_xlabel("Fock Number |n>")
+    ax2.set_ylabel("Probability")
+    ax2.set_xticks(range(display_cutoff))
+
+    plt.tight_layout()
+    plt.show()
+
+
+def _find_latest_results_dir(base_dir: Path):
+    matches = sorted(base_dir.glob("cma_run_*"))
+    if not matches:
+        return None
+    return matches[-1]
+
+
+def _load_best_from_results(results_dir: Path):
+    """Try to load best_result.pkl / best_x.npy / schedule.json from a results directory."""
+    best_dir = results_dir / "best"
+    best = {}
+    if (best_dir / "best_result.pkl").exists():
+        with open(best_dir / "best_result.pkl", "rb") as f:
+            try:
+                best['best_res'] = pickle.load(f)
+            except Exception:
+                # maybe it was saved as dict earlier
+                best['best_res'] = pickle.load(f)
+    if (best_dir / "best_x.npy").exists():
+        best['x'] = np.load(best_dir / "best_x.npy", allow_pickle=True)
+    if (best_dir / "mapped_params.npz").exists():
+        npz = np.load(best_dir / "mapped_params.npz")
+        best['mapped_params'] = npz['mapped_params']
+    if (best_dir / "schedule.json").exists():
+        with open(best_dir / "schedule.json", "r") as f:
+            best['schedule'] = json.load(f)
+    return best
+
+
+def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
+    """
+    Convert a flat outcome tuple (o1,o2,o3,...) into per-step tuples:
+      result = [ (o_step0_mode0, o_step0_mode1, ...), (o_step1_mode0,...), ... ]
+    """
+    meas_specs = circuit.get_measurement_specs()
+    n_meas_modes = len(meas_specs)
+    steps = circuit.steps
+    if outcome_flat is None:
+        return None
+    outcome_list = list(outcome_flat)
+    if len(outcome_list) != steps * n_meas_modes:
+        # If length equals steps, maybe already per-step single-mode outcomes
+        if len(outcome_list) == steps:
+            return tuple((int(x),) for x in outcome_list)
+        raise ValueError(f"Outcome length {len(outcome_list)} incompatible with circuit (steps={steps}, meas_modes={n_meas_modes})")
+    reshaped = []
+    for s in range(steps):
+        start = s * n_meas_modes
+        reshaped.append(tuple(int(x) for x in outcome_list[start:start + n_meas_modes]))
+    return tuple(reshaped)
+
+
 def main():
-    # Example usage with ThreeModeTimeDomainSqueezeOnly circuit
-    # You can change this to any TimeMultiplexedCircuit subclass
-    CUTOFF_DIM=100
-    # Initialize the circuit (modify parameters as needed)
+    parser = argparse.ArgumentParser(description="Load CMA results and visualize a post-selected branch state.")
+    parser.add_argument("--results", type=str, default=None,
+                        help="Path to results/cma_run_* directory. If omitted, latest will be used from ../results")
+    parser.add_argument("--branch-index", type=int, default=0,
+                        help="Index of branch in best_result['branches'] to visualize (default: 0).")
+    parser.add_argument("--measurement", type=str, default=None,
+                        help="Explicit measurement tuple per step, e.g. '3,1' for one-step two-ancilla or '3,1;2,0' for two steps (semicolon-separated). Overrides branch-index.")
+    parser.add_argument("--cutoff", type=int, default=40, help="Cutoff dim for visualization (default 40)")
+    parser.add_argument("--circuit", type=str, default="ThreeModeTimeDomainSqueezeOnly",
+                        help="Circuit class to instantiate (default ThreeModeTimeDomainSqueezeOnly). Change if you used a different one.")
+    args = parser.parse_args()
+
+    base = Path(__file__).resolve().parent.parent.parent / "results"
+    results_dir = Path(args.results) if args.results else _find_latest_results_dir(base)
+    if results_dir is None or not results_dir.exists():
+        print(f"No results directory found at {base}. Run the optimization first and make sure results exist.")
+        return
+
+    print(f"Using results dir: {results_dir}")
+    best = _load_best_from_results(results_dir)
+    if not best:
+        print("No best/summary files found under 'best/'. Make sure run_cma_optimization saved results.")
+        return
+
+    flat_x = best.get('x') or (best.get('best_res', {}).get('x') if best.get('best_res') else None)
+    if flat_x is None:
+        print("Could not find flat parameter vector (best_x).")
+        return
+
+    # Instantiate the circuit — default is ThreeModeTimeDomainSqueezeOnly like the original script.
+    # If you used a different circuit, change this block or pass --circuit with the correct class name.
     squeezing = db_to_r(12)
-    circuit2 = ThreeModeTimeDomainSqueezeOnly(steps=1,
-                                    time_invariant=False,
-                                    clip_size=squeezing,
-                                    measure_fock_cutoff=30,
-                                    num_single_photon=0,
-                                    train_initial_state=True, 
-                                    initial_r=squeezing )
-
-    # Define fixed parameters - for demonstration, we'll use dummy values
-    # In a real usage, you would replace this with actual parameter values
-    flat_params = np.array([
-        1.3436, -2.5916 ,
-        1.0420, 1.0716, 
-        -1.8277, -0.3456, 
-        0.8137, 3.9270, 3.1415,
-        1.9529 , -0.0495 , 1.9843
-    ])
-    
-    # Define the measurement outcomes we want to trace
-    # Format: tuple of integers for each step
-    # For three steps with two ancillas:
-    # Each step has a tuple (ancilla1_outcome, ancilla2_outcome)
-    measurement_outcomes = (
-        (1, 3),   # Step 1 outcomes (ancilla 1 and 2)
-        # (0, 1),   # Step 2 outcomes
-        # (1, 0)    # Step 3 outcomes
-    )
-    
-    result = run_deterministic_path(circuit2, flat_params, measurement_outcomes, CUTOFF_DIM)
-
-    csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
-    target3=CoreGKPTarget(csv_path=csv_path, 
-                        n_max=4, 
-                        delta_db=10, 
-                        mu=0)
-    
-    if result is None:
-        print("The specified measurement path is not physically possible.")
+    if args.circuit == "ThreeModeTimeDomainSqueezeOnly":
+        circuit = ThreeModeTimeDomainSqueezeOnly(steps=1,
+                                                 time_invariant=False,
+                                                 clip_size=squeezing,
+                                                 measure_fock_cutoff=30,
+                                                 num_single_photon=0,
+                                                 train_initial_state=True,
+                                                 initial_r=squeezing)
+    elif args.circuit == "TwoModeTimeDomainSqueezeOnly":
+        circuit = TwoModeTimeDomainSqueezeOnly(steps=1,
+                                               time_invariant=False,
+                                               clip_size=squeezing,
+                                               measure_fock_cutoff=30,
+                                               num_single_photon=0,
+                                               train_initial_state=True,
+                                               initial_r=squeezing)
     else:
-        print(f"Final probability: {result['final_probability']:.4f}")
-        print("Final state ket:")
-        print(result['final_state_ket'])
-    
-    ket = result['final_state_ket']
-    target_ket= target3.get_target_ket(CUTOFF_DIM)
-    fidelity = fidelity_max_rotation(target_ket, ket)
-    # fidelity = fidelity_pure_state(target_ket, ket)
-    print(f"fidelity = {fidelity}")
+        raise ValueError(f"Unknown circuit class: {args.circuit}")
 
+    # Determine measurement outcomes to evaluate
+    measurement_outcomes = None
+    if args.measurement:
+        # parse formats like "3,1" or "3,1;2,0" (semicolon between steps)
+        steps_raw = args.measurement.split(";")
+        parsed = []
+        for s in steps_raw:
+            parts = [int(x.strip()) for x in s.split(",") if x.strip() != ""]
+            parsed.append(tuple(parts))
+        measurement_outcomes = tuple(parsed)
+    else:
+        # try to pick a branch outcome from best_result
+        best_res = best.get('best_res')
+        if best_res and 'branches' in best_res and len(best_res['branches']) > 0:
+            branches = best_res['branches']
+            idx = min(args.branch_index, len(branches) - 1)
+            branch = branches[idx]
+            outcome_raw = branch.get('outcome')
+            if outcome_raw is None:
+                print("Selected branch has no explicit 'outcome' stored. Try running with measurement argument.")
+            else:
+                try:
+                    measurement_outcomes = _reshape_outcome_flat(outcome_raw, circuit)
+                except Exception as e:
+                    print(f"Failed to reshape branch outcome: {e}")
+                    measurement_outcomes = None
 
+    if measurement_outcomes is None:
+        print("No measurement outcomes selected. Provide --measurement or check stored best_result['branches'].")
+        return
 
-    measurement_outcomes = (
-        (3, 1),   # Step 1 outcomes (ancilla 1 and 2)
-    )
-    
-    result = run_deterministic_path(circuit2, flat_params, measurement_outcomes, CUTOFF_DIM)
-    ket1 = result['final_state_ket']
+    print(f"Evaluating measurement outcomes (per step): {measurement_outcomes}")
+    # Run deterministic path
+    cutoff = args.cutoff
+    res = run_deterministic_path(circuit, np.asarray(flat_x), measurement_outcomes, cutoff)
+    if res is None:
+        print("The specified measurement path is not physically possible (zero probability).")
+        return
 
+    print(f"Final probability: {res['final_probability']:.6e}")
+    ket = res['final_state_ket']
+    print("Final ket (truncated):")
+    print(ket[:min(len(ket), 20)])
 
-    measurement_outcomes = (
-        (1, 3),   # Step 1 outcomes (ancilla 1 and 2)
-    )
-    
-    result = run_deterministic_path(circuit2, flat_params, measurement_outcomes, CUTOFF_DIM)
-    ket2 = result['final_state_ket']
+    # Visualize like demo_target
+    plot_ket_wigner(ket, title=f"postselect {measurement_outcomes}", cutoff_dim=cutoff)
 
-    fidelity = fidelity_pure_state(ket1, ket2)
-    print(f"fidelity 2 states= {fidelity}")
-    
 if __name__ == "__main__":
     main()
