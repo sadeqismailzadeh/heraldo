@@ -3,6 +3,7 @@ Script to run time-domain Beam Search optimization for a loop-based gadget.
 """
 
 
+from ast import pattern
 import os
 import re
 import glob
@@ -23,12 +24,109 @@ import numpy as np
 import time
 from pathlib import Path
 from sklearn.cluster import KMeans
+import itertools
 
 # Imports
 from quantum_agent.optimization.time_circuits import *
 from quantum_agent.optimization.time_runner import CMAESOptimizationRunner
 from quantum_agent.components.targets import *
-from quantum_agent.utils import db_to_r
+from quantum_agent.utils import *
+
+
+def prepare_measurement_patterns(patterns):
+    """
+    Convert user-friendly list/tuple measurement patterns into a NumPy array
+    when possible for faster evaluation.
+
+    Accepted inputs:
+      - list of sequences: [[(o11, o12), (o21, o22), ...], ...]
+      - single sequence:   [(o11, o12), (o21, o22), ...]
+      - np.ndarray with shape (n_seq, steps, n_meas_modes)
+      - np.ndarray with shape (steps, n_meas_modes)
+
+    Returns:
+      - np.ndarray if conversion is possible
+      - original input (list/tuple) if patterns are ragged
+    """
+    if patterns is None:
+        return None
+
+    if isinstance(patterns, np.ndarray):
+        if patterns.ndim == 2:
+            return patterns[None, ...]
+        return patterns
+
+    try:
+        patterns_np = np.array(patterns, dtype=int)
+        if patterns_np.ndim == 2:
+            patterns_np = patterns_np[None, ...]
+        return patterns_np
+    except Exception:
+        # Ragged or irregular structure → keep Python lists (slow path)
+        return patterns
+
+
+
+def generate_measurement_patterns(circuit: TimeMultiplexedCircuit, min_total_photons: int = None, 
+                                  max_total_photons: int = None, exact_total: int = None,
+                                  max_per_mode: int = None):
+    """
+    Generate all possible measurement patterns for a given circuit with constraints.
+    
+    Args:
+        circuit: TimeMultiplexedCircuit instance
+        min_total_photons: Minimum total photon count across all measurements
+        max_total_photons: Maximum total photon count across all measurements
+        exact_total: Exact total photon count (overrides min/max if specified)
+        max_per_mode: Maximum photons per measurement outcome (defaults to cutoff - 1)
+    
+    Returns:
+        List of patterns, where each pattern is a list of tuples (for each step)
+    """
+    if exact_total is not None:
+        min_total_photons = exact_total
+        max_total_photons = exact_total
+    
+    if min_total_photons is None:
+        min_total_photons = 0
+    if max_total_photons is None:
+        max_total_photons = float('inf')
+    
+    meas_specs = circuit.get_measurement_specs()
+    num_measured_modes = len(meas_specs)
+    
+    # Get cutoffs for each measured mode
+    cutoffs = [cutoff for _, cutoff in meas_specs]
+    
+    # Determine maximum per mode
+    if max_per_mode is None:
+        max_per_mode_list = [c - 1 for c in cutoffs]
+    else:
+        max_per_mode_list = [max_per_mode] * num_measured_modes
+    
+    # Generate all possible outcomes for one step
+    single_step_outcomes = []
+    ranges = []
+    for i in range(num_measured_modes):
+        ranges.append(range(0, min(max_per_mode_list[i] + 1, cutoffs[i])))
+    
+    # Generate cartesian product of all ranges
+    for combo in itertools.product(*ranges):
+        single_step_outcomes.append(combo)
+    
+    # Now generate all patterns for all steps
+    all_patterns = []
+    
+    # Generate all combinations of steps
+    for step_combo in itertools.product(single_step_outcomes, repeat=circuit.steps):
+        # Calculate total photons
+        total_photons = sum(sum(step) for step in step_combo)
+        
+        # Check if total is within bounds
+        if min_total_photons <= total_photons <= max_total_photons:
+            all_patterns.append(list(step_combo))
+    
+    return all_patterns
 
 
 
@@ -107,7 +205,7 @@ def main():
     ]
     gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
                             n_max=n, delta_db=10, mu=m)
-            for n in [4, 6, 8, 10, 12] for m in [1]]
+            for n in [8, 10, 12] for m in [1]]
     
 
         # Generate all Binomial Codes with max Fock state <= 12
@@ -159,6 +257,14 @@ def main():
                                         train_initial_state=True, 
                                         initial_r=squeezing )
 
+    circuit3 = FourModeTimeDomainSqueezeOnly(steps=STEPS,
+                                    time_invariant=TIME_INVARIANT,
+                                    clip_size=squeezing,
+                                    measure_fock_cutoff=MEASURE_CUTOFF,
+                                    num_single_photon=0,
+                                    train_initial_state=True, 
+                                    initial_r=squeezing )
+
 
 
 
@@ -168,7 +274,23 @@ def main():
     targets = [target3]
     print(f"Optimizing for {len(targets)} targets.")
     print_targets(targets, CUTOFF_DIM)
-
+    patterns = generate_measurement_patterns(circuit, exact_total=4)
+   
+    # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
+    # patterns = [(2,2,4)]
+    # patterns = [(4,4)]
+    patterns = [[(1,3)]]
+    # patterns = None
+    print(patterns)
+    patterns = prepare_measurement_patterns(patterns)
+    print(patterns)
+    
+    
+    print("\nNon-Gaussianity scores for targets:")
+    for i, target in enumerate(targets):
+        ket = target.get_target_ket(CUTOFF_DIM)
+        ng_score = compute_ng_scores([ket], CUTOFF_DIM)[0]
+        print(f"  Target {i+1}: {ng_score:.4f}")
 
     # 3. Runner
     runner = CMAESOptimizationRunner(
@@ -177,12 +299,13 @@ def main():
         target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
-        penalty_strength=0.1,
+        penalty_strength=10,
         success_threshold = SUCCESS_THRESHOLD,
         success_weight = 0.0,
         ng_weight = 0,
-        ng_threshold = 00.0,
-        sigma0=1
+        ng_threshold = 0,
+        sigma0=1,
+        measurement_patterns = patterns
     )
     
     # --- Execution ---
@@ -211,9 +334,10 @@ def main():
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
         try:
-            prob_power = np.random.uniform(0.01, 1)
+            # prob_power = np.random.uniform(0.01, 1)
+            prob_power = 1
             print(f"prob_power = {prob_power:.5f}")
-            res = runner.run(n_generations=n_generations, prob_power=0.2)
+            res = runner.run(n_generations=n_generations, prob_power=prob_power)
             
             # Recalculate expected fidelity from branches
             # (TimeDomainRunner objective is -ExpFid + Penalty, but we want pure ExpFid for stats)
@@ -234,7 +358,7 @@ def main():
             print(f"  {'Outcome':<15} {'Prob':<10} {'Fidelity':<10} {'Best Target'}")
             
             for b in branches:
-                 if b['prob'] > 0.001:
+                #  if b['prob'] > 0.001:
                      tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
                      print(f"  {str(b['outcome']):<15} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name}")
             print("")
@@ -319,12 +443,12 @@ def main():
         print(row_str)
         
     print("-" * 60)
-    print("Dominant Outcome Branches (>1% Prob):")
+    print("Dominant Outcome Branches (>0.1% Prob):")
     print(f"{'Outcome':<15} {'Prob':<10} {'Fidelity':<10} {'Best Target':<15}")
     print("-" * 60)
     
     for b in best_res['branches']:
-        if b['prob'] > 0.01:
+        # if b['prob'] > 0.001:
             outcome_str = str(b['outcome'])
             # Time runner usually has single target index 0
             tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else "Target"
