@@ -313,3 +313,129 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             BSgate(bs_theta[2], bs_phi[2]) | (q[0], q[1])
             
         return engine.run(prog)
+
+
+
+class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
+    """
+    Time-domain gadget with 1 Loop (0) and 3 Ancillas (1, 2, 3).
+    Squeezing on ancillas 1, 2, 3 only, with 6 BS interactions between adjacent modes.
+    
+    Architecture per step:
+    1. Reset Ancillas 1, 2, 3.
+    2. Squeeze 1, 2, 3.
+    3. BS interactions in order: (0,1), (1,2), (2,3), (3,2), (2,1), (1,0)
+       (forward then backward through the chain of adjacent modes).
+    """
+    
+    def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
+                 measure_fock_cutoff: int = 5, num_single_photon: int = 0,
+                 train_initial_state: bool = False, initial_r: float = 0.0):
+        super().__init__(steps, time_invariant)
+        self.clip_size = clip_size
+        self.measure_fock_cutoff = measure_fock_cutoff
+        self.num_single_photon = num_single_photon
+        self.train_initial_state = train_initial_state
+        self.initial_r = initial_r
+        
+        # Parameters: 3 squeezing amplitudes, 3 squeezing phases, 6 BS thetas, 6 BS phis
+        self._param_names = [
+            'sq1_r', 'sq2_r', 'sq3_r',
+            'sq1_phi', 'sq2_phi', 'sq3_phi',
+            'bs_theta1', 'bs_theta2', 'bs_theta3',
+            'bs_theta4', 'bs_theta5', 'bs_theta6',
+            'bs_phi1', 'bs_phi2', 'bs_phi3',
+            'bs_phi4', 'bs_phi5', 'bs_phi6'
+        ]
+        
+        self._bounds = []
+        # Squeezing amplitudes (3)
+        self._bounds.extend([(0.0, self.clip_size)] * 3)
+        # Squeezing phases (3)
+        self._bounds.extend([(-np.pi, np.pi)] * 3)
+        # BS thetas (6) - typically between 0 and pi/2
+        self._bounds.extend([(0.0, np.pi/2)] * 6)
+        # BS phis (6)
+        self._bounds.extend([(-np.pi, np.pi)] * 6)
+
+    @property
+    def per_step_parameter_names(self) -> list[str]:
+        return self._param_names
+
+    @property
+    def per_step_parameter_bounds(self) -> list[tuple[float, float]]:
+        return self._bounds
+
+    def get_measurement_specs(self) -> list[tuple[int, int]]:
+        # Returns specs for all three ancillas (Modes 1, 2, 3)
+        return [
+            (1, self.measure_fock_cutoff),
+            (2, self.measure_fock_cutoff),
+            (3, self.measure_fock_cutoff)
+        ]
+    
+    @property
+    def num_initial_parameters(self) -> int:
+        return 2 if self.train_initial_state else 0
+
+    @property
+    def initial_parameter_bounds(self) -> list[tuple[float, float]]:
+        if self.train_initial_state:
+            return [(0.0, self.clip_size), (-np.pi, np.pi)]
+        return []
+
+    def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
+        # Determine R and Phi for initial squeezing on loop mode (Mode 0)
+        if self.train_initial_state:
+            r, phi = init_params[0], init_params[1]
+        else:
+            r, phi = self.initial_r, 0.0
+
+        if abs(r) < 1e-6:
+            ket = np.zeros(cutoff_dim, dtype=np.complex128)
+            ket[0] = 1.0
+            return ket
+
+        # Generate Squeezed State
+        prog = sf.Program(1)
+        with prog.context as q:
+            Sgate(r, phi) | q[0]
+        
+        eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+        result = eng.run(prog)
+        return result.state.ket().flatten()
+
+    def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
+        # Unpack parameters
+        sq_r = step_params[:3]           # 3 squeezing amplitudes
+        sq_phi = step_params[3:6]        # 3 squeezing phases
+        bs_theta = step_params[6:12]     # 6 beam splitter thetas
+        bs_phi = step_params[12:]        # 6 beam splitter phis
+        
+        prog = sf.Program(4)
+        with prog.context as q:
+            # 1. Conditionally prepare Ancillas with Fock(1)
+            if self.num_single_photon >= 1:
+                Fock(1) | q[1]
+            if self.num_single_photon >= 2:
+                Fock(1) | q[2]
+            if self.num_single_photon >= 3:
+                Fock(1) | q[3]
+            
+            # 2. Squeezing on ancillas only
+            Sgate(sq_r[0], sq_phi[0]) | q[1]
+            Sgate(sq_r[1], sq_phi[1]) | q[2]
+            Sgate(sq_r[2], sq_phi[2]) | q[3]
+            
+            # 3. Six beam splitters between adjacent modes
+            # Forward chain: (0,1), (1,2), (2,3)
+            BSgate(bs_theta[0], bs_phi[0]) | (q[0], q[1])
+            BSgate(bs_theta[1], bs_phi[1]) | (q[2], q[3])
+            BSgate(bs_theta[2], bs_phi[2]) | (q[1], q[2])
+            
+            # Backward chain: (3,2), (2,1), (1,0)
+            BSgate(bs_theta[3], bs_phi[3]) | (q[0], q[1])
+            BSgate(bs_theta[4], bs_phi[4]) | (q[2], q[3])
+            BSgate(bs_theta[5], bs_phi[5]) | (q[1], q[2])
+            
+        return engine.run(prog)
