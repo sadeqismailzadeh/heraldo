@@ -198,27 +198,40 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             step_probs = np.zeros(n_active)
             step_truncation_errors = np.zeros(n_active)
             
-            # Run circuit step for each active ket (engine runs remain per-sequence),
-            # but do the slicing / projection / normalization in a vectorized way.
+            # Run circuit step for each active ket, *but cache runs for identical parent kets*
+            # to avoid repeating expensive Engine runs when multiple sequences share the same parent.
             full_kets = []
+            ket_cache = {}  # key -> (full_ket, truncation_error)
             for i in range(n_active):
                 ket = batch_kets[i]
 
-                # Run circuit step
-                eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
-                prog_prep = sf.Program(len(meas_modes) + 1)
-                with prog_prep.context as q:
-                    Ket(ket) | q[0]
-                eng.run(prog_prep)
+                # Create a numerically-stable key for the ket by rounding and using its bytes.
+                # Rounding helps avoid tiny floating point differences producing different keys.
+                key = np.round(ket, decimals=8).tobytes()
 
-                result = circuit.run_step(None, step, step_params, eng)
-                full_ket = result.state.ket()
+                if key in ket_cache:
+                    full_ket, trunc_err = ket_cache[key]
+                else:
+                    # Run circuit step once for this unique parent ket.
+                    eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+                    prog_prep = sf.Program(len(meas_modes) + 1)
+                    with prog_prep.context as q:
+                        Ket(ket) | q[0]
+                    eng.run(prog_prep)
 
-                # Truncation check
-                flat_ket = full_ket.flatten()
-                norm_sq = np.real(np.vdot(flat_ket, flat_ket))
-                step_truncation_errors[i] = np.abs(1.0 - norm_sq)
+                    result = circuit.run_step(None, step, step_params, eng)
+                    full_ket = result.state.ket()
 
+                    # Truncation check
+                    flat_ket = full_ket.flatten()
+                    norm_sq = np.real(np.vdot(flat_ket, flat_ket))
+                    trunc_err = np.abs(1.0 - norm_sq)
+
+                    # Cache for reuse within this step
+                    ket_cache[key] = (full_ket, trunc_err)
+
+                # Populate arrays for vectorized processing (one entry per active sequence)
+                step_truncation_errors[i] = trunc_err
                 full_kets.append(full_ket)
 
             # Stack into array: (n_active, D_loop, D_m1, D_m2, ...)
