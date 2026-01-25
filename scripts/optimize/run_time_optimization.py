@@ -28,7 +28,7 @@ import itertools
 
 # Imports
 from quantum_agent.optimization.time_circuits import *
-from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, BasinHoppingRunner
+from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, BasinHoppingRunner, DualAnnealingRunner
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 
@@ -190,7 +190,7 @@ def main():
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 1 - 1e-3
     
-    OPTIMIZER_METHOD = "BASIN" # Options: "CMA", "DE", "BASIN"
+    OPTIMIZER_METHOD = "DE" # Options: "CMA", "DE", "BASIN", "DUAL"
 
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
@@ -290,9 +290,9 @@ def main():
    
     # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
     # patterns = [(2,2,4)]
-    # patterns = [(4,4)]
+    patterns = [(4,4)]
     # patterns = [[(1,3)]]
-    patterns = None
+    # patterns = None
     print(patterns)
     patterns = prepare_measurement_patterns(patterns)
     print(patterns)
@@ -308,7 +308,8 @@ def main():
     runner_map = {
         "CMA": CMAESOptimizationRunner,
         "DE": DifferentialEvolutionRunner,
-        "BASIN": BasinHoppingRunner
+        "BASIN": BasinHoppingRunner,
+        "DUAL": DualAnnealingRunner
     }
     
     UnifiedRunner = runner_map.get(OPTIMIZER_METHOD)
@@ -365,7 +366,11 @@ def main():
             prob_power = 10 ** np.random.uniform(-2, 1)
             # prob_power = 1
             print(f"prob_power = {prob_power:.5f}")
-            res = runner.run(n_generations=n_generations, prob_power=prob_power)
+            
+            if OPTIMIZER_METHOD == "DUAL":
+                res = runner.run(maxiter=n_generations, prob_power=prob_power)
+            else:
+                res = runner.run(n_generations=n_generations, prob_power=prob_power)
             
             # Recalculate expected fidelity from branches
             # (TimeDomainRunner objective is -ExpFid + Penalty, but we want pure ExpFid for stats)

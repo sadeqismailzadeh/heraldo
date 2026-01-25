@@ -3,7 +3,7 @@ Optimization runner for time-domain multiplexed circuits using Beam Search.
 """
 import time
 import numpy as np
-from scipy.optimize import basinhopping, differential_evolution
+from scipy.optimize import basinhopping, differential_evolution, dual_annealing
 from scipy.special import expit
 from scipy.stats import wasserstein_distance
 import strawberryfields as sf
@@ -463,9 +463,9 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
-        expected_fidelity = np.sum((final_probs**prob_power)
-                                   * (capped_fidelities**2  *log_vals)**4)
-        # expected_fidelity = np.sum(0.1*final_probs + capped_fidelities)
+        # expected_fidelity = np.sum((final_probs**prob_power)
+        #                            * (capped_fidelities**2  *log_vals)**4)
+        expected_fidelity = np.sum(final_probs + capped_fidelities)
 
         # Soft Success Calculation
         steepness = 50.0
@@ -1139,6 +1139,170 @@ class DifferentialEvolutionRunner:
             callback=callback,
             disp=True,
             polish=True  # Refine result with L-BFGS-B at the end
+        )
+
+        duration = time.time() - start_time
+        final_x = result.x
+        
+        # 4. Final Evaluation (Detailed)
+        final_eval = evaluate_time_domain_circuit(
+            final_x,
+            circuit=self.circuit,
+            target_kets=self.target_kets,
+            cutoff_dim=self.cutoff_dim,
+            beam_width=self.beam_width,
+            penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
+            success_threshold=self.success_threshold,
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power,
+            photon_dist_weight=self.photon_dist_weight,
+            max_photon_dist=self.max_photon_dist,
+            photon_dist_metric=self.photon_dist_metric,
+            target_photon_moments=self.target_photon_moments,
+            return_details=True
+        )
+
+        return {
+            "x": final_x,
+            "loss": final_eval["loss"],
+            "expected_fidelity": final_eval["expected_fidelity"],
+            "photon_similarity": final_eval.get("photon_similarity", 0.0),
+            "branches": final_eval["branches"],
+            "total_probability": final_eval["total_probability"],
+            "duration": duration,
+            "message": result.message
+        }
+
+
+class DualAnnealingRunner:
+    """
+    Optimizes time-domain circuits using Dual Annealing.
+    Combines Generalized Simulated Annealing with local search (L-BFGS-B).
+    Useful for rugged landscapes where CMA-ES might get stuck in local minima.
+    """
+    def __init__(self,
+                 circuit: TimeMultiplexedCircuit,
+                 target_gens: list[TargetGenerator],
+                 cutoff_dim: int,
+                 beam_width: int = 5,
+                 penalty_strength: float = 10.0,
+                 success_threshold: float = 0.99,
+                 success_weight: float = 5.0,
+                 ng_weight: float = 0.0,
+                 ng_threshold: float = 0.1,
+                 photon_dist_weight: float = 0.0,
+                 max_photon_dist: int = 10,
+                 photon_dist_metric: str = 'dot_product',
+                 measurement_patterns = None,
+                 **kwargs):
+
+        self.circuit = circuit
+        self.cutoff_dim = cutoff_dim
+        self.beam_width = beam_width
+        self.penalty_strength = penalty_strength
+        self.success_threshold = success_threshold
+        self.success_weight = success_weight
+        self.ng_weight = ng_weight
+        self.ng_threshold = ng_threshold
+        self.photon_dist_weight = photon_dist_weight
+        self.max_photon_dist = max_photon_dist
+        self.photon_dist_metric = photon_dist_metric
+        self.measurement_patterns = measurement_patterns
+
+        if not isinstance(target_gens, list):
+            target_gens = [target_gens]
+
+        # Precompute targets
+        self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
+
+        # Precompute target photon moments if needed
+        if photon_dist_weight > 1e-6:
+            self.target_photon_moments = [
+                _compute_photon_moments(ket, max_photon_dist)
+                for ket in self.target_kets
+            ]
+        else:
+            self.target_photon_moments = None
+
+    def run(self, maxiter=1000, initial_temp=5230.0, restart_temp_ratio=2e-5, 
+            visit=2.62, accept=-5.0, prob_power=1, seed=None):
+        """
+        Runs the Dual Annealing optimization.
+
+        Args:
+            maxiter (int): Maximum number of global search iterations.
+            initial_temp (float): Initial temperature.
+            restart_temp_ratio (float): Restart temperature ratio.
+            visit (float): Parameter for visiting distribution.
+            accept (float): Parameter for acceptance distribution.
+            prob_power (float): Power for probability weighting in evaluation.
+            seed (int): Random seed.
+        """
+        # 1. Setup Parameters and Bounds
+        per_step_bounds = self.circuit.per_step_parameter_bounds
+        self.prob_power = prob_power
+
+        if self.circuit.time_invariant:
+            step_bounds = per_step_bounds
+        else:
+            step_bounds = per_step_bounds * self.circuit.steps
+
+        # 2. Init Bounds
+        init_bounds = self.circuit.initial_parameter_bounds
+
+        # 3. Concatenate
+        full_bounds = init_bounds + step_bounds
+
+        print(f"Starting Dual Annealing (MaxIter={maxiter}, InitialTemp={initial_temp}, "
+              f"NG_Weight={self.ng_weight}, PhotonDistWeight={self.photon_dist_weight})...")
+        start_time = time.time()
+        
+        # Create a partial function to freeze arguments
+        objective_wrapper = partial(
+            evaluate_time_domain_circuit,
+            circuit=self.circuit,
+            target_kets=self.target_kets,
+            cutoff_dim=self.cutoff_dim,
+            beam_width=self.beam_width,
+            penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
+            success_threshold=self.success_threshold,
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power,
+            photon_dist_weight=self.photon_dist_weight,
+            max_photon_dist=self.max_photon_dist,
+            photon_dist_metric=self.photon_dist_metric,
+            target_photon_moments=self.target_photon_moments,
+            return_details=False
+        )
+        
+        self.iteration_count = 0
+
+        # Callback to print progress
+        def callback(x, f, context):
+            # context: 0=Annealing, 1=Local Search, 2=Done
+            self.iteration_count += 1
+            ctx_map = {0: "Annealing", 1: "Local Search", 2: "Done"}
+            status = ctx_map.get(context, str(context))
+            print(f"  [Iter {self.iteration_count}] [{status}] Loss: {f:.5f}")
+            return False
+
+        # 3. Run Optimization
+        result = dual_annealing(
+            objective_wrapper,
+            bounds=full_bounds,
+            maxiter=maxiter,
+            initial_temp=initial_temp,
+            restart_temp_ratio=restart_temp_ratio,
+            visit=visit,
+            accept=accept,
+            seed=seed,
+            callback=callback
         )
 
         duration = time.time() - start_time
