@@ -3,7 +3,7 @@ Optimization runner for time-domain multiplexed circuits using Beam Search.
 """
 import time
 import numpy as np
-from scipy.optimize import basinhopping
+from scipy.optimize import basinhopping, differential_evolution
 from scipy.special import expit
 from scipy.stats import wasserstein_distance
 import strawberryfields as sf
@@ -459,7 +459,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        min_infidel=1e-3
+        min_infidel=1e-6
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
@@ -1004,4 +1004,165 @@ class CMAESOptimizationRunner:
             "total_probability": final_eval["total_probability"],
             "duration": duration,
             "message": "CMA-ES Finished"
+        }
+
+
+class DifferentialEvolutionRunner:
+    """
+    Optimizes time-domain circuits using Differential Evolution (DE).
+    Useful for rugged landscapes where CMA-ES might get stuck in local minima.
+    """
+    def __init__(self,
+                 circuit: TimeMultiplexedCircuit,
+                 target_gens: list[TargetGenerator],
+                 cutoff_dim: int,
+                 beam_width: int = 5,
+                 penalty_strength: float = 10.0,
+                 success_threshold: float = 0.99,
+                 success_weight: float = 5.0,
+                 ng_weight: float = 0.0,
+                 ng_threshold: float = 0.1,
+                 photon_dist_weight: float = 0.0,
+                 max_photon_dist: int = 10,
+                 photon_dist_metric: str = 'dot_product',
+                 num_processes: int = 4,
+                 measurement_patterns = None,
+                 popsize: int = 15):
+
+        self.circuit = circuit
+        self.cutoff_dim = cutoff_dim
+        self.beam_width = beam_width
+        self.penalty_strength = penalty_strength
+        self.success_threshold = success_threshold
+        self.success_weight = success_weight
+        self.ng_weight = ng_weight
+        self.ng_threshold = ng_threshold
+        self.photon_dist_weight = photon_dist_weight
+        self.max_photon_dist = max_photon_dist
+        self.photon_dist_metric = photon_dist_metric
+        self.num_processes = num_processes
+        self.measurement_patterns = measurement_patterns
+        self.popsize = popsize
+
+        if not isinstance(target_gens, list):
+            target_gens = [target_gens]
+
+        # Precompute targets
+        self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
+
+        # Precompute target photon moments if needed
+        if photon_dist_weight > 1e-6:
+            self.target_photon_moments = [
+                _compute_photon_moments(ket, max_photon_dist)
+                for ket in self.target_kets
+            ]
+        else:
+            self.target_photon_moments = None
+
+    def run(self, n_generations=50, prob_power=1):
+        """
+        Runs the Differential Evolution optimization.
+
+        Args:
+            n_generations (int): Maximum number of generations.
+            prob_power (float): Power for probability weighting in evaluation.
+        """
+        # 1. Setup Parameters and Bounds
+        per_step_bounds = self.circuit.per_step_parameter_bounds
+        self.prob_power = prob_power
+
+        if self.circuit.time_invariant:
+            step_bounds = per_step_bounds
+        else:
+            step_bounds = per_step_bounds * self.circuit.steps
+
+        # 2. Init Bounds
+        init_bounds = self.circuit.initial_parameter_bounds
+
+        # 3. Concatenate
+        full_bounds = init_bounds + step_bounds
+
+        print(f"Starting Differential Evolution (Generations={n_generations}, PopSize={self.popsize}, "
+              f"Processes={self.num_processes}, NG_Weight={self.ng_weight}, "
+              f"PhotonDistWeight={self.photon_dist_weight})...")
+        start_time = time.time()
+
+        # Create a partial function to freeze arguments for the worker
+        # Note: We create args for evaluate_time_domain_circuit
+        worker_args = {
+            "circuit": self.circuit,
+            "target_kets": self.target_kets,
+            "cutoff_dim": self.cutoff_dim,
+            "beam_width": self.beam_width,
+            "penalty_strength": self.penalty_strength,
+            "measurement_patterns": self.measurement_patterns,
+            "success_threshold": self.success_threshold,
+            "success_weight": self.success_weight,
+            "ng_weight": self.ng_weight,
+            "ng_threshold": self.ng_threshold,
+            "prob_power": self.prob_power,
+            "photon_dist_weight": self.photon_dist_weight,
+            "max_photon_dist": self.max_photon_dist,
+            "photon_dist_metric": self.photon_dist_metric,
+            "target_photon_moments": self.target_photon_moments,
+            "return_details": False
+        }
+        
+        # Scipy DE requires the objective function to take x as the first argument.
+        # We wrap it here.
+        def objective_wrapper(x):
+            return evaluate_time_domain_circuit(x, **worker_args)
+
+        # Callback to print progress
+        def callback(xk, convergence):
+            print(f"  DE Step | Convergence: {convergence:.5f}")
+
+        # 3. Run Optimization
+        # workers=-1 uses all available processors, or we can pass self.num_processes
+        workers_arg = self.num_processes if self.num_processes > 0 else 1
+        
+        result = differential_evolution(
+            objective_wrapper,
+            bounds=full_bounds,
+            maxiter=n_generations,
+            popsize=self.popsize,
+            workers=workers_arg,
+            callback=callback,
+            disp=True,
+            polish=True  # Refine result with L-BFGS-B at the end
+        )
+
+        duration = time.time() - start_time
+        final_x = result.x
+        
+        # 4. Final Evaluation (Detailed)
+        final_eval = evaluate_time_domain_circuit(
+            final_x,
+            circuit=self.circuit,
+            target_kets=self.target_kets,
+            cutoff_dim=self.cutoff_dim,
+            beam_width=self.beam_width,
+            penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
+            success_threshold=self.success_threshold,
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power,
+            photon_dist_weight=self.photon_dist_weight,
+            max_photon_dist=self.max_photon_dist,
+            photon_dist_metric=self.photon_dist_metric,
+            target_photon_moments=self.target_photon_moments,
+            return_details=True
+        )
+
+        return {
+            "x": final_x,
+            "loss": final_eval["loss"],
+            "expected_fidelity": final_eval["expected_fidelity"],
+            "photon_similarity": final_eval.get("photon_similarity", 0.0),
+            "branches": final_eval["branches"],
+            "total_probability": final_eval["total_probability"],
+            "duration": duration,
+            "message": result.message
         }
