@@ -463,10 +463,10 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
-        # expected_fidelity = np.sum((final_probs**prob_power)
-        #                            * (capped_fidelities**2  *log_vals)**4)
-        expected_fidelity = np.sum(final_probs + capped_fidelities)
-
+        expected_fidelity = np.sum((final_probs**prob_power)
+                                   * (capped_fidelities**2 *log_vals)**4)
+        # expected_fidelity = np.sum(final_probs + capped_fidelities)
+        # expected_fidelity = np.log(expected_fidelity)
         # Soft Success Calculation
         steepness = 50.0
         # expit(-x) == 1 / (1 + exp(x))
@@ -710,126 +710,37 @@ class BasinHoppingRunner:
             stepsize=0.5
         )
         
-        # --- Evaluate final details with history ---
-        
-        # Split parameters
-        n_init = self.circuit.num_initial_parameters
-        if n_init > 0:
-            init_params = result.x[:n_init]
-            step_params = result.x[n_init:]
-        else:
-            init_params = np.array([])
-            step_params = result.x
+        # --- Final Evaluation (UNIFIED PATH) ---
+        final_eval = evaluate_time_domain_circuit(
+            result.x,
+            circuit=self.circuit,
+            target_kets=self.target_kets,
+            cutoff_dim=self.cutoff_dim,
+            beam_width=self.beam_width,
+            penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
+            success_threshold=self.success_threshold,
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power,
+            photon_dist_weight=self.photon_dist_weight,
+            max_photon_dist=self.max_photon_dist,
+            photon_dist_metric=self.photon_dist_metric,
+            target_photon_moments=self.target_photon_moments,
+            return_details=True
+        )
 
-        mapped_params = self.circuit.map_parameters(step_params)
-        meas_specs = self.circuit.get_measurement_specs()
-        meas_modes = [m for m, c in meas_specs]
-        meas_cutoffs = [c for m, c in meas_specs]
-        perm = [0] + meas_modes
-
-        # Initialize Beam
-        initial_ket = self.circuit.get_initial_state_ket(init_params, self.cutoff_dim)
-        active_kets = np.zeros((1, self.cutoff_dim), dtype=np.complex128)
-        active_kets[0] = initial_ket
-        active_probs = np.array([1.0])
-        active_outcomes = [()]  # List of tuples
-
-        for step in range(self.circuit.steps):
-            step_params = mapped_params[step]
-
-            branch_raw_probs = []
-            branch_tensors = []
-
-            # Phase A: Evolution
-            for idx in range(len(active_kets)):
-                parent_ket = active_kets[idx]
-                eng = sf.Engine("fock", backend_options={"cutoff_dim": self.cutoff_dim})
-
-                prog_prep = sf.Program(len(meas_modes) + 1)
-                with prog_prep.context as q:
-                    Ket(parent_ket) | q[0]
-                eng.run(prog_prep)
-
-                result_step = self.circuit.run_step(None, step, step_params, eng)
-                full_ket = result_step.state.ket()
-
-                transposed_ket = np.transpose(full_ket, axes=perm)
-                slices = [slice(None)] + [slice(0, c) for c in meas_cutoffs]
-                sliced_ket = transposed_ket[tuple(slices)]
-
-                branch_tensors.append(sliced_ket)
-                probs_tensor = np.sum(np.abs(sliced_ket) ** 2, axis=0)
-                branch_raw_probs.append(probs_tensor.flatten())
-
-            # Phase B: Virtual Branching
-            P_parent = active_probs
-            P_raw = np.stack(branch_raw_probs)
-            P_total = P_parent[:, None] * P_raw
-
-            # Phase C: Pruning
-            flat_P = P_total.flatten()
-            k = min(self.beam_width, flat_P.size)
-            top_indices = np.argpartition(flat_P, -k)[-k:]
-            top_indices = top_indices[np.argsort(flat_P[top_indices])[::-1]]
-
-            parent_indices, outcome_indices_flat = np.unravel_index(top_indices, P_total.shape)
-            outcomes_unraveled = np.unravel_index(outcome_indices_flat, tuple(meas_cutoffs))
-
-            # Phase D: Realization
-            tensor_stack = np.stack(branch_tensors)
-            indexer = (parent_indices, slice(None)) + outcomes_unraveled
-            raw_new_kets = tensor_stack[indexer]
-            
-            norms = np.linalg.norm(raw_new_kets, axis=1)
-            selected_probs = P_total[parent_indices, outcome_indices_flat]
-
-            mask = (norms > 1e-9) & (selected_probs > 1e-12)
-
-            if not np.any(mask):
-                break
-
-            active_kets = raw_new_kets[mask] / norms[mask][:, None]
-            active_probs = selected_probs[mask]
-
-            # Track history
-            new_outcomes = []
-            masked_parent_indices = parent_indices[mask]
-            
-            # Re-slice outcomes unraveled based on mask
-            masked_outcomes_tuple = tuple(arr[mask] for arr in outcomes_unraveled)
-            
-            for i in range(len(masked_parent_indices)):
-                p_idx = masked_parent_indices[i]
-                step_outcome = tuple(int(arr[i]) for arr in masked_outcomes_tuple)
-                new_outcomes.append(active_outcomes[p_idx] + step_outcome)
-            active_outcomes = new_outcomes
-
-        branch_details = []
-        if len(active_kets) > 0:
-            targets_arr = np.array(self.target_kets)
-            prod = np.conj(active_kets[:, None, :]) * targets_arr[None, :, :]
-            fft_vals = np.fft.fft(prod, n=256, axis=-1)
-            pairwise_fidelities = np.max(np.abs(fft_vals) ** 2, axis=-1)
-
-            best_fidelities = np.max(pairwise_fidelities, axis=1)
-            best_target_idxs = np.argmax(pairwise_fidelities, axis=1)
-
-            for i in range(len(active_probs)):
-                branch_details.append({
-                    "outcome": active_outcomes[i],
-                    "prob": float(active_probs[i]),
-                    "fidelity": float(best_fidelities[i]),
-                    "target_idx": int(best_target_idxs[i])
-                })
-
-        total_captured_prob = float(np.sum(active_probs))
+        duration = time.time() - start_time
         return {
             "x": result.x,
-            "loss": result.fun,
-            "duration": time.time() - start_time,
-            "message": result.message,
-            "branches": branch_details,
-            "total_probability": total_captured_prob 
+            "loss": final_eval["loss"],
+            "expected_fidelity": final_eval.get("expected_fidelity", 0.0),
+            "photon_similarity": final_eval.get("photon_similarity", 0.0),
+            "branches": final_eval.get("branches", []),
+            "total_probability": final_eval.get("total_probability", 0.0),
+            "duration": duration,
+            "message": result.message
         }
 
 
@@ -976,7 +887,7 @@ class CMAESOptimizationRunner:
                     best_loss = current_best_loss
                     best_x = es.result.xbest
                     
-                print(f"  Gen {gen+1}/{n_generations} | Min Loss: {current_best_loss:.5f} | Sigma: {es.sigma:.3f}")
+                print(f"  Gen {gen+1}/{n_generations} | Sigma: {es.sigma:.3f} | Min Loss: {current_best_loss} ")
 
         duration = time.time() - start_time
         final_x = es.result.xbest
@@ -1289,7 +1200,7 @@ class DualAnnealingRunner:
             self.iteration_count += 1
             ctx_map = {0: "Annealing", 1: "Local Search", 2: "Done"}
             status = ctx_map.get(context, str(context))
-            print(f"  [Iter {self.iteration_count}] [{status}] Loss: {f:.5f}")
+            print(f"  [Iter {self.iteration_count}] [{status}] Loss: {f}")
             return False
 
         # 3. Run Optimization
