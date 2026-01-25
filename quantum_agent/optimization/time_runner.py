@@ -310,6 +310,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         active_kets[0] = initial_ket 
         active_probs = np.array([1.0])
         active_outcome_sums = np.zeros(1, dtype=int)
+        active_outcomes = np.zeros((1, 0), dtype=int)
         
         # Precompute slicing info
         meas_modes = [m for m, c in meas_specs]
@@ -412,6 +413,16 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             active_probs = selected_probs[mask]
             active_outcome_sums = candidate_outcome_sums[mask]
 
+            # Vectorized Outcome Tracking
+            # 1. Stack current step outcomes: (K, n_meas_modes)
+            current_step_outcomes = np.stack(outcomes_unraveled, axis=1)
+            # 2. Filter parents and outcomes by mask
+            valid_parent_indices = parent_indices[mask]
+            valid_step_outcomes = current_step_outcomes[mask]
+            # 3. Gather parent history and append
+            parent_history = active_outcomes[valid_parent_indices]
+            active_outcomes = np.hstack([parent_history, valid_step_outcomes])
+
     # --- Final Objective (Vectorized) ---
     
     total_prob = np.sum(active_probs)
@@ -452,9 +463,9 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
-        # expected_fidelity = np.sum((final_probs**prob_power)
-        #                            * (capped_fidelities**2  *log_vals)**4)
-        expected_fidelity = np.sum(0.1*final_probs + capped_fidelities)
+        expected_fidelity = np.sum((final_probs**prob_power)
+                                   * (capped_fidelities**2  *log_vals)**4)
+        # expected_fidelity = np.sum(0.1*final_probs + capped_fidelities)
 
         # Soft Success Calculation
         steepness = 50.0
@@ -523,16 +534,20 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
     branch_details = []
 
     if np.any(mask_nonzero):
+        # Prepare filtered outcomes
+        if measurement_patterns is not None:
+            # Flatten patterns: (N_seq, Steps, Modes) -> (N_seq, Steps*Modes)
+            flat_patterns = patterns_arr.reshape(patterns_arr.shape[0], -1)
+            # Filter by possible sequences (active_kets correspond to these)
+            surviving_patterns = flat_patterns[possible_mask]
+            # Filter by nonzero sum (final_probs correspond to these)
+            final_outcomes_arr = surviving_patterns[mask_nonzero]
+        else:
+            final_outcomes_arr = active_outcomes[mask_nonzero]
+
         for i in range(len(final_probs)):
-            # Fixed-pattern mode → outcome is the full pattern
-            if measurement_patterns is not None:
-                outcome = tuple(
-                    measurement_patterns[i]
-                    if isinstance(measurement_patterns[0], tuple)
-                    else tuple(measurement_patterns[i])
-                )
-            else:
-                outcome = None  # Beam search outcome not tracked here
+            # Convert to tuple of ints
+            outcome = tuple(final_outcomes_arr[i].tolist())
             
             # Compute photon moment similarity if needed
             photon_sim = 0.0

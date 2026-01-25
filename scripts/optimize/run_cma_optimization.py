@@ -215,7 +215,7 @@ def main():
     ]
     gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
                             n_max=n, delta_db=10, mu=m)
-            for n in [8, 10, 12] for m in [1]]
+            for n in [4, 6, 8, 10, 12] for m in [1]]
     
 
         # Generate all Binomial Codes with max Fock state <= 12
@@ -230,7 +230,7 @@ def main():
 
     csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     target3=CoreGKPTarget(csv_path=csv_path, 
-                          n_max=8, 
+                          n_max=4, 
                           delta_db=10, 
                           mu=0)
     
@@ -281,16 +281,16 @@ def main():
 
     
     circuit = circuit2
-    targets = [target3]
+    targets = gkp_targets
     print(f"Optimizing for {len(targets)} targets.")
     print_targets(targets, CUTOFF_DIM)
-    patterns = generate_measurement_patterns(circuit, exact_total=4)
+    # patterns = generate_measurement_patterns(circuit, exact_total=4)
    
     # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
     # patterns = [(2,2,4)]
     # patterns = [(4,4)]
     # patterns = [[(1,3)]]
-    # patterns = None
+    patterns = None
     print(patterns)
     patterns = prepare_measurement_patterns(patterns)
     print(patterns)
@@ -309,12 +309,14 @@ def main():
         target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
-        penalty_strength=10,
+        penalty_strength=1,
         success_threshold = SUCCESS_THRESHOLD,
         success_weight = 0.0,
-        ng_weight = 0,
+        ng_weight = 0.,
         ng_threshold = 0,
         sigma0=1,
+        photon_dist_weight = 0,
+        max_photon_dist = CUTOFF_DIM,
         measurement_patterns = patterns
     )
     
@@ -344,14 +346,17 @@ def main():
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
         try:
-            # prob_power = np.random.uniform(0.01, 1)
-            prob_power = 1
+            prob_power = np.random.uniform(0.01, 1)
+            # prob_power = 1
             print(f"prob_power = {prob_power:.5f}")
             res = runner.run(n_generations=n_generations, prob_power=prob_power)
             
             # Recalculate expected fidelity from branches
             # (TimeDomainRunner objective is -ExpFid + Penalty, but we want pure ExpFid for stats)
             branches = res.get('branches', [])
+            # Sort branches by probability (descending)
+            branches.sort(key=lambda x: x['prob'], reverse=True)
+
             expected_fidelity = sum(b['prob'] * b['fidelity'] for b in branches)
             
             # Inject back into result dict for later use
@@ -399,6 +404,7 @@ def main():
                 }
                 with open(results_dir / f"run_{e+1:04d}_summary.json", "w") as f:
                     json.dump(summary, f, indent=2)
+                    print(f"run {e+1} saved to {results_dir}")
             except Exception as save_exc:
                 print(f"  Warning: failed to save run {e+1} result: {save_exc}")
             
@@ -502,11 +508,13 @@ def main():
         print(row_str)
         
     print("-" * 60)
-    print("Dominant Outcome Branches (>0.1% Prob):")
+    print("Dominant Outcome Branches (Sorted by Prob):")
     print(f"{'Outcome':<15} {'Prob':<10} {'Fidelity':<10} {'Best Target':<15}")
     print("-" * 60)
     
-    for b in best_res['branches']:
+    sorted_branches = sorted(best_res['branches'], key=lambda x: x['prob'], reverse=True)
+    
+    for b in sorted_branches:
         # if b['prob'] > 0.001:
             outcome_str = str(b['outcome'])
             # Time runner usually has single target index 0
