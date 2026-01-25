@@ -25,109 +25,65 @@ except ImportError:
     raise ImportError("CMA-ES runner requires the 'cma' package. Please install it via 'pip install cma'.")
 
 
-def _compute_photon_distribution(ket, max_photon_dist, normalize=True):
+def _compute_photon_moments(ket, max_moment= 10):
     """
-    Compute photon number distribution P(n) for n=0 to max_photon_dist.
-    
+    Compute photon number moments <n^k> for k=1 to max_moment.
+
     Args:
         ket: State vector in Fock basis
-        max_photon_dist: Maximum photon number to consider
-        normalize: Whether to normalize the distribution to sum to 1
-        
+        max_moment: Maximum moment to compute, e.g., 10 for <n> to <n^10>
+
     Returns:
-        Array of length max_photon_dist+1 with probabilities
+        Array of length max_moment with moments
     """
     cutoff = len(ket)
-    n_max = min(max_photon_dist + 1, cutoff)
-    
-    # Extract probabilities for n=0 to n_max-1
-    probs = np.abs(ket[:n_max])**2
-    
-    # Pad if needed
-    if len(probs) < max_photon_dist + 1:
-        padding = max_photon_dist + 1 - len(probs)
-        probs = np.pad(probs, (0, padding), mode='constant')
-    
-    # Normalize to sum to 1
-    if normalize:
-        probs_sum = np.sum(probs)
-        if probs_sum > 1e-12:
-            probs = probs / probs_sum
-    
-    return probs
+    probs = np.abs(ket) ** 2
+    support = np.arange(cutoff)
 
-def _compute_photon_similarity(P_target, P_state, metric='dot_product'):
+    # Compute moments <n^k> = Σ_n n^k * P(n)
+    moments = np.array([np.sum((support ** k) * probs) for k in range(1, max_moment + 1)])
+    return moments
+
+def _compute_moment_similarity(moments_target, moments_state):
     """
-    Compute similarity between two photon number distributions.
-    
+    Compute similarity between two sets of photon number moments.
+    The similarity is based on the inverse of the mean squared error (MSE)
+    of moments normalized by the mean photon number (<n>), to ensure scale-invariance.
+
     Args:
-        P_target: Target photon distribution
-        P_state: State photon distribution
-        metric: Type of similarity metric
-        
+        moments_target (np.ndarray): Array of target moments [<n>, <n^2>, ...].
+        moments_state (np.ndarray): Array of state moments [<n>, <n^2>, ...].
+
     Returns:
-        Similarity score (higher is better for all metrics)
+        float: Similarity score, where higher is better. Ranges from (0, 1].
     """
-    # Ensure distributions are normalized
     eps = 1e-12
-    
-    if metric == 'dot_product':
-        # Dot product similarity: Σ P_target(n) * P_state(n)
-        # Higher is better (max 1.0 for identical distributions)
-        similarity = np.sum(P_target * P_state)
-        
-    elif metric == 'hellinger':
-        # Hellinger distance: (1/√2) * √[Σ (√P_target - √P_state)²]
-        # Convert to similarity: 1 - Hellinger distance
-        sqrt_target = np.sqrt(np.maximum(P_target, eps))
-        sqrt_state = np.sqrt(np.maximum(P_state, eps))
-        hellinger = np.sqrt(0.5 * np.sum((sqrt_target - sqrt_state)**2))
-        similarity = 1.0 - hellinger  # Range [0, 1]
-        
-    elif metric == 'bhattacharyya':
-        # Bhattacharyya coefficient: Σ √(P_target * P_state)
-        # Already a similarity measure in [0, 1]
-        similarity = np.sum(np.sqrt(np.maximum(P_target * P_state, eps)))
-        
-    elif metric == 'wasserstein':
-        # Wasserstein distance (earth mover's distance)
-        # Convert to similarity: exp(-distance)
-        # Create support vectors (photon numbers)
-        support = np.arange(len(P_target))
-        distance = wasserstein_distance(support, support, P_target, P_state)
-        similarity = np.exp(-distance)  # Range (0, 1]
-        
-    elif metric == 'moments':
-        # Compare moments ⟨n^k⟩ for k=1,2,3,4
-        # Use normalized moments for scale invariance
-        support = np.arange(len(P_target))
-        
-        # Compute moments
-        moments_target = [np.sum((support**k) * P_target) for k in range(1, 5)]
-        moments_state = [np.sum((support**k) * P_state) for k in range(1, 5)]
-        
-        # Normalize by first moment to make scale-invariant
-        if moments_target[0] > eps and moments_state[0] > eps:
-            moments_target_norm = [m / moments_target[0] for m in moments_target]
-            moments_state_norm = [m / moments_state[0] for m in moments_state]
-            
-            # Compute similarity as inverse of mean squared error
-            mse = np.mean([(mt - ms)**2 for mt, ms in 
-                          zip(moments_target_norm, moments_state_norm)])
-            similarity = np.exp(-mse)  # Range (0, 1]
-        else:
-            similarity = 0.0
-            
+
+    # Ensure moments are numpy arrays
+    moments_target = np.asarray(moments_target)
+    moments_state = np.asarray(moments_state)
+
+    # Normalize by the first moment (<n>) to make the comparison scale-invariant.
+    # This focuses on the shape of the distribution rather than its mean.
+    if moments_target[0] > eps and moments_state[0] > eps:
+        moments_target_norm = moments_target / moments_target[0]
+        moments_state_norm = moments_state / moments_state[0]
+
+        # Compute similarity as exp(-MSE) of the normalized moments.
+        mse = np.mean((moments_target_norm - moments_state_norm) ** 2)
+        similarity = np.exp(-mse)
     else:
-        raise ValueError(f"Unknown photon_dist_metric: {metric}")
-    
+        # If either state has close to zero photons, they are not similar
+        # to a target that is expected to have photons (or vice-versa).
+        similarity = 0.0
+
     return similarity
 
 def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, target_kets, cutoff_dim, beam_width,
-                                  penalty_strength, measurement_patterns=None, success_threshold=0.99, 
+                                  penalty_strength, measurement_patterns=None, success_threshold=0.99,
                                   success_weight=5.0, ng_weight=0.0, ng_threshold=0.1, prob_power=1,
                                   photon_dist_weight=0.0, max_photon_dist=10, photon_dist_metric='dot_product',
-                                  target_photon_dists=None, return_details: bool = False):
+                                  target_photon_moments=None, return_details: bool = False):
     """
     Evaluates the circuit using either Beam Search or fixed measurement patterns.
     
@@ -151,11 +107,10 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         ng_weight: Weight for non-Gaussianity penalty
         ng_threshold: Threshold for non-Gaussianity
         prob_power: Power for probability weighting
-        photon_dist_weight: Weight for photon distribution similarity term
-        max_photon_dist: Maximum photon number to consider in distribution
-        photon_dist_metric: Type of distance metric - options: 'dot_product', 'hellinger', 
-                           'bhattacharyya', 'wasserstein', 'moments'
-        target_photon_dists: Precomputed photon distributions for target states. 
+        photon_dist_weight: Weight for photon moment similarity term
+        max_photon_dist: Maximum photon moment to consider for similarity calculation (e.g., 10 for <n> to <n^10>)
+        photon_dist_metric: (Ignored) Type of distance metric. Moment-based similarity is always used.
+        target_photon_moments: Precomputed photon moments for target states.
                             If None, will compute from target_kets.
     
     Returns:
@@ -174,12 +129,13 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
     mapped_params = circuit.map_parameters(step_params)
     meas_specs = circuit.get_measurement_specs()
     
-    # Precompute target photon distributions if not provided
-    if photon_dist_weight > 1e-6 and target_photon_dists is None:
-        target_photon_dists = [
-            _compute_photon_distribution(ket, max_photon_dist, normalize=True)
+    # Precompute target photon moments if not provided
+    if photon_dist_weight > 1e-6 and target_photon_moments is None:
+        target_photon_moments = [
+            _compute_photon_moments(ket, max_photon_dist)
             for ket in target_kets
         ]
+    
     
     # 1. INITIALIZE
     # Get the custom initial ket (Vacuum or Squeezed)
@@ -523,33 +479,33 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             # ng_loss = np.sum(ng_penalty_terms)
             ng_loss = np.sum(abs(ng_threshold - ng_scores))
 
-        # Photon Distribution Similarity
+        # Photon Moment Similarity
         if photon_dist_weight > 1e-6:
-            # Compute photon distributions for each branch
-            branch_photon_dists = np.array([
-                _compute_photon_distribution(ket, max_photon_dist, normalize=True)
+            # Compute photon moments for each branch
+            branch_photon_moments = np.array([
+                _compute_photon_moments(ket, max_photon_dist)
                 for ket in final_kets
             ])
-            
-            # Get corresponding target distributions
-            if target_photon_dists is None:
-                target_photon_dists = [
-                    _compute_photon_distribution(ket, max_photon_dist, normalize=True)
+
+            # Get corresponding target moments
+            if target_photon_moments is None:
+                target_photon_moments = [
+                    _compute_photon_moments(ket, max_photon_dist)
                     for ket in target_kets
                 ]
-            
+
             # Compute similarity for each branch with its best matching target
             branch_similarities = np.zeros(len(final_kets))
-            for i, branch_dist in enumerate(branch_photon_dists):
+            for i, branch_moments in enumerate(branch_photon_moments):
                 target_idx = best_target_indices[i]
-                target_dist = target_photon_dists[target_idx]
-                similarity = _compute_photon_similarity(
-                    target_dist, branch_dist, photon_dist_metric
+                target_moments = target_photon_moments[target_idx]
+                similarity = _compute_moment_similarity(
+                    target_moments, branch_moments
                 )
                 branch_similarities[i] = similarity
-            
+
             # Weighted average similarity
-            photon_dist_similarity = np.sum(final_probs * branch_similarities)
+            photon_dist_similarity = np.sum(branch_similarities)
 
 
     # Return loss
@@ -578,17 +534,17 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             else:
                 outcome = None  # Beam search outcome not tracked here
             
-            # Compute photon distribution similarity if needed
+            # Compute photon moment similarity if needed
             photon_sim = 0.0
             if photon_dist_weight > 1e-6:
-                branch_dist = _compute_photon_distribution(
-                    final_kets[i], max_photon_dist, normalize=True
+                branch_moments = _compute_photon_moments(
+                    final_kets[i], max_photon_dist
                 )
                 target_idx = best_target_indices[i]
-                target_dist = target_photon_dists[target_idx] if target_photon_dists is not None else \
-                    _compute_photon_distribution(target_kets[target_idx], max_photon_dist, normalize=True)
-                photon_sim = _compute_photon_similarity(
-                    target_dist, branch_dist, photon_dist_metric
+                target_moments = target_photon_moments[target_idx] if target_photon_moments is not None else \
+                    _compute_photon_moments(target_kets[target_idx], max_photon_dist)
+                photon_sim = _compute_moment_similarity(
+                    target_moments, branch_moments
                 )
 
             branch_details.append({
@@ -654,14 +610,14 @@ class TimeDomainRunner:
         self.measurement_patterns = measurement_patterns
         self.eval_count = 0
         
-        # Precompute target photon distributions if needed
+        # Precompute target photon moments if needed
         if photon_dist_weight > 1e-6:
-            self.target_photon_dists = [
-                _compute_photon_distribution(ket, max_photon_dist, normalize=True)
+            self.target_photon_moments = [
+                _compute_photon_moments(ket, max_photon_dist)
                 for ket in self.target_kets
             ]
         else:
-            self.target_photon_dists = None
+            self.target_photon_moments = None
         
     def _loss_function(self, flat_params):
         """
@@ -669,11 +625,11 @@ class TimeDomainRunner:
         """
         self.eval_count += 1
         return evaluate_time_domain_circuit(
-            flat_params, 
-            self.circuit, 
-            self.target_kets, 
-            self.cutoff_dim, 
-            self.beam_width, 
+            flat_params,
+            self.circuit,
+            self.target_kets,
+            self.cutoff_dim,
+            self.beam_width,
             self.penalty_strength,
             self.measurement_patterns,
             self.success_threshold,
@@ -684,7 +640,7 @@ class TimeDomainRunner:
             photon_dist_weight=self.photon_dist_weight,
             max_photon_dist=self.max_photon_dist,
             photon_dist_metric=self.photon_dist_metric,
-            target_photon_dists=self.target_photon_dists
+            target_photon_moments=self.target_photon_moments
         )
 
     def callback(self, x, f, accept):
@@ -897,14 +853,14 @@ class CMAESOptimizationRunner:
         # Precompute targets
         self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
         
-        # Precompute target photon distributions if needed
+        # Precompute target photon moments if needed
         if photon_dist_weight > 1e-6:
-            self.target_photon_dists = [
-                _compute_photon_distribution(ket, max_photon_dist, normalize=True)
+            self.target_photon_moments = [
+                _compute_photon_moments(ket, max_photon_dist)
                 for ket in self.target_kets
             ]
         else:
-            self.target_photon_dists = None
+            self.target_photon_moments = None
 
     def run(self, n_generations=50, population_size=None, prob_power=1):
         """
@@ -971,7 +927,7 @@ class CMAESOptimizationRunner:
             photon_dist_weight=self.photon_dist_weight,
             max_photon_dist=self.max_photon_dist,
             photon_dist_metric=self.photon_dist_metric,
-            target_photon_dists=self.target_photon_dists
+            target_photon_moments=self.target_photon_moments
         )
         
         best_loss = float('inf')
@@ -1020,7 +976,7 @@ class CMAESOptimizationRunner:
             photon_dist_weight=self.photon_dist_weight,
             max_photon_dist=self.max_photon_dist,
             photon_dist_metric=self.photon_dist_metric,
-            target_photon_dists=self.target_photon_dists,
+            target_photon_moments=self.target_photon_moments,
             return_details=True
         )
 
