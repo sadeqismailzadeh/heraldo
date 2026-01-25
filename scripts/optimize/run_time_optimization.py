@@ -28,7 +28,7 @@ import itertools
 
 # Imports
 from quantum_agent.optimization.time_circuits import *
-from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, TimeDomainRunner
+from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, BasinHoppingRunner
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 
@@ -188,13 +188,13 @@ def main():
     BEAM_WIDTH = 100          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
-    SUCCESS_THRESHOLD = 1 - 1e-2
+    SUCCESS_THRESHOLD = 1 - 1e-3
     
-    OPTIMIZER_METHOD = "CMA" # Options: "CMA", "DE", "BASIN"
+    OPTIMIZER_METHOD = "BASIN" # Options: "CMA", "DE", "BASIN"
 
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
-    print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}")
+    print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}, Optimizer: {OPTIMIZER_METHOD}")
 
     # Results directory (per run-session)
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -232,7 +232,7 @@ def main():
 
     csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     target3=CoreGKPTarget(csv_path=csv_path, 
-                          n_max=4, 
+                          n_max=8, 
                           delta_db=10, 
                           mu=0)
     
@@ -283,7 +283,7 @@ def main():
 
     
     circuit = circuit2
-    targets = gkp_targets
+    targets = [target3]
     print(f"Optimizing for {len(targets)} targets.")
     print_targets(targets, CUTOFF_DIM)
     # patterns = generate_measurement_patterns(circuit, exact_total=4)
@@ -308,7 +308,7 @@ def main():
     runner_map = {
         "CMA": CMAESOptimizationRunner,
         "DE": DifferentialEvolutionRunner,
-        "BASIN": TimeDomainRunner
+        "BASIN": BasinHoppingRunner
     }
     
     UnifiedRunner = runner_map.get(OPTIMIZER_METHOD)

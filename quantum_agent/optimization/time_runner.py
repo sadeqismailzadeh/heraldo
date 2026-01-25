@@ -578,9 +578,9 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         "total_probability": float(np.sum(final_probs)) if np.any(mask_nonzero) else 0.0
     }
 
-class TimeDomainRunner:
+class BasinHoppingRunner:
     """
-    Optimizes time-domain circuits using a Beam Search strategy.
+    Optimizes time-domain circuits using Basin-Hopping with a Beam Search strategy.
     
     This runner executes the circuit step-by-step, maintaining a 'beam' of the most 
     probable trajectories (measurement outcomes).
@@ -626,6 +626,7 @@ class TimeDomainRunner:
         self.photon_dist_metric = photon_dist_metric
         self.measurement_patterns = measurement_patterns
         self.eval_count = 0
+        self.iteration_count = 0
         
         # Precompute target photon moments if needed
         if photon_dist_weight > 1e-6:
@@ -661,8 +662,9 @@ class TimeDomainRunner:
         )
 
     def callback(self, x, f, accept):
-        if accept:
-            print(f"  [Accept] Loss: {f:.5f} (Evals: {self.eval_count})")
+        self.iteration_count += 1
+        status = "Accept" if accept else "Reject"
+        print(f"  [Iteration {self.iteration_count}] [{status}] Loss: {f:.5f} (Evals: {self.eval_count})")
         self.eval_count = 0
 
     def run(self, n_iter=20, method="SLSQP", prob_power=1.0, n_generations=None):
@@ -696,7 +698,7 @@ class TimeDomainRunner:
             "tol": 1e-4
         }
         
-        print(f"Starting Time-Domain Beam Search (Width={self.beam_width}, Steps={self.circuit.steps}, NG_Weight={self.ng_weight})...")
+        print(f"Starting Basin-Hopping Beam Search (Width={self.beam_width}, Steps={self.circuit.steps}, NG_Weight={self.ng_weight})...")
         start_time = time.time()
         
         result = basinhopping(
@@ -1097,29 +1099,28 @@ class DifferentialEvolutionRunner:
 
         # Create a partial function to freeze arguments for the worker
         # Note: We create args for evaluate_time_domain_circuit
-        worker_args = {
-            "circuit": self.circuit,
-            "target_kets": self.target_kets,
-            "cutoff_dim": self.cutoff_dim,
-            "beam_width": self.beam_width,
-            "penalty_strength": self.penalty_strength,
-            "measurement_patterns": self.measurement_patterns,
-            "success_threshold": self.success_threshold,
-            "success_weight": self.success_weight,
-            "ng_weight": self.ng_weight,
-            "ng_threshold": self.ng_threshold,
-            "prob_power": self.prob_power,
-            "photon_dist_weight": self.photon_dist_weight,
-            "max_photon_dist": self.max_photon_dist,
-            "photon_dist_metric": self.photon_dist_metric,
-            "target_photon_moments": self.target_photon_moments,
-            "return_details": False
-        }
-        
         # Scipy DE requires the objective function to take x as the first argument.
-        # We wrap it here.
-        def objective_wrapper(x):
-            return evaluate_time_domain_circuit(x, **worker_args)
+        # evaluate_time_domain_circuit(flat_params, ...) accepts flat_params as first arg.
+        # We use partial to bind the rest of keyword arguments.
+        objective_wrapper = partial(
+            evaluate_time_domain_circuit,
+            circuit=self.circuit,
+            target_kets=self.target_kets,
+            cutoff_dim=self.cutoff_dim,
+            beam_width=self.beam_width,
+            penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
+            success_threshold=self.success_threshold,
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power,
+            photon_dist_weight=self.photon_dist_weight,
+            max_photon_dist=self.max_photon_dist,
+            photon_dist_metric=self.photon_dist_metric,
+            target_photon_moments=self.target_photon_moments,
+            return_details=False
+        )
 
         # Callback to print progress
         def callback(xk, convergence):
