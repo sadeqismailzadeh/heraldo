@@ -604,8 +604,10 @@ class TimeDomainRunner:
                  photon_dist_weight: float = 0.0,
                  max_photon_dist: int = 10,
                  photon_dist_metric: str = 'dot_product',
-                 measurement_patterns = None):
+                 measurement_patterns = None,
+                 **kwargs):
         
+        self.prob_power = 1.0
         self.circuit = circuit
 
         if not isinstance(target_gens, list):
@@ -651,7 +653,7 @@ class TimeDomainRunner:
             self.success_weight,
             self.ng_weight,
             self.ng_threshold,
-            prob_power=1,
+            prob_power=self.prob_power,
             photon_dist_weight=self.photon_dist_weight,
             max_photon_dist=self.max_photon_dist,
             photon_dist_metric=self.photon_dist_metric,
@@ -663,10 +665,14 @@ class TimeDomainRunner:
             print(f"  [Accept] Loss: {f:.5f} (Evals: {self.eval_count})")
         self.eval_count = 0
 
-    def run(self, n_iter=20, method="SLSQP"):
+    def run(self, n_iter=20, method="SLSQP", prob_power=1.0, n_generations=None):
         """
         Runs the global optimization.
         """
+        if n_generations is not None:
+            n_iter = n_generations
+            
+        self.prob_power = prob_power
         # Construct full parameter bounds
         per_step_bounds = self.circuit.per_step_parameter_bounds
         if self.circuit.time_invariant:
@@ -845,7 +851,8 @@ class CMAESOptimizationRunner:
                  photon_dist_metric: str = 'dot_product',
                  num_processes: int = 4,
                  sigma0: float = 0.5,
-                 measurement_patterns = None):
+                 measurement_patterns = None,
+                 **kwargs):
         
         self.circuit = circuit
         self.cutoff_dim = cutoff_dim
@@ -1027,7 +1034,8 @@ class DifferentialEvolutionRunner:
                  photon_dist_metric: str = 'dot_product',
                  num_processes: int = 4,
                  measurement_patterns = None,
-                 popsize: int = 15):
+                 popsize: int = 15,
+                 **kwargs):
 
         self.circuit = circuit
         self.cutoff_dim = cutoff_dim

@@ -28,7 +28,7 @@ import itertools
 
 # Imports
 from quantum_agent.optimization.time_circuits import *
-from quantum_agent.optimization.time_runner import CMAESOptimizationRunner
+from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, TimeDomainRunner
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 
@@ -190,6 +190,8 @@ def main():
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 1 - 1e-2
     
+    OPTIMIZER_METHOD = "CMA" # Options: "CMA", "DE", "BASIN"
+
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
     print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}")
@@ -303,21 +305,32 @@ def main():
         print(f"  Target {i+1}: {ng_score:.4f}")
 
     # 3. Runner
-    runner = CMAESOptimizationRunner(
+    runner_map = {
+        "CMA": CMAESOptimizationRunner,
+        "DE": DifferentialEvolutionRunner,
+        "BASIN": TimeDomainRunner
+    }
+    
+    UnifiedRunner = runner_map.get(OPTIMIZER_METHOD)
+    if UnifiedRunner is None:
+        raise ValueError(f"Unknown optimizer method: {OPTIMIZER_METHOD}")
+
+    runner = UnifiedRunner(
         num_processes=4,
         circuit=circuit,
         target_gens=targets,
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
         penalty_strength=1,
-        success_threshold = SUCCESS_THRESHOLD,
-        success_weight = 0.0,
-        ng_weight = 0.,
-        ng_threshold = 0,
+        success_threshold=SUCCESS_THRESHOLD,
+        success_weight=0.0,
+        ng_weight=0.,
+        ng_threshold=0,
         sigma0=1,
-        photon_dist_weight = 0,
-        max_photon_dist = CUTOFF_DIM,
-        measurement_patterns = patterns
+        photon_dist_weight=0,
+        max_photon_dist=CUTOFF_DIM,
+        measurement_patterns=patterns,
+        popsize=15
     )
     
     # --- Execution ---
@@ -346,7 +359,10 @@ def main():
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
         try:
-            prob_power = np.random.uniform(0.01, 1)
+            # prob_power = np.random.uniform(0.01, 1)
+
+            # Sample prob_power from log distribution between 0.01 and 1.0
+            prob_power = 10 ** np.random.uniform(-2, 1)
             # prob_power = 1
             print(f"prob_power = {prob_power:.5f}")
             res = runner.run(n_generations=n_generations, prob_power=prob_power)
