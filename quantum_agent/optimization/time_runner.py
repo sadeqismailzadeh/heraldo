@@ -83,7 +83,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
                                   penalty_strength, measurement_patterns=None, success_threshold=0.99,
                                   success_weight=5.0, ng_weight=0.0, ng_threshold=0.1, prob_power=1,
                                   photon_dist_weight=0.0, max_photon_dist=10, photon_dist_metric='dot_product',
-                                  target_photon_moments=None, return_details: bool = False):
+                                  target_photon_moments=None, vacuum_excluded_weight=0.0, return_details: bool = False):
     """
     Evaluates the circuit using either Beam Search or fixed measurement patterns.
     
@@ -112,6 +112,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         photon_dist_metric: (Ignored) Type of distance metric. Moment-based similarity is always used.
         target_photon_moments: Precomputed photon moments for target states.
                             If None, will compute from target_kets.
+        vacuum_excluded_weight: Weight for Vacuum-Excluded SSD penalty (Sum of Squared Differences ignoring n=0).
     
     Returns:
         Loss value
@@ -434,6 +435,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
     soft_success_prob = 0.0
     ng_loss = 0.0
     photon_dist_similarity = 0.0
+    vacuum_excluded_ssd_score = 0.0
 
     if np.any(mask_nonzero):
         final_kets = active_kets[mask_nonzero]
@@ -518,13 +520,48 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             # Weighted average similarity
             photon_dist_similarity = np.sum(branch_similarities)
 
+        # Vacuum-Excluded SSD (Rotationally Invariant)
+        if vacuum_excluded_weight > 1e-6:
+            # 1. Mask Vacuum (n=0 set to 0) - preserve original normalization for energy calc
+            masked_gen = final_kets.copy()
+            masked_gen[:, 0] = 0.0
+            
+            masked_tgt = np.array(target_kets, dtype=np.complex128)
+            masked_tgt[:, 0] = 0.0
+            
+            # 2. Energies (Squared Norms)
+            E_gen = np.sum(np.abs(masked_gen)**2, axis=1) # (N_branches,)
+            E_tgt = np.sum(np.abs(masked_tgt)**2, axis=1) # (N_targets,)
+            
+            # 3. FFT Overlap (Maximize over phase)
+            # P = masked_gen * conj(masked_tgt)
+            # Broadcasting: (N_branches, 1, D) * (1, N_targets, D)
+            prod_ssd = masked_gen[:, None, :] * np.conj(masked_tgt[None, :, :])
+            
+            # FFT along Fock axis
+            fft_vals_ssd = np.fft.fft(prod_ssd, n=256, axis=-1)
+            M_max = np.max(np.abs(fft_vals_ssd), axis=-1) # (N_branches, N_targets)
+            
+            # 4. SSD Calculation
+            # SSD = E_gen + E_tgt - 2*M_max
+            # Broadcast E terms
+            ssd_matrix = E_gen[:, None] + E_tgt[None, :] - 2 * M_max
+            ssd_matrix = np.maximum(ssd_matrix, 0.0) # Numerical stability
+            
+            # 5. Best target per branch
+            best_ssd_per_branch = np.min(ssd_matrix, axis=1)
+            
+            # 6. Weighted Sum
+            vacuum_excluded_ssd_score = np.sum(final_probs * best_ssd_per_branch)
+
 
     # Return loss
     # loss = -expected_fidelity - (success_weight * soft_success_prob) \
     #        + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
 
     loss = -expected_fidelity + (penalty_strength * total_truncation_error) \
-           - (photon_dist_weight * photon_dist_similarity)
+           - (photon_dist_weight * photon_dist_similarity) \
+           + (vacuum_excluded_weight * vacuum_excluded_ssd_score)
     
     
     if not return_details:
@@ -574,6 +611,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         "loss": loss,
         "expected_fidelity": float(expected_fidelity),
         "photon_similarity": float(photon_dist_similarity) if photon_dist_weight > 1e-6 else 0.0,
+        "vacuum_excluded_ssd": float(vacuum_excluded_ssd_score) if vacuum_excluded_weight > 1e-6 else 0.0,
         "branches": branch_details,
         "total_probability": float(np.sum(final_probs)) if np.any(mask_nonzero) else 0.0
     }
@@ -664,7 +702,7 @@ class BasinHoppingRunner:
     def callback(self, x, f, accept):
         self.iteration_count += 1
         status = "Accept" if accept else "Reject"
-        print(f"  [Iteration {self.iteration_count}] [{status}] Loss: {f:.5f} (Evals: {self.eval_count})")
+        print(f"  [Iteration {self.iteration_count}] [{status}] (Evals: {self.eval_count}) Loss: {f} ")
         self.eval_count = 0
 
     def run(self, n_iter=20, method="SLSQP", prob_power=1.0, n_generations=None):
