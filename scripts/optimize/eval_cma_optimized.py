@@ -24,6 +24,35 @@ from quantum_agent.utils import *
 from quantum_agent.factory import create_from_config
 
 
+def print_config_info(circuit_config, target_configs):
+    """Pretty prints loaded configuration for inspection."""
+    print("\n" + "="*50)
+    print(" EXPERIMENT CONFIGURATION ")
+    print("="*50)
+    
+    # Circuit
+    if circuit_config:
+        print(f"\nCircuit: {circuit_config.get('class_name', 'Unknown')}")
+        if 'params' in circuit_config:
+            for k, v in circuit_config['params'].items():
+                print(f"  • {k:<15} : {v}")
+    else:
+        print("\nCircuit: None")
+            
+    # Targets
+    if not target_configs:
+        print("\nTargets: None")
+    else:
+        print(f"\nTargets ({len(target_configs)}):")
+        for i, t_cfg in enumerate(target_configs):
+            name = t_cfg.get('class_name', 'Unknown')
+            print(f"  [{i}] {name}")
+            if 'params' in t_cfg:
+                for k, v in t_cfg['params'].items():
+                    print(f"      - {k:<13} : {v}")
+    print("="*50 + "\n")
+
+
 def sanitize_config_paths(config):
     """
     Recursively fix file paths in configuration dictionaries to work across WSL/Windows.
@@ -500,6 +529,7 @@ def main():
     target_configs = sanitize_config_paths(target_configs)
     # ============================
 
+    print_config_info(circuit_config, target_configs)
 
     if not circuit_config:
         print("Error: Result file does not contain 'circuit_config'. Cannot reconstruct circuit.")
