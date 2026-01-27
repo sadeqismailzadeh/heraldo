@@ -111,10 +111,10 @@ def print_optimization_statistics(result: dict, success_threshold: float = 0.99,
     # 1. Print Schedule of Parameters (if x is present, this is usually handled elsewhere, 
     # but we focus on outcomes here).
 
-    print("-" * 60)
+    print("-" * 80)
     print("Dominant Outcome Branches (Sorted by Prob):")
-    print(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'Best Target':<15}")
-    print("-" * 60)
+    print(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
+    print("-" * 80)
     
     sorted_branches = sorted(branches, key=lambda x: x['prob'], reverse=True)
     
@@ -126,7 +126,7 @@ def print_optimization_statistics(result: dict, success_threshold: float = 0.99,
             outcome_str = str(b['outcome'])
             t_idx = b.get('target_idx', 0)
             tgt_name = target_names[t_idx] if t_idx < len(target_names) else f"Target_{t_idx}"
-            print(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name:<15}")
+            print(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {(1-b['fidelity']):<10.1e} {tgt_name:<15}")
 
     print(f"\nTotal Probability captured: {total_prob:.5f}")
 
@@ -167,6 +167,25 @@ def print_optimization_statistics(result: dict, success_threshold: float = 0.99,
 
     print("-" * 60)
     print(f"Global Success Probability: {global_success_prob:.5f}")
+
+    # 3. Successful Branches Detail
+    print("-" * 80)
+    print(f"All Branches with Fidelity > {success_threshold} (Sorted by Prob):")
+    print(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
+    print("-" * 80)
+
+    successful_branches = [b for b in branches if b['fidelity'] > success_threshold]
+    successful_branches.sort(key=lambda x: x['prob'], reverse=True)
+
+    if not successful_branches:
+        print("No branches met the success threshold.")
+    else:
+        for b in successful_branches:
+            outcome_str = str(b['outcome'])
+            t_idx = b.get('target_idx', 0)
+            tgt_name = target_names[t_idx] if t_idx < len(target_names) else f"Target_{t_idx}"
+            print(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {(1-b['fidelity']):<10.1e} {tgt_name:<15}")
+
     print("=" * 60)
 
 
