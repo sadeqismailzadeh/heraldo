@@ -12,11 +12,15 @@ import quantum_agent
 import strawberryfields as sf
 from strawberryfields.ops import Ket
 
+# Optimization and Component modules
+import quantum_agent.optimization.time_circuits as circuit_module
+import quantum_agent.components.targets as target_module
 from quantum_agent.optimization.time_circuits import *
 from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
 from quantum_agent.optimization.time_runner import evaluate_time_domain_circuit
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
+from quantum_agent.factory import create_from_config
 
 
 def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: np.ndarray, targets: list, cutoff_dim: int, beam_width: int = 100):
@@ -318,8 +322,18 @@ def _load_latest_run(results_dir: Path):
     with open(latest, "rb") as f:
         data = pickle.load(f)
 
-    # Expected structure: {"meta": ..., "res": ...}
-    res = data.get("res", data)
+    # Structure check: {"meta": ..., "res": ...}
+    if isinstance(data, dict) and "meta" in data and "res" in data:
+        res = data["res"]
+        meta = data["meta"]
+        # Normalize: Inject recipes from meta into res if they are missing
+        if "circuit_config" in meta:
+            res["circuit_config"] = meta["circuit_config"]
+        if "target_configs" in meta:
+            res["target_configs"] = meta["target_configs"]
+    else:
+        # Fallback for older or flat structures (like best_result.pkl)
+        res = data
 
     out = {
         "best_res": res,
@@ -380,40 +394,12 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
 
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
-    results_path = None  # Set to specific path if desired, e.g., "results/cma_run_20240101_120000"
-    # results_path = Path(__file__).resolve().parent.parent.parent / "results" / "cma_run_20260122T094558Z"
+    results_path = None  # Set to specific path if desired
     branch_index = 0  # Index of branch to visualize from best_result['branches']
     measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
     cutoff = 30  # Cutoff dimension for visualization
-    circuit_class = "ThreeModeTimeDomainSqueezeOnly"  # Circuit class to use
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
     
-    # -------------------------------------------------------------------------
-    # Define Targets (Used for names and re-calculation of stats if needed)
-    # -------------------------------------------------------------------------
-    
-    # Example: List of GKP targets (Adjust to match what was used in training)
-    targets = []
-    # gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
-    #                         n_max=n, delta_db=10, mu=m)
-    #         for n in [4, 6, 8, 10, 12] for m in [0, 1]]
-    # targets.extend(gkp_targets)
-    
-    # Or just generic ones for now if you don't want to reload heavy CSVs:
-    # This list is used to label the output table.
-    # If left empty, generic names "Target_0", "Target_1" will be used.
-    
-    target_names = []
-    for t in targets:
-        if isinstance(t, CoreGKPTarget):
-            target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
-        elif isinstance(t, SqueezedCatTarget):
-            target_names.append(f"SqCat_a{t.alpha}_r{t.r}_p{t.p}")
-        else:
-            target_names.append(f"Target")
-            
-    # -------------------------------------------------------------------------
-
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
     
@@ -437,34 +423,50 @@ def main():
         print("No usable results found in results directory.")
         return
 
+    # Extract Results
+    best_res = best.get('best_res', {})
+    
     # Avoid using 'or' with numpy arrays (truth value is ambiguous).
     flat_x = best.get('x')
     if flat_x is None:
-        flat_x = best.get('best_res', {}).get('x') if best.get('best_res') else None
+        flat_x = best_res.get('x')
     if flat_x is None:
         print("Could not find flat parameter vector (best_x).")
         return
 
-    # Instantiate the circuit
-    squeezing = db_to_r(12)
-    if circuit_class == "ThreeModeTimeDomainSqueezeOnly":
-        circuit = ThreeModeTimeDomainSqueezeOnly(steps=1,
-                                                 time_invariant=False,
-                                                 clip_size=squeezing,
-                                                 measure_fock_cutoff=30,
-                                                 num_single_photon=0,
-                                                 train_initial_state=True,
-                                                 initial_r=squeezing)
-    elif circuit_class == "TwoModeTimeDomainSqueezeOnly":
-        circuit = TwoModeTimeDomainSqueezeOnly(steps=1,
-                                               time_invariant=False,
-                                               clip_size=squeezing,
-                                               measure_fock_cutoff=30,
-                                               num_single_photon=0,
-                                               train_initial_state=True,
-                                               initial_r=squeezing)
+    # -------------------------------------------------------------------------
+    # 0. Reconstruct Experiment from Configs (The "Recipe")
+    # -------------------------------------------------------------------------
+    circuit_config = best_res.get('circuit_config')
+    target_configs = best_res.get('target_configs')
+
+    if not circuit_config:
+        print("Error: Result file does not contain 'circuit_config'. Cannot reconstruct circuit.")
+        return
+
+    print(f"Reconstructing Circuit: {circuit_config.get('class_name')}...")
+    circuit = create_from_config(circuit_config, circuit_module)
+    
+    targets = []
+    if target_configs:
+        print(f"Reconstructing {len(target_configs)} Targets...")
+        targets = [create_from_config(cfg, target_module) for cfg in target_configs]
     else:
-        raise ValueError(f"Unknown circuit class: {circuit_class}")
+        print("Warning: No 'target_configs' found in result. Target analysis will be limited.")
+
+    # Generate display names for targets
+    target_names = []
+    for t in targets:
+        if isinstance(t, CoreGKPTarget):
+            target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
+        elif isinstance(t, SqueezedCatTarget):
+            target_names.append(f"SqCat_a{t.alpha}_r{t.r}_p{t.p}")
+        elif isinstance(t, CatTarget):
+            target_names.append(f"Cat_a{t.alpha}_p{t.p}")
+        elif isinstance(t, BinomialCodeTarget):
+            target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
+        else:
+            target_names.append(f"Target")
 
     # -------------------------------------------------------------------------
     # 1. Print Full Statistics (Requested Feature)
@@ -476,7 +478,7 @@ def main():
         # (e.g. if we want to change beam width), we can use get_all_optimization_results.
         # Otherwise, we use the stored results.
         
-        result_to_analyze = best.get('best_res')
+        result_to_analyze = best_res
         
         if targets:
             print("Re-evaluating circuit to ensure fresh branch data...")
@@ -511,7 +513,6 @@ def main():
         measurement_outcomes = tuple(parsed)
     else:
         # try to pick a branch outcome from best_result
-        best_res = best.get('best_res')
         if best_res and 'branches' in best_res and len(best_res['branches']) > 0:
             branches = best_res['branches']
             # Sort so branch_index 0 is the highest prob one
@@ -546,23 +547,6 @@ def main():
     ket = res['final_state_ket']
     # print("Final ket (truncated):")
     # print(ket[:min(len(ket), 20)])
-
-    # If a target is provided (single target for vis), compute fidelity
-    vis_target = None
-    if vis_target is not None:
-        try:
-            target_ket = vis_target.get_target_ket(cutoff)
-            # Make length consistent
-            max_len = max(len(target_ket), len(ket))
-            t = np.zeros(max_len, dtype=np.complex128)
-            s = np.zeros(max_len, dtype=np.complex128)
-            t[:len(target_ket)] = target_ket
-            s[:len(ket)] = ket
-
-            fid = fidelity_max_rotation(t, s)
-            print(f"Fidelity with provided target (cutoff={cutoff}): {fid:.6f}")
-        except Exception as e:
-            print(f"Failed to compute fidelity with target: {e}")
 
     # Visualize
     plot_ket_wigner(ket, title=f"postselect {measurement_outcomes}", cutoff_dim=cutoff)
