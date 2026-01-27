@@ -20,19 +20,24 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
     
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 train_initial_state: bool = False, initial_r: float = 0.0):
+                 train_initial_state: bool = False, initial_r: float = 0.0,
+                 initial_fock_one: bool = False):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
         self.num_single_photon = num_single_photon
         self.train_initial_state = train_initial_state
         self.initial_r = initial_r
+        self.initial_fock_one = initial_fock_one
         
         self._param_names = [
             'sq_r', 'sq_phi', 
             'disp_r', 'disp_phi', 
             'bs_theta', 'bs_phi'
         ]
+
+        if self.train_initial_state:
+            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = [
             (0.0, self.clip_size),  # sq_r
@@ -74,7 +79,7 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
         else:
             r, phi = self.initial_r, 0.0
 
-        if abs(r) < 1e-6:
+        if abs(r) < 1e-6 and not self.initial_fock_one:
             ket = np.zeros(cutoff_dim, dtype=np.complex128)
             ket[0] = 1.0
             return ket
@@ -82,6 +87,8 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
         # Generate Squeezed State for initialization
         prog = sf.Program(1)
         with prog.context as q:
+            if self.initial_fock_one:
+                Fock(1) | q[0]
             Sgate(r, phi) | q[0]
         
         eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
@@ -124,7 +131,8 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, measure_fock_cutoff: int = 5, num_single_photon=0,
                  train_initial_state: bool = False,
-                 initial_r: float = 0.0):
+                 initial_r: float = 0.0,
+                 initial_fock_one: bool = False):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
@@ -132,12 +140,16 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
 
         self.train_initial_state = train_initial_state
         self.initial_r = initial_r
+        self.initial_fock_one = initial_fock_one
 
         
         self._param_names = [
             'sq_r', 'sq_phi', 
             'bs_theta', 'bs_phi'
         ]
+
+        if self.train_initial_state:
+            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = [
             (0.0, self.clip_size),  # sq_r
@@ -176,7 +188,7 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             # Manual mode
             r, phi = self.initial_r, 0.0
 
-        if abs(r) < 1e-6:
+        if abs(r) < 1e-6 and not self.initial_fock_one:
             # Return vacuum if squeezing is zero
             ket = np.zeros(cutoff_dim, dtype=np.complex128)
             ket[0] = 1.0
@@ -185,6 +197,8 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         # Generate Squeezed State using a temporary engine
         prog = sf.Program(1)
         with prog.context as q:
+            if self.initial_fock_one:
+                Fock(1) | q[0]
             Sgate(r, phi) | q[0]
         
         eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
@@ -221,7 +235,8 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, measure_fock_cutoff: int = 5, num_single_photon=0,
                 train_initial_state: bool = False,
-                 initial_r: float = 0.0):
+                 initial_r: float = 0.0,
+                 initial_fock_one: bool = False):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
@@ -229,6 +244,7 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
 
         self.train_initial_state = train_initial_state
         self.initial_r = initial_r
+        self.initial_fock_one = initial_fock_one
         
         self._param_names = [
             'sq1_r', 'sq2_r',
@@ -236,6 +252,9 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             'bs_theta1', 'bs_theta2', 'bs_theta3',
             'bs_phi1', 'bs_phi2', 'bs_phi3'
         ]
+
+        if self.train_initial_state:
+            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = []
         self._bounds.extend([(0.0, self.clip_size)] * 2) # sq_r (only 2 now)
@@ -274,7 +293,7 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             # Manual mode
             r, phi = self.initial_r, 0.0
 
-        if abs(r) < 1e-6:
+        if abs(r) < 1e-6 and not self.initial_fock_one:
             # Return vacuum if squeezing is zero
             ket = np.zeros(cutoff_dim, dtype=np.complex128)
             ket[0] = 1.0
@@ -283,6 +302,8 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         # Generate Squeezed State using a temporary engine
         prog = sf.Program(1)
         with prog.context as q:
+            if self.initial_fock_one:
+                Fock(1) | q[0]
             Sgate(r, phi) | q[0]
         
         eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
@@ -330,13 +351,15 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 train_initial_state: bool = False, initial_r: float = 0.0):
+                 train_initial_state: bool = False, initial_r: float = 0.0,
+                 initial_fock_one: bool = False):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
         self.num_single_photon = num_single_photon
         self.train_initial_state = train_initial_state
         self.initial_r = initial_r
+        self.initial_fock_one = initial_fock_one
         
         # Parameters: 3 squeezing amplitudes, 3 squeezing phases, 6 BS thetas, 6 BS phis
         self._param_names = [
@@ -347,6 +370,9 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             'bs_phi1', 'bs_phi2', 'bs_phi3',
             'bs_phi4', 'bs_phi5', 'bs_phi6'
         ]
+
+        if self.train_initial_state:
+            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = []
         # Squeezing amplitudes (3)
@@ -391,7 +417,7 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         else:
             r, phi = self.initial_r, 0.0
 
-        if abs(r) < 1e-6:
+        if abs(r) < 1e-6 and not self.initial_fock_one:
             ket = np.zeros(cutoff_dim, dtype=np.complex128)
             ket[0] = 1.0
             return ket
@@ -399,6 +425,8 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         # Generate Squeezed State
         prog = sf.Program(1)
         with prog.context as q:
+            if self.initial_fock_one:
+                Fock(1) | q[0]
             Sgate(r, phi) | q[0]
         
         eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
