@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import matplotlib.pyplot as plt
 
+import quantum_agent
 import strawberryfields as sf
 from strawberryfields.ops import Ket
 
@@ -16,6 +17,118 @@ from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
 from quantum_agent.optimization.time_runner import evaluate_time_domain_circuit
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
+
+
+def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: np.ndarray, targets: list, cutoff_dim: int, beam_width: int = 100):
+    """
+    Runs the circuit evaluation with the provided parameters to generate full branch details.
+    
+    Args:
+        circuit: The circuit instance.
+        flat_params: The optimized parameters.
+        targets: List of TargetGenerator instances.
+        cutoff_dim: Simulation cutoff.
+        beam_width: Beam width for search (higher = more branches captured).
+        
+    Returns:
+        dict: The result dictionary containing 'loss', 'branches', 'expected_fidelity', etc.
+    """
+    target_kets = [t.get_target_ket(cutoff_dim) for t in targets]
+    
+    # Run evaluation with details enabled
+    # We set penalty/weights to 0/defaults as we are analyzing physical outcomes
+    return evaluate_time_domain_circuit(
+        flat_params,
+        circuit,
+        target_kets,
+        cutoff_dim,
+        beam_width=beam_width,
+        penalty_strength=0.0,
+        success_threshold=0.99, # Used for internal loss calculation
+        return_details=True
+    )
+
+
+def print_optimization_statistics(result: dict, success_threshold: float = 0.99, target_names: list = None):
+    """
+    Calculates and prints probabilities, fidelities, and aggregated success statistics.
+    
+    Args:
+        result: The dictionary returned by evaluate_time_domain_circuit or loaded from pickle.
+                Must contain a 'branches' key.
+        success_threshold: Fidelity threshold to consider a branch "successful".
+        target_names: Optional list of names corresponding to target indices.
+    """
+    branches = result.get('branches', [])
+    if not branches:
+        print("No branch details found in the provided results.")
+        return
+
+    # Generate generic target names if not provided
+    if target_names is None:
+        max_idx = max((b.get('target_idx', 0) for b in branches), default=0)
+        target_names = [f"Target_{i}" for i in range(max_idx + 1)]
+
+    # 1. Print Schedule of Parameters (if x is present, this is usually handled elsewhere, 
+    # but we focus on outcomes here).
+
+    print("-" * 60)
+    print("Dominant Outcome Branches (Sorted by Prob):")
+    print(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'Best Target':<15}")
+    print("-" * 60)
+    
+    sorted_branches = sorted(branches, key=lambda x: x['prob'], reverse=True)
+    
+    total_prob = 0.0
+    for b in sorted_branches:
+        total_prob += b['prob']
+        # Filter very small probabilities for display cleanliness if list is huge
+        if b['prob'] > 1e-4:
+            outcome_str = str(b['outcome'])
+            t_idx = b.get('target_idx', 0)
+            tgt_name = target_names[t_idx] if t_idx < len(target_names) else f"Target_{t_idx}"
+            print(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name:<15}")
+
+    print(f"\nTotal Probability captured: {total_prob:.5f}")
+
+    # 2. Target Distribution Analysis
+    print("-" * 60)
+    print(f"Target Distribution Analysis (Success Threshold > {success_threshold}):")
+    print(f"{'Rank':<5} {'Target Name':<20} {'Tot. Prob':<10} {'Outcomes (Top 3)'}")
+    print("-" * 60)
+
+    target_stats = {} 
+    
+    # Calculate global success probability
+    global_success_prob = 0.0
+
+    for b in branches:
+        if b['fidelity'] > success_threshold:
+            global_success_prob += b['prob']
+            idx = b.get('target_idx', 0)
+            if idx not in target_stats:
+                target_stats[idx] = {'prob': 0.0, 'outcomes': []}
+            target_stats[idx]['prob'] += b['prob']
+            target_stats[idx]['outcomes'].append((b['outcome'], b['prob']))
+
+    sorted_targets = sorted(target_stats.items(), key=lambda x: x[1]['prob'], reverse=True)
+
+    if not sorted_targets:
+        print("No branches met the success threshold.")
+    
+    for rank, (idx, stats) in enumerate(sorted_targets):
+        stats['outcomes'].sort(key=lambda x: x[1], reverse=True)
+        top_outcomes = [str(o[0]) for o in stats['outcomes'][:3]]
+        outcome_str = ", ".join(top_outcomes)
+        if len(stats['outcomes']) > 3:
+            outcome_str += ", ..."
+        
+        t_name = target_names[idx] if idx < len(target_names) else f"Target_{idx}"
+        print(f"{rank+1:<5} {t_name:<20} {stats['prob']:<10.4f} {outcome_str}")
+
+    print("-" * 60)
+    print(f"Global Success Probability: {global_success_prob:.5f}")
+    print("=" * 60)
 
 
 def run_deterministic_path(circuit: TimeMultiplexedCircuit, flat_params: np.ndarray, measurement_outcomes: tuple, cutoff_dim):
@@ -168,7 +281,7 @@ def plot_ket_wigner(ket, title="State", cutoff_dim=40, grid_size=200, x_limit=5)
 
 
 def _find_latest_results_dir(base_dir: Path):
-    matches = sorted(base_dir.glob("cma_run_*"))
+    matches = sorted(base_dir.glob("opt_run_*"))
     if not matches:
         return None
     return matches[-1]
@@ -180,11 +293,7 @@ def _load_best_from_results(results_dir: Path):
     best = {}
     if (best_dir / "best_result.pkl").exists():
         with open(best_dir / "best_result.pkl", "rb") as f:
-            try:
-                best['best_res'] = pickle.load(f)
-            except Exception:
-                # maybe it was saved as dict earlier
-                best['best_res'] = pickle.load(f)
+            best['best_res'] = pickle.load(f)
     if (best_dir / "best_x.npy").exists():
         best['x'] = np.load(best_dir / "best_x.npy", allow_pickle=True)
     if (best_dir / "mapped_params.npz").exists():
@@ -196,48 +305,115 @@ def _load_best_from_results(results_dir: Path):
     return best
 
 
+def _load_latest_run(results_dir: Path):
+    """
+    Load the most recent run_XXXX.pkl from a CMA results directory.
+    Returns a dict compatible with downstream evaluation logic.
+    """
+    runs = sorted(results_dir.glob("run_*.pkl"))
+    if not runs:
+        return None
+
+    latest = runs[-1]
+    with open(latest, "rb") as f:
+        data = pickle.load(f)
+
+    # Expected structure: {"meta": ..., "res": ...}
+    res = data.get("res", data)
+
+    out = {
+        "best_res": res,
+        "x": res.get("x")
+    }
+    return out
+
+
 def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
     """
-    Convert a flat outcome tuple (o1,o2,o3,...) into per-step tuples:
-      result = [ (o_step0_mode0, o_step0_mode1, ...), (o_step1_mode0,...), ... ]
+    Normalize and reshape stored branch outcomes into per-step tuples:
+      ((o_step0_mode0, ...), (o_step1_mode0, ...), ...)
+    Supports tuples, lists, and numpy arrays.
     """
+    if outcome_flat is None:
+        return None
+
     meas_specs = circuit.get_measurement_specs()
     n_meas_modes = len(meas_specs)
     steps = circuit.steps
-    if outcome_flat is None:
-        return None
+
+    # --- Normalize numpy arrays → Python lists ---
+    if isinstance(outcome_flat, np.ndarray):
+        outcome_flat = outcome_flat.tolist()
+
+    # Case 1: already per-step, e.g. [[a,b], [c,d]]
+    if (
+        isinstance(outcome_flat, (list, tuple))
+        and len(outcome_flat) == steps
+    ):
+        # unwrap numpy arrays inside tuple/list
+        reshaped = []
+        for step in outcome_flat:
+            if isinstance(step, np.ndarray):
+                step = step.tolist()
+            reshaped.append(tuple(int(x) for x in step))
+        return tuple(reshaped)
+
+    # Case 2: flat list [a,b,c,d]
     outcome_list = list(outcome_flat)
-    if len(outcome_list) != steps * n_meas_modes:
-        # If length equals steps, maybe already per-step single-mode outcomes
-        if len(outcome_list) == steps:
-            return tuple((int(x),) for x in outcome_list)
-        raise ValueError(f"Outcome length {len(outcome_list)} incompatible with circuit (steps={steps}, meas_modes={n_meas_modes})")
+    expected = steps * n_meas_modes
+
+    if len(outcome_list) != expected:
+        raise ValueError(
+            f"Outcome length {len(outcome_list)} incompatible with circuit "
+            f"(steps={steps}, meas_modes={n_meas_modes})"
+        )
+
     reshaped = []
     for s in range(steps):
         start = s * n_meas_modes
-        reshaped.append(tuple(int(x) for x in outcome_list[start:start + n_meas_modes]))
+        reshaped.append(
+            tuple(int(x) for x in outcome_list[start:start + n_meas_modes])
+        )
+
     return tuple(reshaped)
 
 
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired, e.g., "results/cma_run_20240101_120000"
+    # results_path = Path(__file__).resolve().parent.parent.parent / "results" / "cma_run_20260122T094558Z"
     branch_index = 0  # Index of branch to visualize from best_result['branches']
     measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
-    cutoff = 40  # Cutoff dimension for visualization
+    cutoff = 30  # Cutoff dimension for visualization
     circuit_class = "ThreeModeTimeDomainSqueezeOnly"  # Circuit class to use
+    recalc_statistics = True # If True, will print the full branch table and aggregated targets
+    
+    # -------------------------------------------------------------------------
+    # Define Targets (Used for names and re-calculation of stats if needed)
+    # -------------------------------------------------------------------------
+    
+    # Example: List of GKP targets (Adjust to match what was used in training)
+    targets = []
+    # gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
+    #                         n_max=n, delta_db=10, mu=m)
+    #         for n in [4, 6, 8, 10, 12] for m in [0, 1]]
+    # targets.extend(gkp_targets)
+    
+    # Or just generic ones for now if you don't want to reload heavy CSVs:
+    # This list is used to label the output table.
+    # If left empty, generic names "Target_0", "Target_1" will be used.
+    
+    target_names = []
+    for t in targets:
+        if isinstance(t, CoreGKPTarget):
+            target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
+        elif isinstance(t, SqueezedCatTarget):
+            target_names.append(f"SqCat_a{t.alpha}_r{t.r}_p{t.p}")
+        else:
+            target_names.append(f"Target")
+            
+    # -------------------------------------------------------------------------
 
-
-    # Optional: define a target to compute fidelity against the post-selected state.
-    # If left as None, no fidelity will be computed.
-    # Examples:
-    #   - Core GKP target:
-    #     target = CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", n_max=8, delta_db=10, mu=0)
-    #   - Squeezed cat:
-    #     target = SqueezedCatTarget(alpha=3, r=1.38, p=0)
-    #   - Or create your own TargetGenerator implementation that supports get_target_ket(cutoff)
-    target = None
-        
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
     
@@ -251,12 +427,20 @@ def main():
         return
     
     print(f"Using results dir: {results_dir}")
-    best = _load_best_from_results(results_dir)
+    # Prefer latest run_* over best/
+    best = _load_latest_run(results_dir)
+    if best is None:
+        print("No run_*.pkl found, falling back to best/.")
+        best = _load_best_from_results(results_dir)
+
     if not best:
-        print("No best/summary files found under 'best/'. Make sure run_cma_optimization saved results.")
+        print("No usable results found in results directory.")
         return
 
-    flat_x = best.get('x') or (best.get('best_res', {}).get('x') if best.get('best_res') else None)
+    # Avoid using 'or' with numpy arrays (truth value is ambiguous).
+    flat_x = best.get('x')
+    if flat_x is None:
+        flat_x = best.get('best_res', {}).get('x') if best.get('best_res') else None
     if flat_x is None:
         print("Could not find flat parameter vector (best_x).")
         return
@@ -282,6 +466,39 @@ def main():
     else:
         raise ValueError(f"Unknown circuit class: {circuit_class}")
 
+    # -------------------------------------------------------------------------
+    # 1. Print Full Statistics (Requested Feature)
+    # -------------------------------------------------------------------------
+    if recalc_statistics:
+        print("\n=== Optimization Statistics ===")
+        
+        # If we have targets defined and want to re-run to ensure we capture all branches 
+        # (e.g. if we want to change beam width), we can use get_all_optimization_results.
+        # Otherwise, we use the stored results.
+        
+        result_to_analyze = best.get('best_res')
+        
+        if targets:
+            print("Re-evaluating circuit to ensure fresh branch data...")
+            # Example: re-run with potentially higher beam width
+            result_to_analyze = get_all_optimization_results(
+                circuit, np.asarray(flat_x), targets, cutoff, beam_width=100
+            )
+        
+        if result_to_analyze:
+            print_optimization_statistics(
+                result_to_analyze, 
+                success_threshold=1 - 2e-2, 
+                target_names=target_names if target_names else None
+            )
+        else:
+            print("No result dictionary available to analyze.")
+            
+    # -------------------------------------------------------------------------
+    # 2. Visualize Specific Outcome
+    # -------------------------------------------------------------------------
+    print("\n=== Single Branch Visualization ===")
+
     # Determine measurement outcomes to evaluate
     measurement_outcomes = None
     if measurement:
@@ -297,9 +514,14 @@ def main():
         best_res = best.get('best_res')
         if best_res and 'branches' in best_res and len(best_res['branches']) > 0:
             branches = best_res['branches']
+            # Sort so branch_index 0 is the highest prob one
+            branches.sort(key=lambda x: x['prob'], reverse=True)
+            
             idx = min(branch_index, len(branches) - 1)
             branch = branches[idx]
             outcome_raw = branch.get('outcome')
+            print(f"Auto-selected branch rank {idx}: Outcome {outcome_raw} (Prob: {branch['prob']:.4f})")
+            
             if outcome_raw is None:
                 print("Selected branch has no explicit 'outcome' stored. Try specifying a measurement.")
             else:
@@ -322,16 +544,15 @@ def main():
 
     print(f"Final probability: {res['final_probability']:.6e}")
     ket = res['final_state_ket']
-    print("Final ket (truncated):")
-    print(ket[:min(len(ket), 20)])
+    # print("Final ket (truncated):")
+    # print(ket[:min(len(ket), 20)])
 
-    # If a target is provided, compute fidelity between postselected ket and target ket
-    if target is not None:
+    # If a target is provided (single target for vis), compute fidelity
+    vis_target = None
+    if vis_target is not None:
         try:
-            # Request the target ket at the visualization cutoff
-            target_ket = target.get_target_ket(cutoff)
-
-            # Make length consistent: pad shorter vector with zeros
+            target_ket = vis_target.get_target_ket(cutoff)
+            # Make length consistent
             max_len = max(len(target_ket), len(ket))
             t = np.zeros(max_len, dtype=np.complex128)
             s = np.zeros(max_len, dtype=np.complex128)
@@ -343,7 +564,7 @@ def main():
         except Exception as e:
             print(f"Failed to compute fidelity with target: {e}")
 
-    # Visualize like demo_target
+    # Visualize
     plot_ket_wigner(ket, title=f"postselect {measurement_outcomes}", cutoff_dim=cutoff)
 
 if __name__ == "__main__":
