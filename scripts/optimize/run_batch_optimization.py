@@ -13,8 +13,8 @@ from quantum_agent.components.targets import *
 
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 20
-    MEASURE_MODES = [1, 2]  # Measure mode 0, leaving state on mode 1
+    CUTOFF_DIM = 50
+    MEASURE_MODES = [1]  # Measure mode 0, leaving state on mode 1
     SUCCESS_THRESHOLD = 0.98
     
     # Setup
@@ -23,7 +23,8 @@ def main():
     # 1. Circuit
     circuit1 = TwoModeSqueezeOnly(clip_size=1.38)
 
-    circuit2 = ThreeModeSqueezeOnly(clip_size=1)
+    circuit2 = ThreeModeSqueezeOnly(clip_size=1,
+                                    num_single_photon=1)
     circuit3 = TwoModeGadget(clip_size=1.38)
     
     # 2. Targets (List)
@@ -35,10 +36,10 @@ def main():
 
     gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
                                 n_max=n, delta_db=10.4, mu=m)
-                for n in [4, 6, 8, 10, 12] for m in [0, 1]]
+                for n in [4, 6, 8, 10, 12] for m in [0,1]]
 
-    targets = gkp_targets
-    circuit = circuit2
+    targets = targets
+    circuit = circuit1
     
     # 3. Runner
     runner = BatchOptimizationRunner(
@@ -48,8 +49,8 @@ def main():
         measure_modes=MEASURE_MODES,
         penalty_strength=10.0,
         success_threshold=SUCCESS_THRESHOLD,
-        success_weight=20.0,
-        max_post_select = 12
+        success_weight=30,
+        max_post_select = 16
     )
     
     # --- Execution ---
@@ -57,7 +58,7 @@ def main():
     print(f"Objective: Maximize Expected Fidelity (Sum of Prob * MaxFidelity)")
 
     nhp = 30       # Number of hops per global search
-    niter = 20     # Number of global searches
+    niter = 10     # Number of global searches
 
     exp_fid_ls = []
     hpx = []
