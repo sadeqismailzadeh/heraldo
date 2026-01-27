@@ -188,7 +188,7 @@ def main():
     BEAM_WIDTH = 100          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
-    SUCCESS_THRESHOLD = 1 - 1e-3
+    SUCCESS_THRESHOLD = 1 - 2e-2
     
     OPTIMIZER_METHOD = "DE" # Options: "CMA", "DE", "BASIN", "DUAL"
 
@@ -198,7 +198,7 @@ def main():
 
     # Results directory (per run-session)
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    results_dir = Path(__file__).resolve().parent.parent.parent / "results" / f"cma_run_{timestamp}"
+    results_dir = Path(__file__).resolve().parent.parent.parent / "results" / f"opt_run_{timestamp}"
     results_dir.mkdir(parents=True, exist_ok=True)
     print(f"Saving per-run results to: {results_dir}")
 
@@ -256,7 +256,7 @@ def main():
                                             time_invariant=TIME_INVARIANT,
                                             clip_size=squeezing,
                                             measure_fock_cutoff=MEASURE_CUTOFF,
-                                            num_single_photon=0,
+                                            num_single_photon=1,
                                             train_initial_state=True, 
                                             initial_r=squeezing )
     
@@ -282,17 +282,17 @@ def main():
 
 
     
-    circuit = circuit2
-    targets = [target3]
+    circuit = circuit1
+    targets = gkp_targets
     print(f"Optimizing for {len(targets)} targets.")
     print_targets(targets, CUTOFF_DIM)
-    # patterns = generate_measurement_patterns(circuit, exact_total=4)
+    patterns = generate_measurement_patterns(circuit, exact_total=5)
    
     # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
     # patterns = [(2,2,4)]
-    patterns = [(4,4)]
+    # patterns = [(4,4)]
     # patterns = [[(1,3)]]
-    # patterns = None
+    patterns = None
     print(patterns)
     patterns = prepare_measurement_patterns(patterns)
     print(patterns)
@@ -335,8 +335,8 @@ def main():
     )
     
     # --- Execution ---
-    n_generations = 1000       # Number of hops per global search
-    niter = 100      # Number of global searches
+    n_generations = 5000       # Number of hops per global search
+    niter = 1      # Number of global searches
 
     suc_pb_ls = []
     hpx = []
@@ -357,6 +357,7 @@ def main():
         else:
             target_names.append("UnknownTarget")
 
+    prob_powers=[1, 0.7, 0.5, 0.3, 0.2]
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
         try:
@@ -364,7 +365,9 @@ def main():
 
             # Sample prob_power from log distribution between 0.01 and 1.0
             prob_power = 10 ** np.random.uniform(-2, 1)
-            # prob_power = 1
+            # prob_power = prob_powers[e]
+            prob_power = 1
+
             print(f"prob_power = {prob_power:.5f}")
             
             if OPTIMIZER_METHOD == "DUAL":

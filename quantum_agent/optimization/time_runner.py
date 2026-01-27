@@ -461,7 +461,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        min_infidel=1e-6
+        min_infidel=1e-2
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
@@ -520,8 +520,9 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             # Weighted average similarity
             photon_dist_similarity = np.sum(branch_similarities)
 
+        vacuum_excluded_weight = 0
         # Vacuum-Excluded SSD (Rotationally Invariant)
-        if vacuum_excluded_weight > 1e-6:
+        if vacuum_excluded_weight > 1e-12:
             # 1. Mask Vacuum (n=0 set to 0) - preserve original normalization for energy calc
             masked_gen = final_kets.copy()
             masked_gen[:, 0] = 0.0
@@ -552,15 +553,31 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             best_ssd_per_branch = np.min(ssd_matrix, axis=1)
             
             # 6. Weighted Sum
-            vacuum_excluded_ssd_score = np.sum(final_probs * best_ssd_per_branch)
+            # vacuum_excluded_ssd_score = np.sum(final_probs * best_ssd_per_branch**4)
+
+            # Modified calculation to prevent zero-probability cheating
+
+
+            total_prob = np.sum(final_probs)
+            if total_prob > 1e-12:
+                min_infidel=1e-6
+                infidelities = np.maximum(1.0 - best_ssd_per_branch, min_infidel)
+                log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
+                capped_fidelities = np.minimum(best_ssd_per_branch, 1-min_infidel)
+                vacuum_excluded_ssd_score = np.sum((final_probs**prob_power)
+                                        * (capped_fidelities**2 *log_vals)**4)
+                # Normalize by total probability to get the Conditional Expected SSD
+                vacuum_excluded_ssd_score = np.sum(final_probs * best_ssd_per_branch) / total_prob
+            else:
+                # Penalize if probability is too low
+                vacuum_excluded_ssd_score = 10.0
 
 
     # Return loss
     # loss = -expected_fidelity - (success_weight * soft_success_prob) \
     #        + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
 
-    loss = -expected_fidelity + (penalty_strength * total_truncation_error) \
-           - (photon_dist_weight * photon_dist_similarity) \
+    loss = -1*expected_fidelity + (penalty_strength * total_truncation_error) \
            + (vacuum_excluded_weight * vacuum_excluded_ssd_score)
     
     
