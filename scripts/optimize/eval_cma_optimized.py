@@ -7,6 +7,7 @@ import numpy as np
 import os
 from pathlib import Path
 import matplotlib.pyplot as plt
+import platform
 
 import quantum_agent
 import strawberryfields as sf
@@ -22,6 +23,40 @@ from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 from quantum_agent.factory import create_from_config
 
+
+def sanitize_config_paths(config):
+    """
+    Recursively fix file paths in configuration dictionaries to work across WSL/Windows.
+    """
+    if isinstance(config, dict):
+        new_config = config.copy()
+        # Specific fix for CoreGKPTarget csv_path
+        if config.get('class_name') == 'CoreGKPTarget' and 'params' in config:
+            params = config['params'].copy()
+            if 'csv_path' in params:
+                path_str = params['csv_path']
+                # Detect if we are on Windows but the path is WSL
+                if platform.system() == "Windows" and path_str.startswith("/mnt/"):
+                    # Convert /mnt/e/folder -> E:/folder
+                    parts = path_str.split('/')
+                    if len(parts) > 2:
+                        drive_letter = parts[2] # 'e'
+                        rest_of_path = "/".join(parts[3:])
+                        new_path = f"{drive_letter.upper()}:/{rest_of_path}"
+                        params['csv_path'] = new_path
+                        print(f"Sanitized WSL path: {path_str} -> {new_path}")
+            new_config['params'] = params
+            return new_config
+        
+        # General recursion for other keys
+        for k, v in new_config.items():
+            new_config[k] = sanitize_config_paths(v)
+        return new_config
+    
+    elif isinstance(config, list):
+        return [sanitize_config_paths(item) for item in config]
+    
+    return config
 
 def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: np.ndarray, targets: list, cutoff_dim: int, beam_width: int = 100):
     """
@@ -414,6 +449,7 @@ def main():
     
     print(f"Using results dir: {results_dir}")
     # Prefer latest run_* over best/
+    _load_best_from_results
     best = _load_latest_run(results_dir)
     if best is None:
         print("No run_*.pkl found, falling back to best/.")
@@ -439,6 +475,12 @@ def main():
     # -------------------------------------------------------------------------
     circuit_config = best_res.get('circuit_config')
     target_configs = best_res.get('target_configs')
+
+    # === APPLY SANITIZER HERE ===
+    circuit_config = sanitize_config_paths(circuit_config)
+    target_configs = sanitize_config_paths(target_configs)
+    # ============================
+
 
     if not circuit_config:
         print("Error: Result file does not contain 'circuit_config'. Cannot reconstruct circuit.")
