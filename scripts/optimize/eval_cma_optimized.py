@@ -24,6 +24,54 @@ from quantum_agent.utils import *
 from quantum_agent.factory import create_from_config
 
 
+def print_optimized_parameters(circuit, flat_x, mapped_params=None):
+    """
+    Pretty prints the optimized parameter schedule.
+    
+    Args:
+        circuit: The TimeMultiplexedCircuit instance
+        flat_x: Flat parameter vector
+        mapped_params: Pre-mapped parameters (optional, will compute if None)
+    """
+    # Map parameters if not provided
+    if mapped_params is None:
+        mapped_params = circuit.map_parameters(np.asarray(flat_x))
+    
+    param_names = circuit.per_step_parameter_names
+    
+    print("\n" + "="*70)
+    print(" OPTIMIZED PARAMETERS SCHEDULE ")
+    print("="*70)
+    
+    # Calculate column widths
+    step_width = 6
+    param_width = 14
+    
+    # Header
+    header_parts = [f"{'Step':>{step_width}}"]
+    for name in param_names:
+        display_name = name[:param_width].center(param_width)
+        header_parts.append(display_name)
+    
+    separator = "-" * (step_width + 2) + "-" * ((param_width + 2) * len(param_names))
+    
+    print(" | ".join(header_parts))
+    print(separator)
+    
+    # Handle both 2D arrays (steps x params) and edge cases
+    if hasattr(mapped_params, 'shape') and len(mapped_params.shape) >= 2:
+        for step_idx in range(mapped_params.shape[0]):
+            row_parts = [f"{step_idx:>{step_width}}"]
+            for param_idx, val in enumerate(mapped_params[step_idx]):
+                row_parts.append(f"{val:>{param_width}.6f}")
+            print(" | ".join(row_parts))
+    else:
+        # Fallback for 1D or irregular structures
+        print(f"Parameters: {mapped_params}")
+    
+    print("="*70)
+
+
 def print_config_info(circuit_config, target_configs):
     """Pretty prints loaded configuration for inspection."""
     print("\n" + "="*50)
@@ -480,7 +528,7 @@ def main():
     results_path = None  # Set to specific path if desired
     branch_index = 0  # Index of branch to visualize from best_result['branches']
     measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
-    cutoff = 30  # Cutoff dimension for visualization
+    cutoff = 50  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
     
     # Find results directory
@@ -558,6 +606,11 @@ def main():
             target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
         else:
             target_names.append(f"Target")
+
+    # -------------------------------------------------------------------------
+    # 0. Print Optimized Parameters Schedule
+    # -------------------------------------------------------------------------
+    print_optimized_parameters(circuit, flat_x, best.get('mapped_params'))
 
     # -------------------------------------------------------------------------
     # 1. Print Full Statistics (Requested Feature)
