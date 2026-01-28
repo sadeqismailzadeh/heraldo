@@ -8,10 +8,11 @@ import os
 from pathlib import Path
 import matplotlib.pyplot as plt
 import platform
+import itertools
 
 import quantum_agent
 import strawberryfields as sf
-from strawberryfields.ops import Ket
+from strawberryfields.ops import Ket, DensityMatrix
 
 # Optimization and Component modules
 import quantum_agent.optimization.time_circuits as circuit_module
@@ -163,6 +164,209 @@ def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: n
         success_threshold=0.99, # Used for internal loss calculation
         return_details=True
     )
+
+
+
+
+def _compute_max_fidelity_dm(rho, target_ket, n_fft=256):
+    """
+    Computes max fidelity F = max_phi <target_phi | rho | target_phi>
+    using FFT for rotation optimization.
+    """
+    D = len(target_ket)
+    coeffs = np.zeros(n_fft, dtype=np.complex128)
+    
+    # Precompute conjugated target
+    target_conj = np.conj(target_ket)
+    
+    # Delta = 0: C_0 = sum_n rho_nn |tau_n|^2
+    # diag(rho) gives main diagonal elements rho_{nn}
+    coeffs[0] = np.sum(np.diagonal(rho) * np.abs(target_ket)**2)
+    
+    # Delta > 0: C_delta = sum_n rho_{n, n+delta} * tau_{n+delta} * tau_n^*
+    # Corresponds to e^{i * delta * phi} terms in the Fourier series of F(phi)
+    for delta in range(1, D):
+        # Upper diagonal of rho at offset delta: elements rho_{n, n+delta}
+        rho_diag = np.diagonal(rho, offset=delta)
+        
+        # Target terms matching indices: tau_{n+delta} * tau_n^*
+        # target_ket[delta:] corresponds to tau_{delta}, tau_{delta+1}... (which is tau_{n+delta})
+        # target_conj[:-delta] corresponds to tau_0^*, tau_1^*... (which is tau_n^*)
+        term = np.sum(rho_diag * target_ket[delta:] * target_conj[:-delta])
+        
+        # Assign C_delta to index delta
+        coeffs[delta] = term
+        # Assign C_{-delta} to index -delta (conjugate symmetry for real result)
+        coeffs[-delta] = np.conj(term)
+        
+    # IFFT to compute Fourier series sum C_k e^{i k phi}
+    # Multiply by n_fft because ifft includes 1/N scaling
+    vals = np.fft.ifft(coeffs) * n_fft
+    
+    # Fidelity is strictly real; take max over sampled phases
+    return float(np.max(np.real(vals)))
+
+
+def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_dim, beam_width, 
+                                    penalty_strength, prob_power):
+    """
+    Evaluates the circuit using Density Matrices to support loss/noise, using Beam Search.
+    
+    Args:
+        flat_params: Flat parameter vector.
+        circuit: TimeMultiplexedCircuit instance.
+        target_kets: List of target kets (pure states).
+        cutoff_dim: Fock cutoff.
+        beam_width: Number of branches to keep.
+        penalty_strength: (Unused in this evaluator, kept for signature compatibility)
+        prob_power: (Unused in this evaluator, kept for signature compatibility)
+    
+    Returns:
+        dict: Results containing 'branches', 'expected_fidelity', etc.
+    """
+    
+    # 0. Setup Parameters
+    n_init = circuit.num_initial_parameters
+    if n_init > 0:
+        init_params = flat_params[:n_init]
+        step_params = flat_params[n_init:]
+    else:
+        init_params = np.array([])
+        step_params = flat_params
+
+    mapped_params = circuit.map_parameters(step_params)
+    meas_specs = circuit.get_measurement_specs() 
+    
+    # Identify modes: Max measured mode index + 1 (assuming Loop is 0)
+    meas_modes = [m for m, c in meas_specs]
+    n_modes = max(meas_modes) + 1 if meas_modes else 1
+    
+    # 1. Initialize State (Loop Mode 0)
+    initial_ket = circuit.get_initial_state_ket(init_params, cutoff_dim)
+    # Convert to Density Matrix: |psi><psi|
+    initial_dm = np.outer(initial_ket, np.conj(initial_ket))
+    
+    # Branch structure: {'dm': np.ndarray, 'prob': float, 'outcomes': list of tuples}
+    active_branches = [{
+        'dm': initial_dm,
+        'prob': 1.0,
+        'outcomes': []
+    }]
+    
+    # 2. Time Steps
+    for step in range(circuit.steps):
+        step_p = mapped_params[step]
+        candidates = []
+        
+        # Prepare outcome combinations for this step
+        # ranges for each measured mode
+        ranges = [range(c) for _, c in meas_specs]
+        outcome_combos = list(itertools.product(*ranges))
+        
+        for branch in active_branches:
+            parent_dm = branch['dm']
+            parent_prob = branch['prob']
+            
+            # Run Circuit Step
+            eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+            prog = sf.Program(n_modes)
+            with prog.context as q:
+                DensityMatrix(parent_dm) | q[0]
+            
+            eng.run(prog)  # <-- THIS WAS MISSING
+
+            # This runs the unitary + loss channels (if configured in circuit)
+            result = circuit.run_step(None, step, step_p, eng)
+            
+            # Extract full density matrix
+            # Shape: (D, D, ..., D) with 2*N_modes axes
+            # Axis order in SF dm(): Row0, Row1..., Col0, Col1...
+            full_dm = result.state.dm()
+            
+            # 3. Measurement Projection & Branching
+            for outcomes in outcome_combos:
+                # outcomes is tuple (n_m1, n_m2...)
+                
+                # Construct slicer for the tensor
+                # We want to slice indices corresponding to measured modes
+                indexer = [slice(None)] * (2 * n_modes)
+                
+                for i, (m_idx, _) in enumerate(meas_specs):
+                    val = outcomes[i]
+                    # Fix Row index for mode (index = m_idx)
+                    indexer[m_idx] = val
+                    # Fix Col index for mode (index = n_modes + m_idx)
+                    indexer[n_modes + m_idx] = val
+                
+                # Perform slice
+                # The remaining array corresponds to Mode 0 (Loop)
+                # Shape (D, D) as Mode 0 indices (0 and n_modes) are preserved
+                projected_dm = full_dm[tuple(indexer)]
+                
+                # Calculate probability (Trace of the unnormalized DM block)
+                trace_prob = np.real(np.trace(projected_dm))
+                
+                if trace_prob > 1e-12:
+                    # Renormalize
+                    new_dm = projected_dm / trace_prob
+                    
+                    # Update chain probability
+                    new_chain_prob = parent_prob * trace_prob
+                    
+                    # Record
+                    candidates.append({
+                        'dm': new_dm,
+                        'prob': new_chain_prob,
+                        'outcomes': branch['outcomes'] + [outcomes]
+                    })
+        
+        # 4. Pruning (Beam Search)
+        # Sort by cumulative probability descending
+        candidates.sort(key=lambda x: x['prob'], reverse=True)
+        active_branches = candidates[:beam_width]
+        
+        # Check if dead
+        if not active_branches:
+            break
+
+    # 5. Finalize Results
+    results = []
+    expected_fidelity = 0.0
+    total_captured_prob = 0.0
+    
+    for branch in active_branches:
+        rho = branch['dm']
+        prob = branch['prob']
+        total_captured_prob += prob
+        
+        # Calculate Fidelity against targets (maximized over phase using FFT)
+        max_fid = 0.0
+        best_target_idx = 0
+        
+        for t_i, t_ket in enumerate(target_kets):
+            fid = _compute_max_fidelity_dm(rho, t_ket)
+            
+            if fid > max_fid:
+                max_fid = fid
+                best_target_idx = t_i
+        
+        expected_fidelity += prob * max_fid
+        
+        # Reshape outcomes to tuple of tuples
+        res_outcomes = tuple(branch['outcomes'])
+        
+        results.append({
+            'outcome': res_outcomes,
+            'prob': prob,
+            'fidelity': max_fid,
+            'target_idx': best_target_idx
+        })
+
+    return {
+        "branches": results,
+        "expected_fidelity": expected_fidelity,
+        "total_probability": total_captured_prob
+    }
 
 
 def print_optimization_statistics(result: dict, success_threshold: float = 0.99, target_names: list = None):
@@ -528,9 +732,12 @@ def main():
     results_path = None  # Set to specific path if desired
     branch_index = 0  # Index of branch to visualize from best_result['branches']
     measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
-    cutoff = 50  # Cutoff dimension for visualization
+    cutoff = 30  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
     
+    LOSS_TRANSMISSIVITY = 0.999999  # Set < 1.0 to enable Density Matrix simulation with loss
+    USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
+
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
     
@@ -576,6 +783,10 @@ def main():
     circuit_config = sanitize_config_paths(circuit_config)
     target_configs = sanitize_config_paths(target_configs)
     # ============================
+
+    # Inject Loss Parameter if configured
+    if circuit_config and 'params' in circuit_config:
+        circuit_config['params']['loss_transmissivity'] = LOSS_TRANSMISSIVITY
 
     print_config_info(circuit_config, target_configs)
 
@@ -626,10 +837,23 @@ def main():
         
         if targets:
             print("Re-evaluating circuit to ensure fresh branch data...")
-            # Example: re-run with potentially higher beam width
-            result_to_analyze = get_all_optimization_results(
-                circuit, np.asarray(flat_x), targets, cutoff, beam_width=100
-            )
+            if USE_DM_EVAL:
+                print(f"Evaluating with Density Matrices (Loss T={LOSS_TRANSMISSIVITY})...")
+                target_kets = [t.get_target_ket(cutoff) for t in targets]
+                result_to_analyze = evaluate_time_domain_circuit_dm(
+                    np.asarray(flat_x),
+                    circuit,
+                    target_kets,
+                    cutoff,
+                    beam_width=100,
+                    penalty_strength=0.0,
+                    prob_power=1.0
+                )
+            else:
+                # Example: re-run with potentially higher beam width
+                result_to_analyze = get_all_optimization_results(
+                    circuit, np.asarray(flat_x), targets, cutoff, beam_width=100
+                )
         
         if result_to_analyze:
             print_optimization_statistics(
@@ -643,6 +867,11 @@ def main():
     # -------------------------------------------------------------------------
     # 2. Visualize Specific Outcome
     # -------------------------------------------------------------------------
+    if USE_DM_EVAL:
+        print("\n=== Single Branch Visualization ===")
+        print("Skipping visualization: Wigner plotting for Mixed States (Density Matrices) is not yet implemented in this script.")
+        return
+
     print("\n=== Single Branch Visualization ===")
 
     # Determine measurement outcomes to evaluate

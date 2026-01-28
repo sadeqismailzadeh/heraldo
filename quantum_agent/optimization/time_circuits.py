@@ -3,7 +3,7 @@ Concrete implementation of TimeMultiplexedCircuit for time-domain optimization.
 """
 import numpy as np
 import strawberryfields as sf
-from strawberryfields.ops import Sgate, Dgate, BSgate, Fock
+from strawberryfields.ops import Sgate, Dgate, BSgate, Fock, LossChannel
 
 from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
 
@@ -21,7 +21,7 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
                  train_initial_state: bool = False, initial_r: float = 0.0,
-                 initial_fock_one: bool = False):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
@@ -29,6 +29,7 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
         self.train_initial_state = train_initial_state
         self.initial_r = initial_r
         self.initial_fock_one = initial_fock_one
+        self.loss_transmissivity = loss_transmissivity
         
         self._param_names = [
             'sq_r', 'sq_phi', 
@@ -117,6 +118,10 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
             # 4. Interaction
             BSgate(bs_theta, bs_phi) | (q[0], q[1])
             
+            if self.loss_transmissivity < 1.0:
+                LossChannel(self.loss_transmissivity) | q[0]
+                LossChannel(self.loss_transmissivity) | q[1]
+            
         return engine.run(prog)
     
 class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
@@ -132,7 +137,7 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, measure_fock_cutoff: int = 5, num_single_photon=0,
                  train_initial_state: bool = False,
                  initial_r: float = 0.0,
-                 initial_fock_one: bool = False):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
@@ -141,6 +146,7 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         self.train_initial_state = train_initial_state
         self.initial_r = initial_r
         self.initial_fock_one = initial_fock_one
+        self.loss_transmissivity = loss_transmissivity
 
         
         self._param_names = [
@@ -218,6 +224,10 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             Sgate(sq_r, sq_phi) | q[1]
             
             BSgate(bs_theta, bs_phi) | (q[0], q[1])
+
+            if self.loss_transmissivity < 1.0:
+                LossChannel(self.loss_transmissivity) | q[0]
+                LossChannel(self.loss_transmissivity) | q[1]
             
         return engine.run(prog)
 
@@ -236,7 +246,7 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, measure_fock_cutoff: int = 5, num_single_photon=0,
                 train_initial_state: bool = False,
                  initial_r: float = 0.0,
-                 initial_fock_one: bool = False):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
@@ -245,6 +255,7 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         self.train_initial_state = train_initial_state
         self.initial_r = initial_r
         self.initial_fock_one = initial_fock_one
+        self.loss_transmissivity = loss_transmissivity
         
         self._param_names = [
             'sq1_r', 'sq2_r',
@@ -330,8 +341,14 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
                 
             # 3. Interferometer
             BSgate(bs_theta[0], bs_phi[0]) | (q[0], q[1])
+
             BSgate(bs_theta[1], bs_phi[1]) | (q[1], q[2])
+
             BSgate(bs_theta[2], bs_phi[2]) | (q[0], q[1])
+            if self.loss_transmissivity < 1.0:
+                LossChannel(self.loss_transmissivity) | q[0]
+                LossChannel(self.loss_transmissivity) | q[1]
+                LossChannel(self.loss_transmissivity) | q[2]
             
         return engine.run(prog)
 
@@ -352,7 +369,7 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
                  train_initial_state: bool = False, initial_r: float = 0.0,
-                 initial_fock_one: bool = False):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
@@ -360,6 +377,7 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         self.train_initial_state = train_initial_state
         self.initial_r = initial_r
         self.initial_fock_one = initial_fock_one
+        self.loss_transmissivity = loss_transmissivity
         
         # Parameters: 3 squeezing amplitudes, 3 squeezing phases, 6 BS thetas, 6 BS phis
         self._param_names = [
@@ -458,12 +476,23 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             # 3. Six beam splitters between adjacent modes
             # Forward chain: (0,1), (1,2), (2,3)
             BSgate(bs_theta[0], bs_phi[0]) | (q[0], q[1])
+
+
             BSgate(bs_theta[1], bs_phi[1]) | (q[2], q[3])
+
+
             BSgate(bs_theta[2], bs_phi[2]) | (q[1], q[2])
-            
+
             # Backward chain: (3,2), (2,1), (1,0)
             BSgate(bs_theta[3], bs_phi[3]) | (q[0], q[1])
+
             BSgate(bs_theta[4], bs_phi[4]) | (q[2], q[3])
+
             BSgate(bs_theta[5], bs_phi[5]) | (q[1], q[2])
+            if self.loss_transmissivity < 1.0:
+                LossChannel(self.loss_transmissivity) | q[0]
+                LossChannel(self.loss_transmissivity) | q[1]
+                LossChannel(self.loss_transmissivity) | q[2]
+                LossChannel(self.loss_transmissivity) | q[3]
             
         return engine.run(prog)
