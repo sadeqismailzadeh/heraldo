@@ -27,10 +27,13 @@ from sklearn.cluster import KMeans
 import itertools
 
 # Imports
+import quantum_agent.optimization.time_circuits as circuit_module
+import quantum_agent.components.targets as target_module
 from quantum_agent.optimization.time_circuits import *
 from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, BasinHoppingRunner, DualAnnealingRunner
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
+from quantum_agent.factory import create_from_config
 
 import json
 import pickle
@@ -184,7 +187,7 @@ def print_targets(targets, cutoff_dim, tolerance=1e-6):
 def main():
     # --- Configuration ---
     CUTOFF_DIM = 30          # Simulation cutoff
-    STEPS = 1                # Time steps (depth of the circuit)
+    STEPS = 3                # Time steps (depth of the circuit)
     BEAM_WIDTH = 100          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
@@ -205,97 +208,154 @@ def main():
 
     squeezing = db_to_r(12)
     print(f"squeezing r = {squeezing}")
-    # 1. Target
-    targets1 = [
-        SqueezedCatTarget(alpha=3, r=1.38, p=0),
-        SqueezedCatTarget(alpha=3, r=1.38, p=1)
+
+    # -------------------------------------------------------------------------
+    # 1. Define Target Configs
+    # -------------------------------------------------------------------------
+
+    # 1.1 Squeezed Cat
+    target_configs1 = [
+        {'class_name': 'SqueezedCatTarget', 'params': {'alpha': 3, 'r': 1.38, 'p': 0}},
+        {'class_name': 'SqueezedCatTarget', 'params': {'alpha': 3, 'r': 1.38, 'p': 1}}
     ]
 
-    target_cat = [
-        CatTarget(alpha=2, p=0),
-        CatTarget(alpha=2, p=1)
+    # 1.2 Cat
+    target_configs_cat = [
+        {'class_name': 'CatTarget', 'params': {'alpha': 2, 'p': 0}},
+        {'class_name': 'CatTarget', 'params': {'alpha': 2, 'p': 1}}
     ]
-    gkp_targets = [CoreGKPTarget(csv_path=Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv", 
-                            n_max=n, delta_db=10, mu=m)
-            for n in [4, 6, 8, 10, 12] for m in [1]]
-    
 
-        # Generate all Binomial Codes with max Fock state <= 12
-    binomial_targets = []
+    # 1.3 GKP
+    csv_path_abs = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
+    gkp_target_configs = [
+        {'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': n, 'delta_db': 10, 'mu': m}}
+        for n in [4, 6, 8, 10, 12] for m in [1]
+    ]
+
+    # 1.4 Binomial
+    binomial_target_configs_all = []
     max_fock_n = 14
     for S in range(1, max_fock_n):
         for N in range(2, max_fock_n):
             if (N + 1) * (S + 1) <= max_fock_n:
-                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=0))
-                binomial_targets.append(BinomialCodeTarget(N=N, S=S, mu=1))
-    binomial_targets = filter_zero_slot_arrays(binomial_targets, CUTOFF_DIM)
-
-    csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
-    target3=CoreGKPTarget(csv_path=csv_path, 
-                          n_max=8, 
-                          delta_db=10, 
-                          mu=0)
+                binomial_target_configs_all.append({'class_name': 'BinomialCodeTarget', 'params': {'N': N, 'S': S, 'mu': 0}})
+                binomial_target_configs_all.append({'class_name': 'BinomialCodeTarget', 'params': {'N': N, 'S': S, 'mu': 1}})
     
-    target_cubic = CubicResourceTarget(a=0.61)
+    # 1.5 Single Core GKP
+    target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 4, 'delta_db': 10, 'mu': 0}}]
     
+    # 1.6 Cubic
+    target_config_cubic = {'class_name': 'CubicResourceTarget', 'params': {'a': 0.61}}
 
+    # --- Select Active Target Configs ---
     
-
-    # 2. Circuit
-    circuit_gadget = TwoModeTimeDomainGadget(
-        steps=STEPS,
-        time_invariant=TIME_INVARIANT,
-        clip_size=1,
-        measure_fock_cutoff=MEASURE_CUTOFF,
-        train_initial_state=False, 
-        initial_r=1,
-    )
-
-
-    circuit1 = TwoModeTimeDomainSqueezeOnly(steps=STEPS,
-                                            time_invariant=TIME_INVARIANT,
-                                            clip_size=squeezing,
-                                            measure_fock_cutoff=MEASURE_CUTOFF,
-                                            num_single_photon=1,
-                                            train_initial_state=True, 
-                                            initial_r=squeezing )
+    # Here we select which group we want to use. 
+    # NOTE: Binomial needs filtering, handled below.
     
+    active_target_configs = target_config_3 
+    # active_target_configs = target_configs1
+    # active_target_configs = binomial_target_configs_all # Needs filtering below
 
-    circuit2 = ThreeModeTimeDomainSqueezeOnly(steps=STEPS,
-                                        time_invariant=TIME_INVARIANT,
-                                        clip_size=squeezing,
-                                        measure_fock_cutoff=MEASURE_CUTOFF,
-                                        num_single_photon=0,
-                                        train_initial_state=True, 
-                                        initial_r=squeezing )
-
-    circuit3 = FourModeTimeDomainSqueezeOnly(steps=STEPS,
-                                    time_invariant=TIME_INVARIANT,
-                                    clip_size=squeezing,
-                                    measure_fock_cutoff=MEASURE_CUTOFF,
-                                    num_single_photon=0,
-                                    train_initial_state=True, 
-                                    initial_r=squeezing )
-
-
-
-
-
+    # --- Instantiation and Filtering ---
     
-    circuit = circuit1
-    targets = gkp_targets
+    targets = []
+    final_target_configs = []
+
+    # Binomial special case for filtering:
+    # We instantiate all, filter instances, and keep corresponding configs
+    if active_target_configs == binomial_target_configs_all:
+        temp_targets = [create_from_config(cfg, target_module) for cfg in active_target_configs]
+        for t, cfg in zip(temp_targets, active_target_configs):
+             # filter_zero_slot_arrays logic inlined or called (returns new list)
+             # Easier to inline check here:
+             if np.count_nonzero(t.get_target_ket(CUTOFF_DIM) > 1e-6) > 1:
+                 targets.append(t)
+                 final_target_configs.append(cfg)
+    else:
+        # Standard instantiation
+        for cfg in active_target_configs:
+            targets.append(create_from_config(cfg, target_module))
+        final_target_configs = active_target_configs
+
+    # Overwrite the 'targets' variable used later
     print(f"Optimizing for {len(targets)} targets.")
     print_targets(targets, CUTOFF_DIM)
-    patterns = generate_measurement_patterns(circuit, exact_total=5)
+
+    # -------------------------------------------------------------------------
+    # 2. Define Circuit Configs
+    # -------------------------------------------------------------------------
+
+    circuit_config_gadget = {
+        'class_name': 'TwoModeTimeDomainGadget',
+        'params': {
+            'steps': STEPS,
+            'time_invariant': TIME_INVARIANT,
+            'clip_size': squeezing,
+            'measure_fock_cutoff': MEASURE_CUTOFF,
+            'train_initial_state': True,
+            'initial_r': squeezing
+        }
+    }
+
+    circuit_config_1 = {
+        'class_name': 'TwoModeTimeDomainSqueezeOnly',
+        'params': {
+            'steps': STEPS,
+            'time_invariant': TIME_INVARIANT,
+            'clip_size': squeezing,
+            'measure_fock_cutoff': MEASURE_CUTOFF,
+            'num_single_photon': 0,
+            'train_initial_state': True,
+            'initial_r': squeezing,
+            'initial_fock_one': False
+        }
+    }
+
+    circuit_config_2 = {
+        'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+        'params': {
+            'steps': STEPS,
+            'time_invariant': TIME_INVARIANT,
+            'clip_size': squeezing,
+            'measure_fock_cutoff': MEASURE_CUTOFF,
+            'num_single_photon': 0,
+            'train_initial_state': True,
+            'initial_r': squeezing
+        }
+    }
+
+    circuit_config_3 = {
+        'class_name': 'FourModeTimeDomainSqueezeOnly',
+        'params': {
+            'steps': STEPS,
+            'time_invariant': TIME_INVARIANT,
+            'clip_size': squeezing,
+            'measure_fock_cutoff': MEASURE_CUTOFF,
+            'num_single_photon': 0,
+            'train_initial_state': True,
+            'initial_r': squeezing
+        }
+    }
+
+    # --- Select Active Circuit ---
+    active_circuit_config = circuit_config_1
+    
+    # Instantiate Circuit
+    circuit = create_from_config(active_circuit_config, circuit_module)
+    
+    # -------------------------------------------------------------------------
+    # Patterns and Scores
+    # -------------------------------------------------------------------------
+
+    patterns = generate_measurement_patterns(circuit, exact_total=4)
    
     # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
     # patterns = [(2,2,4)]
     # patterns = [(4,4)]
     # patterns = [[(1,3)]]
-    patterns = None
-    print(patterns)
+    # patterns = None
+    print(f"Measurement patterns: {patterns}")
     patterns = prepare_measurement_patterns(patterns)
-    print(patterns)
     
     
     print("\nNon-Gaussianity scores for targets:")
@@ -414,6 +474,8 @@ def main():
                     "prob_power": prob_power,
                     "expected_fidelity": float(expected_fidelity),
                     "success_prob": float(success_prob),
+                    "circuit_config": active_circuit_config,   # <--- Save Circuit Recipe
+                    "target_configs": final_target_configs     # <--- Save Target Recipes
                 }
                 run_file = results_dir / f"run_{e+1:04d}.pkl"
                 with open(run_file, "wb") as f:
@@ -500,6 +562,11 @@ def main():
         best_dir = results_dir / "best"
         best_dir.mkdir(exist_ok=True)
 
+        # Inject configs into best result payload
+        best_res_to_save = best_res.copy()
+        best_res_to_save['circuit_config'] = active_circuit_config
+        best_res_to_save['target_configs'] = final_target_configs
+
         with open(best_dir / "best_result.pkl", "wb") as f:
             pickle.dump(best_res, f)
 
@@ -510,7 +577,9 @@ def main():
         np.savez(best_dir / "mapped_params.npz", mapped_params=mapped_params)
         schedule = {
             "param_names": param_names,
-            "mapped_params": mapped_params.tolist() if hasattr(mapped_params, "tolist") else [[float(v) for v in row] for row in mapped_params]
+            "mapped_params": mapped_params.tolist() if hasattr(mapped_params, "tolist") else [[float(v) for v in row] for row in mapped_params],
+            "circuit_config": active_circuit_config,
+            "target_configs": final_target_configs
         }
         with open(best_dir / "schedule.json", "w") as f:
             json.dump(schedule, f, indent=2)
