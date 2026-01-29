@@ -461,13 +461,13 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        min_infidel=1e-2
+        min_infidel=1e-5
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
-        expected_fidelity = np.sum((final_probs**prob_power)
-                                   * (capped_fidelities**2 *log_vals)**4)
-        # expected_fidelity = np.sum(final_probs + capped_fidelities)
+        # expected_fidelity = np.sum((final_probs**prob_power)
+        #                            * (capped_fidelities**2 *log_vals)**4)
+        expected_fidelity = np.sum(final_probs + capped_fidelities)
         # expected_fidelity = np.log(expected_fidelity)
         # Soft Success Calculation
         steepness = 50.0
@@ -852,13 +852,16 @@ class CMAESOptimizationRunner:
         else:
             self.target_photon_moments = None
 
-    def run(self, n_generations=50, population_size=None, prob_power=1):
+    def run(self, n_generations=50, population_size=None, prob_power=1, bipop=False, restarts=0):
         """
         Runs the CMA-ES optimization.
         
         Args:
-            n_generations (int): Maximum number of generations.
+            n_generations (int): Maximum number of generations (per run).
             population_size (int): Size of the population (lambda). If None, CMA defaults are used.
+            prob_power (float): Power for probability weighting.
+            bipop (bool): If True, use BIPOP-CMA-ES (requires restarts > 0 implicitly or explicitly).
+            restarts (int): Number of restarts for IPOP/BIPOP strategies.
         """
         # 1. Setup Parameters and Bounds
         per_step_bounds = self.circuit.per_step_parameter_bounds
@@ -882,20 +885,10 @@ class CMAESOptimizationRunner:
         # Initial guess (random within bounds)
         x0 = np.array([np.random.uniform(l, h) for l, h in full_bounds])
         
-        # 2. Initialize CMA-ES
-        opts = {
-            'bounds': [lower_bounds, upper_bounds],
-            'maxiter': n_generations,
-            'verbose': -1,  # Suppress internal printing
-        }
-        if population_size:
-            opts['popsize'] = population_size
-            
-        es = cma.CMAEvolutionStrategy(x0, self.sigma0, opts)
-        
-        print(f"Starting CMA-ES (Generations={n_generations}, PopSize={es.popsize}, "
+        print(f"Starting CMA-ES (Generations={n_generations}, PopSize={population_size}, "
               f"Processes={self.num_processes}, NG_Weight={self.ng_weight}, "
               f"PhotonDistWeight={self.photon_dist_weight}, "
+              f"BIPOP={bipop}, Restarts={restarts}, "
               f"Patterns={'fixed' if self.measurement_patterns is not None else 'beam'})...")
         start_time = time.time()
         
@@ -920,32 +913,61 @@ class CMAESOptimizationRunner:
             target_photon_moments=self.target_photon_moments
         )
         
+        final_x = None
         best_loss = float('inf')
-        best_x = None
 
-        # 3. Evolution Loop
         with multiprocessing.Pool(processes=self.num_processes) as pool:
-            for gen in range(n_generations):
-                if es.stop():
-                    break
+            
+            if bipop or restarts > 0:
+                # Use cma.fmin for automatic restarts (IPOP/BIPOP)
+                opts = {
+                    'bounds': [lower_bounds, upper_bounds],
+                    'maxiter': n_generations,
+                    'verbose': 1,  # Enable standard CMA output
+                }
+                if population_size:
+                    opts['popsize'] = population_size
+                
+                # Define parallel objective wrapper
+                def parallel_objective(X):
+                    return pool.map(worker_func, X)
+                
+                res = cma.fmin(worker_func, x0, self.sigma0, options=opts,
+                               restarts=restarts, bipop=bipop,
+                               parallel_objective=parallel_objective)
+                
+                final_x = res[0]
+                best_loss = res[1]
+                
+            else:
+                # Manual loop (Single Run)
+                opts = {
+                    'bounds': [lower_bounds, upper_bounds],
+                    'maxiter': n_generations,
+                    'verbose': -1,  # Suppress internal printing
+                }
+                if population_size:
+                    opts['popsize'] = population_size
                     
-                X = es.ask()
+                es = cma.CMAEvolutionStrategy(x0, self.sigma0, opts)
                 
-                # Parallel Evaluation
-                fitness_values = pool.map(worker_func, X)
-                
-                es.tell(X, fitness_values)
-                es.logger.add()  # write to cma files
-                
-                current_best_loss = min(fitness_values)
-                if current_best_loss < best_loss:
-                    best_loss = current_best_loss
-                    best_x = es.result.xbest
+                while not es.stop():
+                    X = es.ask()
+                    fitness_values = pool.map(worker_func, X)
+                    es.tell(X, fitness_values)
+                    es.logger.add()  # write to cma files
                     
-                print(f"  Gen {gen+1}/{n_generations} | Sigma: {es.sigma:.3f} | Min Loss: {current_best_loss} ")
+                    current_best_loss = min(fitness_values)
+                    if current_best_loss < best_loss:
+                        best_loss = current_best_loss
+                        final_x = es.result.xbest
+                    
+                    print(f"  Gen {es.countiter}/{n_generations} | Sigma: {es.sigma:.3f} | Min Loss: {current_best_loss:.5f} ")
+                
+                # Ensure final_x is set to the best result found
+                final_x = es.result.xbest
 
         duration = time.time() - start_time
-        final_x = es.result.xbest
         final_loss = best_loss
         
         
