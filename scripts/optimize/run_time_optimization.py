@@ -184,6 +184,38 @@ def print_targets(targets, cutoff_dim, tolerance=1e-6):
         
         print("\n")
 
+def save_experiment_details(results_dir: Path, circuit_config: dict, target_configs: list):
+    """Saves a pretty-printed summary of the experiment configuration to a text file."""
+    lines = []
+    lines.append("=" * 80)
+    lines.append(" EXPERIMENT CONFIGURATION DETAILS")
+    lines.append("=" * 80)
+    lines.append(f"Generated at: {datetime.utcnow().isoformat()}Z")
+    lines.append("")
+
+    lines.append("--- CIRCUIT CONFIGURATION ---")
+    lines.append(f"Class: {circuit_config.get('class_name', 'Unknown')}")
+    params = circuit_config.get('params', {})
+    for k, v in params.items():
+        lines.append(f"  {k:<25}: {v}")
+    lines.append("")
+
+    lines.append("--- TARGET CONFIGURATIONS ---")
+    lines.append(f"Total Targets: {len(target_configs)}")
+    for i, cfg in enumerate(target_configs):
+        lines.append(f"Target {i}: {cfg.get('class_name', 'Unknown')}")
+        t_params = cfg.get('params', {})
+        for pk, pv in t_params.items():
+            lines.append(f"  - {pk:<23}: {pv}")
+        lines.append("")
+    
+    lines.append("=" * 80)
+    
+    content = "\n".join(lines)
+    with open(results_dir / "experiment_details.txt", "w") as f:
+        f.write(content)
+    return content
+
 def main():
     # --- Configuration ---
     CUTOFF_DIM = 30          # Simulation cutoff
@@ -362,6 +394,11 @@ def main():
     results_dir = Path(__file__).resolve().parent.parent.parent / "results" / folder_name
     results_dir.mkdir(parents=True, exist_ok=True)
     print(f"Saving per-run results to: {results_dir}")
+
+    # Save pretty-printed experiment details
+    details_txt = save_experiment_details(results_dir, active_circuit_config, final_target_configs)
+    print("\nExperiment Configuration Summary:")
+    print(details_txt)
 
     # Instantiate Circuit
     circuit = create_from_config(active_circuit_config, circuit_module)
