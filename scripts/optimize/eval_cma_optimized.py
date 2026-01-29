@@ -273,14 +273,13 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
             with prog.context as q:
                 DensityMatrix(parent_dm) | q[0]
             
-            eng.run(prog)  # <-- THIS WAS MISSING
+            eng.run(prog) 
 
             # This runs the unitary + loss channels (if configured in circuit)
             result = circuit.run_step(None, step, step_p, eng)
             
             # Extract full density matrix
-            # Shape: (D, D, ..., D) with 2*N_modes axes
-            # Axis order in SF dm(): Row0, Row1..., Col0, Col1...
+            # Shape is interleaved: (Ket0, Bra0, Ket1, Bra1, ...)
             full_dm = result.state.dm()
             
             # 3. Measurement Projection & Branching
@@ -288,19 +287,21 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
                 # outcomes is tuple (n_m1, n_m2...)
                 
                 # Construct slicer for the tensor
-                # We want to slice indices corresponding to measured modes
                 indexer = [slice(None)] * (2 * n_modes)
                 
                 for i, (m_idx, _) in enumerate(meas_specs):
                     val = outcomes[i]
-                    # Fix Row index for mode (index = m_idx)
-                    indexer[m_idx] = val
-                    # Fix Col index for mode (index = n_modes + m_idx)
-                    indexer[n_modes + m_idx] = val
+                    # Strawberry Fields dm() indices are (Ket0, Bra0, Ket1, Bra1, ...)
+                    # Mode k corresponds to indices 2*k and 2*k+1
+                    
+                    # Fix Ket index for mode m_idx
+                    indexer[2 * m_idx] = val
+                    # Fix Bra index for mode m_idx
+                    indexer[2 * m_idx + 1] = val
                 
                 # Perform slice
-                # The remaining array corresponds to Mode 0 (Loop)
-                # Shape (D, D) as Mode 0 indices (0 and n_modes) are preserved
+                # The remaining axes correspond to unmeasured modes (Mode 0)
+                # Shape becomes (D, D) for the loop mode
                 projected_dm = full_dm[tuple(indexer)]
                 
                 # Calculate probability (Trace of the unnormalized DM block)
@@ -620,10 +621,15 @@ def plot_ket_wigner(ket, title="State", cutoff_dim=40, grid_size=200, x_limit=5)
 
 
 def _find_latest_results_dir(base_dir: Path):
-    matches = sorted(base_dir.glob("opt_run_*"))
+    # Modified to match "opt_*" instead of "opt_run_*" to support new naming tags
+    # and sort by modification time to ensure we get the actual latest run.
+    matches = [p for p in base_dir.glob("opt_*") if p.is_dir()]
+    
     if not matches:
         return None
-    return matches[-1]
+        
+    # Return the directory with the most recent modification time
+    return max(matches, key=lambda p: p.stat().st_mtime)
 
 
 def _load_best_from_results(results_dir: Path):
@@ -735,7 +741,7 @@ def main():
     cutoff = 30  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
     
-    LOSS_TRANSMISSIVITY = 0.999999  # Set < 1.0 to enable Density Matrix simulation with loss
+    LOSS_TRANSMISSIVITY = 1 - 0.02  # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
     # Find results directory

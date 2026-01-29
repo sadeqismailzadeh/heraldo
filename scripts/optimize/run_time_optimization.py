@@ -199,13 +199,6 @@ def main():
     print("--- Setting up Time-Domain Optimization ---")
     print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}, Optimizer: {OPTIMIZER_METHOD}")
 
-    # Results directory (per run-session)
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    results_dir = Path(__file__).resolve().parent.parent.parent / "results" / f"opt_run_{timestamp}"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Saving per-run results to: {results_dir}")
-
-
     squeezing = db_to_r(12)
     print(f"squeezing r = {squeezing}")
 
@@ -340,6 +333,36 @@ def main():
     # --- Select Active Circuit ---
     active_circuit_config = circuit_config_1
     
+    # --- Results Directory Setup ---
+    # Generate short tags for folder name based on active configs
+    c_name = active_circuit_config.get('class_name', '')
+    if "Gadget" in c_name: 
+        c_tag = "Gadget"
+    elif "TwoMode" in c_name and "SqueezeOnly" in c_name: 
+        c_tag = "Sq2"
+    elif "ThreeMode" in c_name and "SqueezeOnly" in c_name: 
+        c_tag = "Sq3"
+    elif "FourMode" in c_name and "SqueezeOnly" in c_name: 
+        c_tag = "Sq4"
+    else: 
+        c_tag = "Circ"
+
+    t_tag = "Tgt"
+    if active_target_configs and isinstance(active_target_configs, list) and len(active_target_configs) > 0:
+        t_first = active_target_configs[0].get('class_name', '')
+        if "GKP" in t_first: t_tag = "GKP"
+        elif "SqueezedCat" in t_first: t_tag = "SqCat"
+        elif "Cat" in t_first: t_tag = "Cat"
+        elif "Binomial" in t_first: t_tag = "Bin"
+        elif "Cubic" in t_first: t_tag = "Cub"
+
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    folder_name = f"opt_{c_tag}_{t_tag}_{timestamp}"
+    
+    results_dir = Path(__file__).resolve().parent.parent.parent / "results" / folder_name
+    results_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Saving per-run results to: {results_dir}")
+
     # Instantiate Circuit
     circuit = create_from_config(active_circuit_config, circuit_module)
     
