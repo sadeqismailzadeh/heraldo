@@ -184,7 +184,7 @@ def print_targets(targets, cutoff_dim, tolerance=1e-6):
         
         print("\n")
 
-def save_experiment_details(results_dir: Path, circuit_config: dict, target_configs: list):
+def save_experiment_details(results_dir: Path, circuit_config: dict, target_configs: list, patterns=None, beam_width=None):
     """Saves a pretty-printed summary of the experiment configuration to a text file."""
     lines = []
     lines.append("=" * 80)
@@ -208,6 +208,22 @@ def save_experiment_details(results_dir: Path, circuit_config: dict, target_conf
         for pk, pv in t_params.items():
             lines.append(f"  - {pk:<23}: {pv}")
         lines.append("")
+
+    lines.append("--- BRANCHING STRATEGY ---")
+    if patterns is not None:
+        n_p = len(patterns)
+        lines.append(f"Fixed Measurement Patterns ({n_p} total):")
+        # Convert to list if it's a numpy array for easier printing
+        p_to_print = patterns.tolist() if hasattr(patterns, 'tolist') else patterns
+        for i, p in enumerate(p_to_print):
+            if i < 100:  # Limit printing for very large sets
+                lines.append(f"  {i:3}: {p}")
+            else:
+                lines.append(f"  ... and {n_p - 100} more patterns.")
+                break
+    else:
+        lines.append(f"Beam Search Width: {beam_width}")
+    lines.append("")
     
     lines.append("=" * 80)
     
@@ -216,10 +232,61 @@ def save_experiment_details(results_dir: Path, circuit_config: dict, target_conf
         f.write(content)
     return content
 
+
+def format_branches_report(branches, target_names, success_threshold):
+    """Returns a formatted string of branch statistics."""
+    lines = []
+    lines.append("-" * 80)
+    lines.append(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
+    lines.append("-" * 80)
+
+    sorted_branches = sorted(branches, key=lambda x: x['prob'], reverse=True)
+    total_prob = 0.0
+    for b in sorted_branches:
+        total_prob += b['prob']
+        outcome_str = str(b['outcome'])
+        t_idx = b.get('target_idx', 0)
+        tgt_name = target_names[t_idx] if t_idx < len(target_names) else f"Target_{t_idx}"
+        lines.append(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {(1-b['fidelity']):<10.1e} {tgt_name:<15}")
+
+    lines.append(f"\nTotal Probability captured: {total_prob:.5f}")
+
+    # Target Analysis
+    lines.append("-" * 60)
+    lines.append(f"Target Distribution Analysis (Success > {success_threshold}):")
+    lines.append(f"{'Rank':<5} {'Target Name':<20} {'Tot. Prob':<10} {'Outcomes (Top 3)'}")
+    lines.append("-" * 60)
+
+    target_stats = {}
+    for b in branches:
+        if b['fidelity'] > success_threshold:
+            idx = b.get('target_idx', 0)
+            if idx not in target_stats:
+                target_stats[idx] = {'prob': 0.0, 'outcomes': []}
+            target_stats[idx]['prob'] += b['prob']
+            target_stats[idx]['outcomes'].append((b['outcome'], b['prob']))
+
+    sorted_targets = sorted(target_stats.items(), key=lambda x: x[1]['prob'], reverse=True)
+
+    if not sorted_targets:
+        lines.append("No branches met the success threshold.")
+    else:
+        for rank, (idx, stats) in enumerate(sorted_targets):
+            stats['outcomes'].sort(key=lambda x: x[1], reverse=True)
+            top_outcomes = [str(o[0]) for o in stats['outcomes'][:3]]
+            outcome_str = ", ".join(top_outcomes)
+            if len(stats['outcomes']) > 3:
+                outcome_str += ", ..."
+            t_name = target_names[idx] if idx < len(target_names) else f"Target_{idx}"
+            lines.append(f"{rank+1:<5} {t_name:<20} {stats['prob']:<10.4f} {outcome_str}")
+
+    return "\n".join(lines)
+
+
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 30          # Simulation cutoff
-    STEPS = 3                # Time steps (depth of the circuit)
+    CUTOFF_DIM = 20          # Simulation cutoff
+    STEPS = 1                # Time steps (depth of the circuit)
     BEAM_WIDTH = 100          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
@@ -248,6 +315,17 @@ def main():
     target_configs_cat = [
         {'class_name': 'CatTarget', 'params': {'alpha': 2, 'p': 0}},
         {'class_name': 'CatTarget', 'params': {'alpha': 2, 'p': 1}}
+    ]
+
+    # 1.6 Cubic Phase Target
+    cubic_phase_config = [
+        {'class_name': 'CubicPhaseTarget', 'params': {'gamma': -0.2, 'r': -0.7, 'alpha': 1.25}}
+    ]
+
+    # 1.7 Tri-squeezed and Quad-squeezed Targets
+    higher_order_squeezed_configs = [
+        {'class_name': 'TrisqueezedTarget', 'params': {}},
+        {'class_name': 'QuadsqueezedTarget', 'params': {}}
     ]
 
     # 1.3 GKP
@@ -363,7 +441,7 @@ def main():
     }
 
     # --- Select Active Circuit ---
-    active_circuit_config = circuit_config_1
+    active_circuit_config = circuit_config_2
     
     # --- Results Directory Setup ---
     # Generate short tags for folder name based on active configs
@@ -395,11 +473,6 @@ def main():
     results_dir.mkdir(parents=True, exist_ok=True)
     print(f"Saving per-run results to: {results_dir}")
 
-    # Save pretty-printed experiment details
-    details_txt = save_experiment_details(results_dir, active_circuit_config, final_target_configs)
-    print("\nExperiment Configuration Summary:")
-    print(details_txt)
-
     # Instantiate Circuit
     circuit = create_from_config(active_circuit_config, circuit_module)
     
@@ -415,6 +488,18 @@ def main():
     # patterns = [[(1,3)]]
     # patterns = None
     print(f"Measurement patterns: {patterns}")
+
+    # Save pretty-printed experiment details
+    details_txt = save_experiment_details(
+        results_dir, 
+        active_circuit_config, 
+        final_target_configs, 
+        patterns=patterns, 
+        beam_width=BEAM_WIDTH
+    )
+    print("\nExperiment Configuration Summary:")
+    print(details_txt)
+
     patterns = prepare_measurement_patterns(patterns)
     
     
@@ -474,6 +559,12 @@ def main():
             target_names.append(f"Cat_a{t.alpha}_p{t.p}")
         elif isinstance(t, BinomialCodeTarget):
             target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
+        elif isinstance(t, CubicPhaseTarget):
+            target_names.append(f"CubicPh_g{t.gamma}_r{t.r}")
+        elif isinstance(t, TrisqueezedTarget):
+            target_names.append("TriSq")
+        elif isinstance(t, QuadsqueezedTarget):
+            target_names.append("QuadSq")
         else:
             target_names.append("UnknownTarget")
 
@@ -550,7 +641,13 @@ def main():
                 }
                 with open(results_dir / f"run_{e+1:04d}_summary.json", "w") as f:
                     json.dump(summary, f, indent=2)
-                    print(f"run {e+1} saved to {results_dir}")
+
+                # Save pretty-printed branch details for this run
+                branches_report = format_branches_report(branches, target_names, SUCCESS_THRESHOLD)
+                with open(results_dir / f"run_{e+1:04d}_branches.txt", "w") as f:
+                    f.write(branches_report)
+
+                print(f"run {e+1} saved to {results_dir}")
             except Exception as save_exc:
                 print(f"  Warning: failed to save run {e+1} result: {save_exc}")
             
@@ -659,51 +756,10 @@ def main():
         val_strs = [f"{v:10.4f}" for v in vals]
         row_str += " | ".join(val_strs)
         print(row_str)
-        
+
     print("-" * 60)
-    print("Dominant Outcome Branches (Sorted by Prob):")
-    print(f"{'Outcome':<15} {'Prob':<10} {'Fidelity':<10} {'Best Target':<15}")
-    print("-" * 60)
-    
-    sorted_branches = sorted(best_res['branches'], key=lambda x: x['prob'], reverse=True)
-    
-    for b in sorted_branches:
-        # if b['prob'] > 0.001:
-            outcome_str = str(b['outcome'])
-            # Time runner usually has single target index 0
-            tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else "Target"
-            print(f"{outcome_str:<15} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name:<15}")
-
-    # --- Target Analysis ---
-    print("-" * 60)
-    print("Target Distribution Analysis (Aggregated Success):")
-    print(f"{'Rank':<5} {'Target Name':<20} {'Tot. Prob':<10} {'Outcomes (Top 3)'}")
-    print("-" * 60)
-
-    target_stats = {} 
-    for b in best_res['branches']:
-        if b['fidelity'] > SUCCESS_THRESHOLD:
-            idx = b['target_idx']
-            if idx not in target_stats:
-                target_stats[idx] = {'prob': 0.0, 'outcomes': []}
-            target_stats[idx]['prob'] += b['prob']
-            target_stats[idx]['outcomes'].append((b['outcome'], b['prob']))
-
-    sorted_targets = sorted(target_stats.items(), key=lambda x: x[1]['prob'], reverse=True)
-
-    if not sorted_targets:
-        print("No branches met the success threshold.")
-    
-    for rank, (idx, stats) in enumerate(sorted_targets):
-        stats['outcomes'].sort(key=lambda x: x[1], reverse=True)
-        top_outcomes = [str(o[0]) for o in stats['outcomes'][:3]]
-        outcome_str = ", ".join(top_outcomes)
-        if len(stats['outcomes']) > 3:
-            outcome_str += ", ..."
-        
-        t_name = target_names[idx] if idx < len(target_names) else f"Target_{idx}"
-        print(f"{rank+1:<5} {t_name:<20} {stats['prob']:<10.4f} {outcome_str}")
-
+    print("\nBest Run Detailed Branch Report:")
+    print(format_branches_report(best_res['branches'], target_names, SUCCESS_THRESHOLD))
     print("="*60)
 
 if __name__ == "__main__":
