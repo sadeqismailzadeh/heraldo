@@ -24,6 +24,11 @@ try:
 except ImportError:
     raise ImportError("CMA-ES runner requires the 'cma' package. Please install it via 'pip install cma'.")
 
+try:
+    import nevergrad as ng
+except ImportError:
+    raise ImportError("Nevergrad runner requires the 'nevergrad' package. Please install it via 'pip install nevergrad'.")
+
 
 def _compute_photon_moments(ket, max_moment= 10):
     """
@@ -461,22 +466,43 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        min_infidel=1e-5
+        min_infidel=1e-12
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
         # expected_fidelity = np.sum((final_probs**prob_power)
         #                            * (capped_fidelities**2 *log_vals)**4)
         expected_fidelity = np.sum(final_probs + capped_fidelities)
-        # expected_fidelity = np.log(expected_fidelity)
-        # Soft Success Calculation
-        steepness = 50.0
-        # expit(-x) == 1 / (1 + exp(x))
-        diff = success_threshold - fidelities
-        x = np.log(np.maximum(1.0 - diff, 1e-12))
-        sigmoids = expit(steepness * x)
-        soft_success_prob = np.sum(sigmoids * (capped_fidelities + 0.1*final_probs))  
+          # expected_fidelity = np.log(expected_fidelity)
+
+        # Softplus(x) = log(1 + exp(x))
+        # Numerically stable implementation: np.logaddexp(0, x)
+        alpha=  100
+        x = alpha * (fidelities - success_threshold)
+        softplus_reward = np.logaddexp(0, x) / alpha
         
+        # The objective is the sum of probabilities weighted by the softplus of fidelity
+        # This maximizes Prob for branches above the threshold while maintaining a 
+        # small gradient for those below it.
+        # expected_fidelity = np.sum(final_probs * softplus_reward)
+
+
+
+        # Update soft_success_prob for reporting (Optional)
+        # Using a higher steepness for a harder "Success" count
+        epsilon = 1e-3
+        # success_threshold= 1 - 5e-2
+        sigmoids = expit(200.0 * (fidelities - success_threshold))
+        sigmoids2 = expit(50.0 * (final_probs - 0.001))
+        soft_success_prob = np.sum(final_probs* sigmoids2 * sigmoids)
+        sigmoids3 = expit(5.0 * (final_probs - 0.0))
+        gradient_leak1 = np.sum(final_probs * sigmoids3 * log_vals**2)
+        gradient_leak2 = np.sum(final_probs**0.2  * (capped_fidelities**2 *log_vals)**4)
+        # gradient_leak = np.sum(final_probs**0.2 * sigmoids2 * log_vals)
+        expected_fidelity = (1- epsilon) * soft_success_prob + epsilon * gradient_leak2
+        # expected_fidelity = np.log(expected_fidelity) / 100
+
+
         # Non-Gaussianity Penalty
         if ng_weight > 1e-6:
             ng_scores = compute_ng_scores(final_kets, cutoff_dim)
@@ -722,7 +748,7 @@ class BasinHoppingRunner:
         print(f"  [Iteration {self.iteration_count}] [{status}] (Evals: {self.eval_count}) Loss: {f} ")
         self.eval_count = 0
 
-    def run(self, n_iter=20, method="SLSQP", prob_power=1.0, n_generations=None):
+    def run(self, n_iter=20, method="Powell", prob_power=1.0, n_generations=None):
         """
         Runs the global optimization.
         """
@@ -750,7 +776,7 @@ class BasinHoppingRunner:
         minimizer_kwargs = {
             "method": method,
             "bounds": full_bounds,
-            "tol": 1e-4
+            # "tol": 1e-4
         }
         
         print(f"Starting Basin-Hopping Beam Search (Width={self.beam_width}, Steps={self.circuit.steps}, NG_Weight={self.ng_weight})...")
@@ -962,7 +988,7 @@ class CMAESOptimizationRunner:
                         best_loss = current_best_loss
                         final_x = es.result.xbest
                     
-                    print(f"  Gen {es.countiter}/{n_generations} | Sigma: {es.sigma:.3f} | Min Loss: {current_best_loss:.5f} ")
+                    print(f"  Gen {es.countiter}/{n_generations} | Sigma: {es.sigma:.3f} | Min Loss: {current_best_loss} ")
                 
                 # Ensure final_x is set to the best result found
                 final_x = es.result.xbest
@@ -1326,4 +1352,179 @@ class DualAnnealingRunner:
             "total_probability": final_eval["total_probability"],
             "duration": duration,
             "message": result.message
+        }
+
+class NevergradOptimizationRunner:
+    """
+    Optimizes time-domain circuits using Nevergrad.
+    """
+    def __init__(self, 
+                 circuit: TimeMultiplexedCircuit, 
+                 target_gens: list[TargetGenerator], 
+                 cutoff_dim: int,
+                 beam_width: int = 5,
+                 penalty_strength: float = 10.0,
+                 success_threshold: float = 0.99,
+                 success_weight: float = 5.0,
+                 ng_weight: float = 0.0,
+                 ng_threshold: float = 0.1,
+                 photon_dist_weight: float = 0.0,
+                 max_photon_dist: int = 10,
+                 photon_dist_metric: str = 'dot_product',
+                 num_processes: int = 4,
+                 measurement_patterns = None,
+                 **kwargs):
+        
+        self.circuit = circuit
+        self.cutoff_dim = cutoff_dim
+        self.beam_width = beam_width
+        self.penalty_strength = penalty_strength
+        self.success_threshold = success_threshold
+        self.success_weight = success_weight
+        self.ng_weight = ng_weight
+        self.ng_threshold = ng_threshold
+        self.photon_dist_weight = photon_dist_weight
+        self.max_photon_dist = max_photon_dist
+        self.photon_dist_metric = photon_dist_metric
+        self.num_processes = num_processes
+        self.measurement_patterns = measurement_patterns
+        self.optimizer_kwargs = kwargs
+
+        if not isinstance(target_gens, list):
+            target_gens = [target_gens]
+        
+        self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
+        
+        if photon_dist_weight > 1e-6:
+            self.target_photon_moments = [
+                _compute_photon_moments(ket, max_photon_dist)
+                for ket in self.target_kets
+            ]
+        else:
+            self.target_photon_moments = None
+
+    def run(self, n_generations=1000, prob_power=1, optimizer_name="NGOpt", **kwargs):
+        """
+        Runs the Nevergrad optimization.
+        
+        Args:
+            n_generations (int): Optimization budget (number of evaluations).
+            prob_power (float): Power for probability weighting.
+            optimizer_name (str): Name of the nevergrad optimizer (default: "NGOpt").
+        """
+        # 1. Setup Parameters and Bounds
+        per_step_bounds = self.circuit.per_step_parameter_bounds
+        self.prob_power = prob_power
+        
+        if self.circuit.time_invariant:
+            step_bounds = per_step_bounds
+        else:
+            step_bounds = per_step_bounds * self.circuit.steps
+            
+        init_bounds = self.circuit.initial_parameter_bounds
+        full_bounds = init_bounds + step_bounds
+        
+        lower_bounds = np.array([b[0] for b in full_bounds])
+        upper_bounds = np.array([b[1] for b in full_bounds])
+        dimension = len(full_bounds)
+        
+        # 2. Parametrization
+        parametrization = ng.p.Array(shape=(dimension,)).set_bounds(lower=lower_bounds, upper=upper_bounds)
+        
+        # 3. Optimizer
+        # Override optimizer_name from kwargs if present
+        opt_name = self.optimizer_kwargs.get("optimizer_name", optimizer_name)
+        
+        budget = n_generations
+        workers = self.num_processes if self.num_processes > 0 else 1
+        
+        optimizer = ng.optimizers.registry[opt_name](parametrization=parametrization, budget=budget, num_workers=workers)
+        
+        print(f"Starting Nevergrad Optimization ({opt_name})...")
+        print(f"  Budget: {budget}, Workers: {workers}, NG_Weight={self.ng_weight}, PhotonDistWeight={self.photon_dist_weight}")
+        start_time = time.time()
+        
+        worker_func = partial(
+            evaluate_time_domain_circuit,
+            circuit=self.circuit,
+            target_kets=self.target_kets,
+            cutoff_dim=self.cutoff_dim,
+            beam_width=self.beam_width,
+            penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
+            success_threshold=self.success_threshold,
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power,
+            photon_dist_weight=self.photon_dist_weight,
+            max_photon_dist=self.max_photon_dist,
+            photon_dist_metric=self.photon_dist_metric,
+            target_photon_moments=self.target_photon_moments,
+            return_details=False
+        )
+        
+        # Optimization Loop
+        if workers > 1:
+            with multiprocessing.Pool(processes=workers) as pool:
+                # Loop in batches of size 'workers'
+                while optimizer.num_ask < budget:
+                    # Determine batch size
+                    batch_size = min(workers, budget - optimizer.num_ask)
+                    if batch_size <= 0: break
+                    
+                    candidates = [optimizer.ask() for _ in range(batch_size)]
+                    x_list = [c.value for c in candidates]
+                    
+                    losses = pool.map(worker_func, x_list)
+                    
+                    for cand, loss in zip(candidates, losses):
+                        optimizer.tell(cand, loss)
+                    
+                    # Log progress
+                    if optimizer.num_ask % workers == 0 or optimizer.num_ask >= budget:
+                         print(f"  Evals: {optimizer.num_ask}/{budget} | Best Loss: {optimizer.current_bests['minimum'].mean:.5f}", end="\r")
+        else:
+            for _ in range(budget):
+                cand = optimizer.ask()
+                loss = worker_func(cand.value)
+                optimizer.tell(cand, loss)
+                if _ % 10 == 0:
+                     print(f"  Evals: {optimizer.num_ask}/{budget} | Best Loss: {optimizer.current_bests['minimum'].mean}", end="\r")
+
+        print("")
+        recommendation = optimizer.provide_recommendation()
+        final_x = recommendation.value
+        duration = time.time() - start_time
+        
+        # 4. Final Evaluation
+        final_eval = evaluate_time_domain_circuit(
+            final_x,
+            circuit=self.circuit,
+            target_kets=self.target_kets,
+            cutoff_dim=self.cutoff_dim,
+            beam_width=self.beam_width,
+            penalty_strength=self.penalty_strength,
+            measurement_patterns=self.measurement_patterns,
+            success_threshold=self.success_threshold,
+            success_weight=self.success_weight,
+            ng_weight=self.ng_weight,
+            ng_threshold=self.ng_threshold,
+            prob_power=self.prob_power,
+            photon_dist_weight=self.photon_dist_weight,
+            max_photon_dist=self.max_photon_dist,
+            photon_dist_metric=self.photon_dist_metric,
+            target_photon_moments=self.target_photon_moments,
+            return_details=True
+        )
+
+        return {
+            "x": final_x,
+            "loss": final_eval["loss"],
+            "expected_fidelity": final_eval["expected_fidelity"],
+            "photon_similarity": final_eval.get("photon_similarity", 0.0),
+            "branches": final_eval["branches"],
+            "total_probability": final_eval["total_probability"],
+            "duration": duration,
+            "message": "Nevergrad optimization finished"
         }

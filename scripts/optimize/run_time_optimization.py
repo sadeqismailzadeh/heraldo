@@ -31,7 +31,7 @@ import itertools
 import quantum_agent.optimization.time_circuits as circuit_module
 import quantum_agent.components.targets as target_module
 from quantum_agent.optimization.time_circuits import *
-from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, BasinHoppingRunner, DualAnnealingRunner
+from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, BasinHoppingRunner, DualAnnealingRunner, NevergradOptimizationRunner
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 from quantum_agent.factory import create_from_config
@@ -293,7 +293,7 @@ def main():
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 1 - 1e-2
     
-    OPTIMIZER_METHOD = "CMA" # Options: "CMA", "DE", "BASIN", "DUAL"
+    OPTIMIZER_METHOD = "NEVERGRAD" # Options: "CMA", "DE", "BASIN", "DUAL", "NEVERGRAD"
     
     # CMA-specific settings (only used if OPTIMIZER_METHOD == "CMA")
     BIPOP = False
@@ -301,7 +301,7 @@ def main():
 
     # --- Execution ---
     n_generations = 1000       # Number of hops per global search
-    niter = 5      # Number of global searches
+    niter = 30       # Number of global searches
 
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
@@ -341,7 +341,8 @@ def main():
     csv_path_abs = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     gkp_target_configs = [
         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': n, 'delta_db': 10, 'mu': m}}
-        for n in [4, 6, 8, 10, 12] for m in [0]
+        for n in [8, 12] for m in [0]
+        # for n in [4, 6, 8, 10, 12] for m in [0]
     ]
 
     # 1.4 Binomial
@@ -357,14 +358,14 @@ def main():
     target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 4, 'delta_db': 10, 'mu': 0}}]
     
     # 1.6 Cubic
-    target_config_cubic = {'class_name': 'CubicResourceTarget', 'params': {'a': 0.61}}
+    target_config_cubic = [{'class_name': 'CubicResourceTarget', 'params': {'a': 0.61}}]
 
     # --- Select Active Target Configs ---
     
     # Here we select which group we want to use. 
     # NOTE: Binomial needs filtering, handled below.
     
-    active_target_configs = target_config_3 
+    active_target_configs = target_config_cubic 
     # active_target_configs = target_configs1
     # active_target_configs = binomial_target_configs_all # Needs filtering below
 
@@ -409,6 +410,19 @@ def main():
         }
     }
 
+    circuit_config_gadget_2 = {
+        'class_name': 'ThreeModeTimeDomainGadget',
+        'params': {
+            'steps': STEPS,
+            'time_invariant': TIME_INVARIANT,
+            'clip_size': squeezing,
+            'measure_fock_cutoff': MEASURE_CUTOFF,
+            'train_initial_state': True,
+            'initial_r': squeezing
+        }
+    }
+
+
     circuit_config_1 = {
         'class_name': 'TwoModeTimeDomainSqueezeOnly',
         'params': {
@@ -450,7 +464,7 @@ def main():
     }
 
     # --- Select Active Circuit ---
-    active_circuit_config = circuit_config_2
+    active_circuit_config = circuit_config_gadget_2
     
     # --- Results Directory Setup ---
     # Generate short tags for folder name based on active configs
@@ -495,7 +509,8 @@ def main():
     # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
     # patterns = [(2,2,4)]
     # patterns = [(4,4)]
-    patterns = [[(1,3)]]
+    # patterns = [[(1,3)]]
+    patterns = [[(1,2)]]
     # patterns = [[(1,3)], [(3,1)]]
     # patterns = None
     print(f"Measurement patterns: {patterns}")
@@ -525,7 +540,8 @@ def main():
         "CMA": CMAESOptimizationRunner,
         "DE": DifferentialEvolutionRunner,
         "BASIN": BasinHoppingRunner,
-        "DUAL": DualAnnealingRunner
+        "DUAL": DualAnnealingRunner,
+        "NEVERGRAD": NevergradOptimizationRunner
     }
     
     UnifiedRunner = runner_map.get(OPTIMIZER_METHOD)
