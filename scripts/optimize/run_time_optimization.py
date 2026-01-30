@@ -22,6 +22,7 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 import operator
 import numpy as np
 import time
+import shutil
 from pathlib import Path
 from sklearn.cluster import KMeans
 import itertools
@@ -285,14 +286,22 @@ def format_branches_report(branches, target_names, success_threshold):
 
 def main():
     # --- Configuration ---
-    CUTOFF_DIM = 20          # Simulation cutoff
+    CUTOFF_DIM = 30          # Simulation cutoff
     STEPS = 1                # Time steps (depth of the circuit)
     BEAM_WIDTH = 100          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
-    SUCCESS_THRESHOLD = 1 - 2e-2
+    SUCCESS_THRESHOLD = 1 - 1e-4
     
-    OPTIMIZER_METHOD = "DE" # Options: "CMA", "DE", "BASIN", "DUAL"
+    OPTIMIZER_METHOD = "CMA" # Options: "CMA", "DE", "BASIN", "DUAL"
+    
+    # CMA-specific settings (only used if OPTIMIZER_METHOD == "CMA")
+    BIPOP = False
+    RESTARTS = 0
+
+    # --- Execution ---
+    n_generations = 1000       # Number of hops per global search
+    niter = 10      # Number of global searches
 
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
@@ -479,6 +488,7 @@ def main():
     # -------------------------------------------------------------------------
     # Patterns and Scores
     # -------------------------------------------------------------------------
+    patterns = None
 
     patterns = generate_measurement_patterns(circuit, exact_total=4)
    
@@ -486,6 +496,7 @@ def main():
     # patterns = [(2,2,4)]
     # patterns = [(4,4)]
     # patterns = [[(1,3)]]
+    # patterns = [[(1,3)], [(3,1)]]
     # patterns = None
     print(f"Measurement patterns: {patterns}")
 
@@ -539,9 +550,7 @@ def main():
         popsize=15
     )
     
-    # --- Execution ---
-    n_generations = 5000       # Number of hops per global search
-    niter = 1      # Number of global searches
+
 
     suc_pb_ls = []
     hpx = []
@@ -583,6 +592,13 @@ def main():
             
             if OPTIMIZER_METHOD == "DUAL":
                 res = runner.run(maxiter=n_generations, prob_power=prob_power)
+            elif OPTIMIZER_METHOD == "CMA":
+                res = runner.run(
+                    n_generations=n_generations, 
+                    prob_power=prob_power, 
+                    bipop=BIPOP, 
+                    restarts=RESTARTS
+                )
             else:
                 res = runner.run(n_generations=n_generations, prob_power=prob_power)
             
@@ -601,6 +617,7 @@ def main():
             
             # Inject back into result dict
             res['success_prob'] = success_prob
+            res['run_index'] = e + 1
 
             print(f"  -> Final Expected Fidelity: {expected_fidelity:.5f}")
             print(f"  -> Success Prob (> {SUCCESS_THRESHOLD}): {success_prob:.5f}")
@@ -672,32 +689,18 @@ def main():
         print("All runs failed.")
         return
 
-    # Clustering logic
-    if len(suc_pb_ls) > 1:
-        try:
-            res_kmeans = KMeans(n_clusters=2, n_init='auto').fit(suc_pb_ls.reshape(-1, 1))
-            mean0 = np.mean(suc_pb_ls[np.where(res_kmeans.labels_ == 0)])
-            mean1 = np.mean(suc_pb_ls[np.where(res_kmeans.labels_ == 1)])
+    # Sort results list by success probability
+    results_ls.sort(key=lambda x: x['success_prob'], reverse=True)
 
-            if np.abs(mean0 - mean1) < 0.01:
-                print("Clusters indistinguishable, keeping all.")
-            else:
-                drop = 1 if mean0 > mean1 else 0
-                print(f"Mean cluster 0: {mean0:.4f}, Mean cluster 1: {mean1:.4f}. Dropping cluster {drop}.")
-                suc_pb_ls[np.where(res_kmeans.labels_ == drop)] = 0.0
-        except Exception as e:
-            print(f"KMeans filtering skipped: {e}")
+    # Save sorted list of runs
+    with open(results_dir / "sorted_runs.txt", "w") as f:
+        f.write(f"{'Run':<5} {'Success Prob':<15} {'Exp. Fidelity':<15}\n")
+        f.write("-" * 40 + "\n")
+        for r in results_ls:
+            f.write(f"{r['run_index']:<5} {r['success_prob']:<15.5f} {r['expected_fidelity']:<15.5f}\n")
 
-    # Select best based on Success Probability (filtered by clusters)
-    success_probs = np.array([r['success_prob'] for r in results_ls])
-    
-    # Zero out success probs for runs dropped by clustering (where exp_fid_ls was set to 0.0)
-    success_probs[suc_pb_ls == 0.0] = -1.0
-    
-    index, value = max(enumerate(success_probs), key=operator.itemgetter(1))
-    
-    best_res = results_ls[index]
-    best_success_prob = sum(b['prob'] for b in best_res['branches'] if b['fidelity'] > SUCCESS_THRESHOLD)
+    best_res = results_ls[0]
+    best_success_prob = best_res['success_prob']
 
     # --- Report ---
     print("\n" + "="*60)
@@ -719,13 +722,20 @@ def main():
         best_dir = results_dir / "best"
         best_dir.mkdir(exist_ok=True)
 
-        # Inject configs into best result payload
-        best_res_to_save = best_res.copy()
-        best_res_to_save['circuit_config'] = active_circuit_config
-        best_res_to_save['target_configs'] = final_target_configs
+        # Copy best run files
+        best_run_idx = best_res['run_index']
+        print(f"Best run index: {best_run_idx}")
+        
+        src_pkl = results_dir / f"run_{best_run_idx:04d}.pkl"
+        src_branches = results_dir / f"run_{best_run_idx:04d}_branches.txt"
+        src_summary = results_dir / f"run_{best_run_idx:04d}_summary.json"
 
-        with open(best_dir / "best_result.pkl", "wb") as f:
-            pickle.dump(best_res, f)
+        if src_pkl.exists():
+            shutil.copy(src_pkl, best_dir / f"best_run_{best_run_idx:04d}.pkl")
+        if src_branches.exists():
+            shutil.copy(src_branches, best_dir / f"best_run_{best_run_idx:04d}_branches.txt")
+        if src_summary.exists():
+            shutil.copy(src_summary, best_dir / f"best_run_{best_run_idx:04d}_summary.json")
 
         # save flat vector
         np.save(best_dir / "best_x.npy", best_res['x'])
