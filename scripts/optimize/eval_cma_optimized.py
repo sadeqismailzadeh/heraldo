@@ -683,6 +683,37 @@ def _load_latest_run(results_dir: Path):
     return out
 
 
+def load_params_from_json(json_path: str) -> np.ndarray:
+    """
+    Loads flat parameter vector from a JSON file.
+    Can handle a raw list or a dict with keys 'flat_params', 'x', or 'params'.
+    """
+    path = Path(json_path)
+    if not path.exists():
+        print(f"Error: JSON parameter file not found at {path}")
+        return None
+    
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+            
+        if isinstance(data, list):
+            return np.array(data)
+        elif isinstance(data, dict):
+            for key in ['flat_params', 'x', 'params']:
+                if key in data:
+                    return np.array(data[key])
+            print(f"Error: JSON dict does not contain expected keys (flat_params, x, params). Found: {list(data.keys())}")
+            return None
+        else:
+            print("Error: JSON root must be a list or dict.")
+            return None
+            
+    except Exception as e:
+        print(f"Error loading JSON parameters: {e}")
+        return None
+
+
 def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
     """
     Normalize and reshape stored branch outcomes into per-step tuples:
@@ -736,6 +767,7 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired
+    params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
     branch_index = 0  # Index of branch to visualize from best_result['branches']
     measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
     cutoff = 30  # Cutoff dimension for visualization
@@ -775,8 +807,17 @@ def main():
     flat_x = best.get('x')
     if flat_x is None:
         flat_x = best_res.get('x')
+
+    # Optional: Override parameters from JSON file
+    if params_json_path:
+        print(f"Attempting to load parameters from JSON: {params_json_path}")
+        json_x = load_params_from_json(params_json_path)
+        if json_x is not None:
+            print(f"Successfully loaded {len(json_x)} parameters from JSON. Overriding result parameters.")
+            flat_x = json_x
+    
     if flat_x is None:
-        print("Could not find flat parameter vector (best_x).")
+        print("Could not find flat parameter vector (best_x) and no JSON parameters provided.")
         return
 
     # -------------------------------------------------------------------------
