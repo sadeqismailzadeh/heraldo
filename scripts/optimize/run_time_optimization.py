@@ -291,7 +291,7 @@ def main():
     BEAM_WIDTH = 100          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
-    SUCCESS_THRESHOLD = 1 - 1e-4
+    SUCCESS_THRESHOLD = 1 - 1e-2
     
     OPTIMIZER_METHOD = "CMA" # Options: "CMA", "DE", "BASIN", "DUAL"
     
@@ -301,7 +301,7 @@ def main():
 
     # --- Execution ---
     n_generations = 1000       # Number of hops per global search
-    niter = 10      # Number of global searches
+    niter = 5      # Number of global searches
 
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
@@ -341,7 +341,7 @@ def main():
     csv_path_abs = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     gkp_target_configs = [
         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': n, 'delta_db': 10, 'mu': m}}
-        for n in [4, 6, 8, 10, 12] for m in [1]
+        for n in [4, 6, 8, 10, 12] for m in [0]
     ]
 
     # 1.4 Binomial
@@ -490,12 +490,12 @@ def main():
     # -------------------------------------------------------------------------
     patterns = None
 
-    patterns = generate_measurement_patterns(circuit, exact_total=4)
+    # patterns = generate_measurement_patterns(circuit, exact_total=4)
    
     # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
     # patterns = [(2,2,4)]
     # patterns = [(4,4)]
-    # patterns = [[(1,3)]]
+    patterns = [[(1,3)]]
     # patterns = [[(1,3)], [(3,1)]]
     # patterns = None
     print(f"Measurement patterns: {patterns}")
@@ -698,6 +698,27 @@ def main():
         f.write("-" * 40 + "\n")
         for r in results_ls:
             f.write(f"{r['run_index']:<5} {r['success_prob']:<15.5f} {r['expected_fidelity']:<15.5f}\n")
+
+    # Save detailed sorted list of runs
+    with open(results_dir / "detailed_sorted_runs.txt", "w") as f:
+        for r in results_ls:
+            f.write(f"Run {r['run_index']} (Success Prob: {r['success_prob']:.5f}, Exp. Fidelity: {r['expected_fidelity']:.5f})\n")
+            f.write(f"All Branches with Fidelity > {SUCCESS_THRESHOLD} (Sorted by Prob):\n")
+            f.write(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}\n")
+            
+            branches = r.get('branches', [])
+            good_branches = [b for b in branches if b['fidelity'] > SUCCESS_THRESHOLD]
+            good_branches.sort(key=lambda x: x['prob'], reverse=True)
+            
+            if not good_branches:
+                f.write("  No branches met the success threshold.\n")
+            else:
+                for b in good_branches:
+                    outcome_str = str(b['outcome'])
+                    t_idx = b.get('target_idx', 0)
+                    tgt_name = target_names[t_idx] if t_idx < len(target_names) else f"Target_{t_idx}"
+                    f.write(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {(1-b['fidelity']):<10.1e} {tgt_name:<15}\n")
+            f.write("\n" + "=" * 80 + "\n\n")
 
     best_res = results_ls[0]
     best_success_prob = best_res['success_prob']
