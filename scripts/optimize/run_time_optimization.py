@@ -26,6 +26,20 @@ import shutil
 from pathlib import Path
 from sklearn.cluster import KMeans
 import itertools
+import warnings
+
+# Suppress CMA injection warnings (benign bookkeeping warning)
+try:
+    import cma.evolution_strategy
+    warnings.simplefilter("ignore", cma.evolution_strategy.InjectionWarning)
+except ImportError:
+    pass
+
+
+# 3. Suppress SciPy numerical overflow warnings during local search/polishing
+# These occur when the optimizer hits a "cliff" in the loss landscape.
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
+
 
 # Imports
 import quantum_agent.optimization.time_circuits as circuit_module
@@ -293,15 +307,15 @@ def main():
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 1 - 1e-2
     
-    OPTIMIZER_METHOD = "NEVERGRAD" # Options: "CMA", "DE", "BASIN", "DUAL", "NEVERGRAD"
+    OPTIMIZER_METHOD = "CMA" # Options: "CMA", "DE", "BASIN", "DUAL", "NEVERGRAD"
     
     # CMA-specific settings (only used if OPTIMIZER_METHOD == "CMA")
     BIPOP = False
     RESTARTS = 0
 
     # --- Execution ---
-    n_generations = 1000       # Number of hops per global search
-    niter = 30       # Number of global searches
+    n_generations = 1_000       # Number of hops per global search
+    niter = 10       # Number of global searches
 
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
@@ -341,8 +355,8 @@ def main():
     csv_path_abs = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     gkp_target_configs = [
         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': n, 'delta_db': 10, 'mu': m}}
-        for n in [8, 12] for m in [0]
-        # for n in [4, 6, 8, 10, 12] for m in [0]
+        # for n in [8, 12] for m in [0]
+        for n in [4, 6, 8, 10, 12] for m in [1]
     ]
 
     # 1.4 Binomial
@@ -355,7 +369,7 @@ def main():
                 binomial_target_configs_all.append({'class_name': 'BinomialCodeTarget', 'params': {'N': N, 'S': S, 'mu': 1}})
     
     # 1.5 Single Core GKP
-    target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 4, 'delta_db': 10, 'mu': 0}}]
+    target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 8, 'delta_db': 10, 'mu': 0}}]
     
     # 1.6 Cubic
     target_config_cubic = [{'class_name': 'CubicResourceTarget', 'params': {'a': 0.61}}]
@@ -365,7 +379,7 @@ def main():
     # Here we select which group we want to use. 
     # NOTE: Binomial needs filtering, handled below.
     
-    active_target_configs = target_config_cubic 
+    active_target_configs = gkp_target_configs 
     # active_target_configs = target_configs1
     # active_target_configs = binomial_target_configs_all # Needs filtering below
 
@@ -464,7 +478,7 @@ def main():
     }
 
     # --- Select Active Circuit ---
-    active_circuit_config = circuit_config_gadget_2
+    active_circuit_config = circuit_config_1
     
     # --- Results Directory Setup ---
     # Generate short tags for folder name based on active configs
@@ -504,13 +518,13 @@ def main():
     # -------------------------------------------------------------------------
     patterns = None
 
-    # patterns = generate_measurement_patterns(circuit, exact_total=4)
+    patterns = generate_measurement_patterns(circuit, exact_total=4)
    
     # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
     # patterns = [(2,2,4)]
     # patterns = [(4,4)]
     # patterns = [[(1,3)]]
-    patterns = [[(1,2)]]
+    # patterns = [[(1,2)]]
     # patterns = [[(1,3)], [(3,1)]]
     # patterns = None
     print(f"Measurement patterns: {patterns}")
@@ -659,7 +673,8 @@ def main():
                     "expected_fidelity": float(expected_fidelity),
                     "success_prob": float(success_prob),
                     "circuit_config": active_circuit_config,   # <--- Save Circuit Recipe
-                    "target_configs": final_target_configs     # <--- Save Target Recipes
+                    "target_configs": final_target_configs,     # <--- Save Target Recipes
+                    "measurement_patterns": patterns
                 }
                 run_file = results_dir / f"run_{e+1:04d}.pkl"
                 with open(run_file, "wb") as f:
@@ -690,7 +705,7 @@ def main():
     # Convert to arrays
     suc_pb_ls = np.array(suc_pb_ls)
     hpx = np.array(hpx)  # Array of flat parameters
-    
+
     # Filter NaNs
     valid_mask = ~np.isnan(suc_pb_ls)
     suc_pb_ls = suc_pb_ls[valid_mask]

@@ -136,7 +136,7 @@ def sanitize_config_paths(config):
     
     return config
 
-def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: np.ndarray, targets: list, cutoff_dim: int, beam_width: int = 100):
+def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: np.ndarray, targets: list, cutoff_dim: int, beam_width: int = 100, measurement_patterns=None):
     """
     Runs the circuit evaluation with the provided parameters to generate full branch details.
     
@@ -146,6 +146,7 @@ def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: n
         targets: List of TargetGenerator instances.
         cutoff_dim: Simulation cutoff.
         beam_width: Beam width for search (higher = more branches captured).
+        measurement_patterns: Optional list/array of fixed measurement patterns to evaluate.
         
     Returns:
         dict: The result dictionary containing 'loss', 'branches', 'expected_fidelity', etc.
@@ -162,6 +163,7 @@ def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: n
         beam_width=beam_width,
         penalty_strength=0.0,
         success_threshold=0.99, # Used for internal loss calculation
+        measurement_patterns=measurement_patterns,
         return_details=True
     )
 
@@ -208,7 +210,7 @@ def _compute_max_fidelity_dm(rho, target_ket, n_fft=256):
 
 
 def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_dim, beam_width, 
-                                    penalty_strength, prob_power):
+                                    penalty_strength, prob_power, measurement_patterns=None):
     """
     Evaluates the circuit using Density Matrices to support loss/noise, using Beam Search.
     
@@ -220,6 +222,9 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
         beam_width: Number of branches to keep.
         penalty_strength: (Unused in this evaluator, kept for signature compatibility)
         prob_power: (Unused in this evaluator, kept for signature compatibility)
+        measurement_patterns: Optional list or array of fixed outcome patterns.
+                              If provided, beam search is disabled and only these paths are evaluated.
+                              Shape: (n_sequences, steps, n_meas_modes).
     
     Returns:
         dict: Results containing 'branches', 'expected_fidelity', etc.
@@ -246,22 +251,50 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
     # Convert to Density Matrix: |psi><psi|
     initial_dm = np.outer(initial_ket, np.conj(initial_ket))
     
-    # Branch structure: {'dm': np.ndarray, 'prob': float, 'outcomes': list of tuples}
-    active_branches = [{
-        'dm': initial_dm,
-        'prob': 1.0,
-        'outcomes': []
-    }]
+    use_fixed_patterns = measurement_patterns is not None
+    patterns_arr = None
+
+    if use_fixed_patterns:
+        # Normalize patterns to numpy array (n_patterns, steps, n_modes)
+        try:
+            patterns_arr = np.array(measurement_patterns, dtype=int)
+        except Exception:
+            # Fallback for ragged lists or try basic conversion
+            patterns_arr = np.array(list(measurement_patterns), dtype=int)
+            
+        if patterns_arr.ndim == 2:
+            patterns_arr = patterns_arr[None, ...]
+        if patterns_arr.ndim != 3:
+             raise ValueError("measurement_patterns must be shape (n_seq, steps, n_modes) or (steps, n_modes)")
+        
+        n_patterns = patterns_arr.shape[0]
+        # Initialize branches for each pattern
+        active_branches = []
+        for i in range(n_patterns):
+             active_branches.append({
+                'dm': initial_dm.copy(), # Copy initial DM for each path
+                'prob': 1.0,
+                'outcomes': [],
+                'pattern_idx': i
+             })
+    else:
+        # Branch structure: {'dm': np.ndarray, 'prob': float, 'outcomes': list of tuples}
+        active_branches = [{
+            'dm': initial_dm,
+            'prob': 1.0,
+            'outcomes': []
+        }]
     
     # 2. Time Steps
     for step in range(circuit.steps):
         step_p = mapped_params[step]
         candidates = []
         
-        # Prepare outcome combinations for this step
-        # ranges for each measured mode
-        ranges = [range(c) for _, c in meas_specs]
-        outcome_combos = list(itertools.product(*ranges))
+        # Prepare outcome combinations for this step (only used if NOT fixed patterns)
+        outcome_combos = []
+        if not use_fixed_patterns:
+            ranges = [range(c) for _, c in meas_specs]
+            outcome_combos = list(itertools.product(*ranges))
         
         for branch in active_branches:
             parent_dm = branch['dm']
@@ -282,8 +315,17 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
             # Shape is interleaved: (Ket0, Bra0, Ket1, Bra1, ...)
             full_dm = result.state.dm()
             
+            # Determine which outcomes to process for this branch
+            if use_fixed_patterns:
+                p_idx = branch['pattern_idx']
+                # Extract outcome for this step: shape (n_modes,)
+                target_outcome = tuple(patterns_arr[p_idx, step, :])
+                loop_outcomes = [target_outcome]
+            else:
+                loop_outcomes = outcome_combos
+
             # 3. Measurement Projection & Branching
-            for outcomes in outcome_combos:
+            for outcomes in loop_outcomes:
                 # outcomes is tuple (n_m1, n_m2...)
                 
                 # Construct slicer for the tensor
@@ -315,16 +357,24 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
                     new_chain_prob = parent_prob * trace_prob
                     
                     # Record
-                    candidates.append({
+                    cand = {
                         'dm': new_dm,
                         'prob': new_chain_prob,
                         'outcomes': branch['outcomes'] + [outcomes]
-                    })
+                    }
+                    if use_fixed_patterns:
+                        cand['pattern_idx'] = branch.get('pattern_idx')
+                        
+                    candidates.append(cand)
         
-        # 4. Pruning (Beam Search)
-        # Sort by cumulative probability descending
-        candidates.sort(key=lambda x: x['prob'], reverse=True)
-        active_branches = candidates[:beam_width]
+        # 4. Pruning or Update
+        if use_fixed_patterns:
+            # In fixed pattern mode, we don't beam search; we just keep the surviving paths.
+            active_branches = candidates
+        else:
+            # Beam Search Pruning
+            candidates.sort(key=lambda x: x['prob'], reverse=True)
+            active_branches = candidates[:beam_width]
         
         # Check if dead
         if not active_branches:
@@ -677,6 +727,8 @@ def load_optimization_run(results_dir: Path, selection: str = "best"):
             res["circuit_config"] = meta["circuit_config"]
         if "target_configs" in meta:
             res["target_configs"] = meta["target_configs"]
+        if "measurement_patterns" in meta:
+            res["measurement_patterns"] = meta["measurement_patterns"]
     else:
         # Fallback for older or flat structures
         res = data
@@ -775,9 +827,10 @@ def main():
     params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
     # params_json_path =  Path(__file__).resolve().parent.parent.parent / "results" / "manual" / "optimized_params.json"
     branch_index = 0  # Index of branch to visualize from best_result['branches']
-    measurement = "1,3"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
+    measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
     cutoff = 50  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
+    FORCE_BEAM_SEARCH = False # If True, ignores stored fixed patterns and re-runs Beam Search
     
     LOSS_TRANSMISSIVITY = 1   # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
@@ -885,6 +938,18 @@ def main():
         
         if targets:
             print("Re-evaluating circuit to ensure fresh branch data...")
+            
+            # Determine evaluation mode (Fixed Patterns vs Beam Search)
+            stored_patterns = best_res.get('measurement_patterns')
+            eval_patterns = None
+            
+            if not FORCE_BEAM_SEARCH and stored_patterns is not None:
+                print(" -> Using Original Fixed Patterns for analysis.")
+                eval_patterns = stored_patterns
+            else:
+                print(f" -> Using Beam Search (Width=100) for analysis.")
+                eval_patterns = None
+
             if USE_DM_EVAL:
                 print(f"Evaluating with Density Matrices (Loss T={LOSS_TRANSMISSIVITY})...")
                 target_kets = [t.get_target_ket(cutoff) for t in targets]
@@ -895,12 +960,13 @@ def main():
                     cutoff,
                     beam_width=100,
                     penalty_strength=0.0,
-                    prob_power=1.0
+                    prob_power=1.0,
+                    measurement_patterns=eval_patterns
                 )
             else:
                 # Example: re-run with potentially higher beam width
                 result_to_analyze = get_all_optimization_results(
-                    circuit, np.asarray(flat_x), targets, cutoff, beam_width=100
+                    circuit, np.asarray(flat_x), targets, cutoff, beam_width=100, measurement_patterns=eval_patterns
                 )
         
         if result_to_analyze:
