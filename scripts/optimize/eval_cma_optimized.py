@@ -632,55 +632,59 @@ def _find_latest_results_dir(base_dir: Path):
     return max(matches, key=lambda p: p.stat().st_mtime)
 
 
-def _load_best_from_results(results_dir: Path):
-    """Try to load best_result.pkl / best_x.npy / schedule.json from a results directory."""
-    best_dir = results_dir / "best"
-    best = {}
-    if (best_dir / "best_result.pkl").exists():
-        with open(best_dir / "best_result.pkl", "rb") as f:
-            best['best_res'] = pickle.load(f)
-    if (best_dir / "best_x.npy").exists():
-        best['x'] = np.load(best_dir / "best_x.npy", allow_pickle=True)
-    if (best_dir / "mapped_params.npz").exists():
-        npz = np.load(best_dir / "mapped_params.npz")
-        best['mapped_params'] = npz['mapped_params']
-    if (best_dir / "schedule.json").exists():
-        with open(best_dir / "schedule.json", "r") as f:
-            best['schedule'] = json.load(f)
-    return best
-
-
-def _load_latest_run(results_dir: Path):
+def load_optimization_run(results_dir: Path, selection: str = "best"):
     """
-    Load the most recent run_XXXX.pkl from a CMA results directory.
-    Returns a dict compatible with downstream evaluation logic.
+    Unified loader for optimization results.
+    
+    Args:
+        results_dir: The opt_XXXX directory.
+        selection: 
+            - "best": loads from best/best_run_0001.pkl
+            - "latest": loads the highest numbered run_XXXX.pkl
+            - integer string (e.g. "5"): loads run_0005.pkl
     """
-    runs = sorted(results_dir.glob("run_*.pkl"))
-    if not runs:
+    target_file = None
+
+    if selection == "best":
+        target_file = results_dir / "best" / "best_run_0001.pkl"
+    elif selection == "latest":
+        runs = sorted(results_dir.glob("run_*.pkl"))
+        if runs:
+            target_file = runs[-1]
+    else:
+        # Try to parse as specific run number
+        try:
+            run_num = int(selection)
+            target_file = results_dir / f"run_{run_num:04d}.pkl"
+        except ValueError:
+            print(f"Error: Invalid selection '{selection}'. Use 'best', 'latest', or a number.")
+            return None
+
+    if not target_file or not target_file.exists():
+        print(f"Error: Result file not found at {target_file}")
         return None
 
-    latest = runs[-1]
-    with open(latest, "rb") as f:
+    print(f"Loading data from: {target_file}")
+    with open(target_file, "rb") as f:
         data = pickle.load(f)
 
-    # Structure check: {"meta": ..., "res": ...}
+    # Structure check and normalization: {"meta": ..., "res": ...}
     if isinstance(data, dict) and "meta" in data and "res" in data:
         res = data["res"]
         meta = data["meta"]
-        # Normalize: Inject recipes from meta into res if they are missing
+        # Inject recipes from meta into res if they are missing
         if "circuit_config" in meta:
             res["circuit_config"] = meta["circuit_config"]
         if "target_configs" in meta:
             res["target_configs"] = meta["target_configs"]
     else:
-        # Fallback for older or flat structures (like best_result.pkl)
+        # Fallback for older or flat structures
         res = data
 
-    out = {
+    return {
         "best_res": res,
         "x": res.get("x")
     }
-    return out
 
 
 def load_params_from_json(json_path: str) -> np.ndarray:
@@ -767,13 +771,15 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired
+    run_selection = "best" # "best", "latest", or a run number string like "5"
     params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
+    # params_json_path =  Path(__file__).resolve().parent.parent.parent / "results" / "manual" / "optimized_params.json"
     branch_index = 0  # Index of branch to visualize from best_result['branches']
-    measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
-    cutoff = 30  # Cutoff dimension for visualization
+    measurement = "1,3"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
+    cutoff = 50  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
     
-    LOSS_TRANSMISSIVITY = 1 - 0.02  # Set < 1.0 to enable Density Matrix simulation with loss
+    LOSS_TRANSMISSIVITY = 1   # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
     # Find results directory
@@ -789,15 +795,10 @@ def main():
         return
     
     print(f"Using results dir: {results_dir}")
-    # Prefer latest run_* over best/
-    _load_best_from_results
-    best = _load_latest_run(results_dir)
-    if best is None:
-        print("No run_*.pkl found, falling back to best/.")
-        best = _load_best_from_results(results_dir)
+    
+    best = load_optimization_run(results_dir, selection=run_selection)
 
     if not best:
-        print("No usable results found in results directory.")
         return
 
     # Extract Results
