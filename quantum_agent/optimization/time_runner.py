@@ -18,6 +18,7 @@ from quantum_agent.utils import *
 
 import multiprocessing
 from functools import partial
+from tqdm import tqdm
 
 try:
     import cma
@@ -304,10 +305,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         
         # Calculate outcome sums for each sequence
         active_outcome_sums = np.sum(patterns_arr[possible_mask], axis=(1, 2))
-        
-        # Normalize probabilities (each sequence equally weighted)
-        seq_weights = 1.0 / np.sum(possible_mask)
-        active_probs = active_probs * seq_weights
+    
     
     else:
         # BEAM SEARCH MODE (original implementation)
@@ -466,13 +464,14 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        min_infidel=1e-12
+        min_infidel=1e-5
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
         # expected_fidelity = np.sum((final_probs**prob_power)
         #                            * (capped_fidelities**2 *log_vals)**4)
         expected_fidelity = np.sum(final_probs + capped_fidelities)
+        # expected_fidelity = np.sum(np.log(1e-25+(final_probs+ 1e-7) * np.log(1-capped_fidelities)))
           # expected_fidelity = np.log(expected_fidelity)
 
         # Softplus(x) = log(1 + exp(x))
@@ -487,36 +486,41 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         # expected_fidelity = np.sum(final_probs * softplus_reward)
 
 
-
+        log_diff = np.log10(infidelities)  /  np.log10(min_infidel) - np.log10(1-success_threshold)  /  np.log10(min_infidel)
         # Update soft_success_prob for reporting (Optional)
         # Using a higher steepness for a harder "Success" count
         epsilon = 1e-3
         # success_threshold= 1 - 5e-2
-        sigmoids = expit(200.0 * (fidelities - success_threshold))
-        sigmoids2 = expit(50.0 * (final_probs - 0.001))
+        sigmoids = expit(10.0 * (fidelities - success_threshold))
+        # sigmoids = expit(100.0 * log_diff)
+        sigmoids2 = expit(5.0 * (final_probs - 0.0005))
         soft_success_prob = np.sum(final_probs* sigmoids2 * sigmoids)
         sigmoids3 = expit(5.0 * (final_probs - 0.0))
         gradient_leak1 = np.sum(final_probs * sigmoids3 * log_vals**2)
-        gradient_leak2 = np.sum(final_probs**0.2  * (capped_fidelities**2 *log_vals)**4)
+        # randpower = np.random.uniform(0.02, 1)
+        gradient_leak2 = np.sum(final_probs**0.2  * (capped_fidelities**2 *log_vals))
         # gradient_leak = np.sum(final_probs**0.2 * sigmoids2 * log_vals)
-        expected_fidelity = (1- epsilon) * soft_success_prob + epsilon * gradient_leak2
-        # expected_fidelity = np.log(expected_fidelity) / 100
+        objective = (1- epsilon) * soft_success_prob + epsilon * gradient_leak2
+        objective2 = np.sum(final_probs  * (capped_fidelities**2 *log_vals)**4)
 
+        expected_fidelity = np.log(objective2) + 1e3 * objective2
 
+        ng_weight = 0
         # Non-Gaussianity Penalty
-        if ng_weight > 1e-6:
+        ng_threshold =0.5
+        if ng_weight > 1e-19:
             ng_scores = compute_ng_scores(final_kets, cutoff_dim)
 
             # Sigmoid penalty: High (1.0) if score < threshold (Gaussian), Low (0.0) if score > threshold
             # S = 1 / (1 + exp(k * (score - threshold)))
             #   = expit( -k * (score - threshold) )
-            ng_steepness = 500.0
+            ng_steepness = 20.0
             # ng_penalty_terms = 1/(1+np.exp(ng_steepness * (ng_scores - ng_threshold)))
             # NOTE: We use expit(-z) to calculate 1/(1+exp(z)) safely
-            ng_penalty_terms = 1- expit(ng_steepness * (ng_scores - ng_threshold))
+            ng_penalty_terms = expit(ng_steepness * (ng_scores - ng_threshold))
             
             # ng_loss = np.sum(ng_penalty_terms)
-            ng_loss = np.sum(abs(ng_threshold - ng_scores))
+            ng_loss = np.sum(final_probs * abs(ng_threshold - ng_scores))
 
         # Photon Moment Similarity
         if photon_dist_weight > 1e-6:
@@ -748,7 +752,7 @@ class BasinHoppingRunner:
         print(f"  [Iteration {self.iteration_count}] [{status}] (Evals: {self.eval_count}) Loss: {f} ")
         self.eval_count = 0
 
-    def run(self, n_iter=20, method="Powell", prob_power=1.0, n_generations=None):
+    def run(self, n_iter=20, method="SLSQP", prob_power=1.0, n_generations=None):
         """
         Runs the global optimization.
         """
@@ -1403,7 +1407,7 @@ class NevergradOptimizationRunner:
         else:
             self.target_photon_moments = None
 
-    def run(self, n_generations=1000, prob_power=1, optimizer_name="NGOpt", **kwargs):
+    def run(self, n_generations=1000, prob_power=1, optimizer_name="NgIohTuned", **kwargs):
         """
         Runs the Nevergrad optimization.
         
@@ -1483,7 +1487,7 @@ class NevergradOptimizationRunner:
                     
                     # Log progress
                     if optimizer.num_ask % workers == 0 or optimizer.num_ask >= budget:
-                         print(f"  Evals: {optimizer.num_ask}/{budget} | Best Loss: {optimizer.current_bests['minimum'].mean:.5f}", end="\r")
+                         print(f"  Evals: {optimizer.num_ask}/{budget} | Best Loss: {optimizer.current_bests['minimum'].mean:.5e}", end="\r")
         else:
             for _ in range(budget):
                 cand = optimizer.ask()
