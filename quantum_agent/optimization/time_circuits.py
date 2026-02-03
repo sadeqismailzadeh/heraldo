@@ -41,12 +41,12 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
             self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = [
-            (0.0, self.clip_size),  # sq_r
-            (-np.pi, np.pi),        # sq_phi
-            (0.0, self.clip_size),  # disp_r
-            (-np.pi, np.pi),        # disp_phi
-            (0.0, 2 * np.pi),       # bs_theta
-            (-np.pi, np.pi)         # bs_phi
+            (-self.clip_size, self.clip_size),  # sq_r
+            (-8*np.pi, 8*np.pi),        # sq_phi
+            (-self.clip_size, self.clip_size),  # disp_r
+            (-8*np.pi, 8*np.pi),        # disp_phi
+            (-8*np.pi, 8*np.pi),       # bs_theta
+            (-8*np.pi, 8*np.pi)         # bs_phi
         ]
 
     @property
@@ -70,7 +70,7 @@ class TwoModeTimeDomainGadget(TimeMultiplexedCircuit):
     @property
     def initial_parameter_bounds(self) -> list[tuple[float, float]]:
         if self.train_initial_state:
-            return [(0.0, self.clip_size), (-np.pi, np.pi)]
+            return [(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)]
         return []
 
     def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
@@ -158,10 +158,10 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = [
-            (0.0, self.clip_size),  # sq_r
-            (-np.pi, np.pi),        # sq_phi
-            (0.0, 2 * np.pi),       # bs_theta
-            (-np.pi, np.pi)         # bs_phi
+            (-self.clip_size, self.clip_size),  # sq_r
+            (-8*np.pi, 8*np.pi),        # sq_phi
+            (-8*np.pi, 8*np.pi),       # bs_theta
+            (-8*np.pi, 8*np.pi)         # bs_phi
         ]
 
     @property
@@ -183,7 +183,7 @@ class TwoModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     @property
     def initial_parameter_bounds(self) -> list[tuple[float, float]]:
         if self.train_initial_state:
-            return [(0.0, self.clip_size), (-np.pi, np.pi)] # r, phi bounds
+            return [(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)] # r, phi bounds
         return []
 
     def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
@@ -272,11 +272,11 @@ class ThreeModeTimeDomainGadget(TimeMultiplexedCircuit):
         
         self._bounds = []
         # Squeezing (2 modes)
-        self._bounds.extend([(0.0, self.clip_size), (-np.pi, np.pi)] * 2)
+        self._bounds.extend([(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)] * 2)
         # Displacement (2 modes)
-        self._bounds.extend([(0.0, self.clip_size), (-np.pi, np.pi)] * 2)
+        self._bounds.extend([(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)] * 2)
         # BS (3 gates)
-        self._bounds.extend([(0.0, np.pi/2), (-np.pi, np.pi)] * 3)
+        self._bounds.extend([(-8*np.pi, 8*np.pi), (-8*np.pi, 8*np.pi)] * 3)
 
     @property
     def per_step_parameter_names(self) -> list[str]:
@@ -296,7 +296,7 @@ class ThreeModeTimeDomainGadget(TimeMultiplexedCircuit):
     @property
     def initial_parameter_bounds(self) -> list[tuple[float, float]]:
         if self.train_initial_state:
-            return [(0.0, self.clip_size), (-np.pi, np.pi)]
+            return [(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)]
         return []
 
     def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
@@ -392,10 +392,10 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
             self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = []
-        self._bounds.extend([(0.0, self.clip_size)] * 2) # sq_r (only 2 now)
-        self._bounds.extend([(-np.pi, np.pi)] * 2)       # sq_phi (only 2 now)
-        self._bounds.extend([(0.0, np.pi/2)] * 3)      # bs_theta
-        self._bounds.extend([(-np.pi, np.pi)] * 3)       # bs_phi
+        self._bounds.extend([(-self.clip_size, self.clip_size)] * 2) # sq_r (only 2 now)
+        self._bounds.extend([(-8*np.pi, 8*np.pi)] * 2)       # sq_phi (only 2 now)
+        self._bounds.extend([(-8*np.pi, 8*np.pi)] * 3)      # bs_theta
+        self._bounds.extend([(-8*np.pi, 8*np.pi)] * 3)       # bs_phi
 
     @property
     def per_step_parameter_names(self) -> list[str]:
@@ -417,7 +417,7 @@ class ThreeModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     @property
     def initial_parameter_bounds(self) -> list[tuple[float, float]]:
         if self.train_initial_state:
-            return [(0.0, self.clip_size), (-np.pi, np.pi)] # r, phi bounds
+            return [(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)] # r, phi bounds
         return []
 
     def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
@@ -518,13 +518,13 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
         
         self._bounds = []
         # Squeezing amplitudes (3)
-        self._bounds.extend([(0.0, self.clip_size)] * 3)
+        self._bounds.extend([(-self.clip_size, self.clip_size)] * 3)
         # Squeezing phases (3)
-        self._bounds.extend([(-np.pi, np.pi)] * 3)
+        self._bounds.extend([(-8*np.pi, 8*np.pi)] * 3)
         # BS thetas (6) - typically between 0 and pi/2
-        self._bounds.extend([(0.0, np.pi/2)] * 6)
+        self._bounds.extend([(-8*np.pi, 8*np.pi)] * 6)
         # BS phis (6)
-        self._bounds.extend([(-np.pi, np.pi)] * 6)
+        self._bounds.extend([(-8*np.pi, 8*np.pi)] * 6)
 
     @property
     def per_step_parameter_names(self) -> list[str]:
@@ -549,7 +549,7 @@ class FourModeTimeDomainSqueezeOnly(TimeMultiplexedCircuit):
     @property
     def initial_parameter_bounds(self) -> list[tuple[float, float]]:
         if self.train_initial_state:
-            return [(0.0, self.clip_size), (-np.pi, np.pi)]
+            return [(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)]
         return []
 
     def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
