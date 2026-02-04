@@ -464,7 +464,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        min_infidel=1e-5
+        min_infidel=1e-6
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
@@ -503,7 +503,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         objective = (1- epsilon) * soft_success_prob + epsilon * gradient_leak2
         objective2 = np.sum(final_probs  * (capped_fidelities**2 *log_vals)**4)
 
-        expected_fidelity = np.log(objective2) + 1e3 * objective2
+        # expected_fidelity = np.log(objective2) + 1e3 * objective2
 
         ng_weight = 0
         # Non-Gaussianity Penalty
@@ -690,6 +690,8 @@ class BasinHoppingRunner:
                  max_photon_dist: int = 10,
                  photon_dist_metric: str = 'dot_product',
                  measurement_patterns = None,
+                 num_parallel_runs: int = 4,
+                 num_processes: int = 4,
                  **kwargs):
         
         self.prob_power = 1.0
@@ -710,6 +712,8 @@ class BasinHoppingRunner:
         self.max_photon_dist = max_photon_dist
         self.photon_dist_metric = photon_dist_metric
         self.measurement_patterns = measurement_patterns
+        self.num_parallel_runs = num_parallel_runs
+        self.num_processes = num_processes
         self.eval_count = 0
         self.iteration_count = 0
         
@@ -752,7 +756,79 @@ class BasinHoppingRunner:
         print(f"  [Iteration {self.iteration_count}] [{status}] (Evals: {self.eval_count}) Loss: {f} ")
         self.eval_count = 0
 
-    def run(self, n_iter=20, method="SLSQP", prob_power=1.0, n_generations=None):
+    def _execute_single_run(self, seed, run_idx, total_runs, n_iter, method, full_bounds, prob_power):
+        """Helper to execute a single basin hopping run (for parallelization)."""
+        if seed is not None:
+            np.random.seed(seed)
+            
+        self.prob_power = prob_power
+        self.eval_count = 0
+        self.iteration_count = 0
+        
+        # Initial guess
+        x0 = np.array([np.random.uniform(l, h) for l, h in full_bounds])
+        
+        minimizer_kwargs = {
+            "method": method,
+            "bounds": full_bounds,
+        }
+        
+        def local_callback(x, f, accept):
+            self.iteration_count += 1
+            status = "Accept" if accept else "Reject"
+            prefix = f"[Run {run_idx+1}/{total_runs}] " if total_runs > 1 else ""
+            print(f"  {prefix}[Iteration {self.iteration_count}] [{status}] (Evals: {self.eval_count}) Loss: {f} ")
+            self.eval_count = 0
+
+        try:
+            result = basinhopping(
+                self._loss_function,
+                x0,
+                niter=n_iter,
+                minimizer_kwargs=minimizer_kwargs,
+                callback=local_callback,
+                stepsize=0.5
+            )
+            
+            # Final Evaluation
+            final_eval = evaluate_time_domain_circuit(
+                result.x,
+                circuit=self.circuit,
+                target_kets=self.target_kets,
+                cutoff_dim=self.cutoff_dim,
+                beam_width=self.beam_width,
+                penalty_strength=self.penalty_strength,
+                measurement_patterns=self.measurement_patterns,
+                success_threshold=self.success_threshold,
+                success_weight=self.success_weight,
+                ng_weight=self.ng_weight,
+                ng_threshold=self.ng_threshold,
+                prob_power=self.prob_power,
+                photon_dist_weight=self.photon_dist_weight,
+                max_photon_dist=self.max_photon_dist,
+                photon_dist_metric=self.photon_dist_metric,
+                target_photon_moments=self.target_photon_moments,
+                return_details=True
+            )
+            
+            return {
+                "x": result.x,
+                "loss": final_eval["loss"],
+                "expected_fidelity": final_eval.get("expected_fidelity", 0.0),
+                "photon_similarity": final_eval.get("photon_similarity", 0.0),
+                "branches": final_eval.get("branches", []),
+                "total_probability": final_eval.get("total_probability", 0.0),
+                "duration": 0.0, # Calculated in parent
+                "message": result.message,
+                "seed": seed,
+                "success": True
+            }
+        except Exception as e:
+            # Catch exceptions to prevent crashing all runs
+            return {"success": False, "error": str(e), "seed": seed}
+
+    def run(self, n_iter=20, method="SLSQP", prob_power=1.0, n_generations=None, 
+            num_parallel_runs=None, base_seed=None):
         """
         Runs the global optimization.
         """
@@ -760,6 +836,8 @@ class BasinHoppingRunner:
             n_iter = n_generations
             
         self.prob_power = prob_power
+        n_parallel = num_parallel_runs if num_parallel_runs is not None else self.num_parallel_runs
+
         # Construct full parameter bounds
         per_step_bounds = self.circuit.per_step_parameter_bounds
         if self.circuit.time_invariant:
@@ -773,62 +851,59 @@ class BasinHoppingRunner:
         # 3. Concatenate
         full_bounds = init_bounds + step_bounds
         
-            
-        # Initial guess
-        x0 = np.array([np.random.uniform(l, h) for l, h in full_bounds])
-        
-        minimizer_kwargs = {
-            "method": method,
-            "bounds": full_bounds,
-            # "tol": 1e-4
-        }
-        
-        print(f"Starting Basin-Hopping Beam Search (Width={self.beam_width}, Steps={self.circuit.steps}, NG_Weight={self.ng_weight})...")
         start_time = time.time()
         
-        result = basinhopping(
-            self._loss_function,
-            x0,
-            niter=n_iter,
-            minimizer_kwargs=minimizer_kwargs,
-            callback=self.callback,
-            stepsize=0.5
-        )
-        
-        # --- Final Evaluation (UNIFIED PATH) ---
-        final_eval = evaluate_time_domain_circuit(
-            result.x,
-            circuit=self.circuit,
-            target_kets=self.target_kets,
-            cutoff_dim=self.cutoff_dim,
-            beam_width=self.beam_width,
-            penalty_strength=self.penalty_strength,
-            measurement_patterns=self.measurement_patterns,
-            success_threshold=self.success_threshold,
-            success_weight=self.success_weight,
-            ng_weight=self.ng_weight,
-            ng_threshold=self.ng_threshold,
-            prob_power=self.prob_power,
-            photon_dist_weight=self.photon_dist_weight,
-            max_photon_dist=self.max_photon_dist,
-            photon_dist_metric=self.photon_dist_metric,
-            target_photon_moments=self.target_photon_moments,
-            return_details=True
-        )
+        if n_parallel <= 1:
+            print(f"Starting Basin-Hopping Beam Search (Width={self.beam_width}, Steps={self.circuit.steps}, NG_Weight={self.ng_weight})...")
+            
+            current_seed = base_seed if base_seed is not None else np.random.randint(0, 2**32 - 1)
+            
+            # Use local execution flow
+            res = self._execute_single_run(current_seed, 0, 1, n_iter, method, full_bounds, prob_power)
+            
+            if not res.get("success", False):
+                raise RuntimeError(f"Basin-Hopping run failed: {res.get('error')}")
 
-        duration = time.time() - start_time
-        return {
-            "x": result.x,
-            "loss": final_eval["loss"],
-            "expected_fidelity": final_eval.get("expected_fidelity", 0.0),
-            "photon_similarity": final_eval.get("photon_similarity", 0.0),
-            "branches": final_eval.get("branches", []),
-            "total_probability": final_eval.get("total_probability", 0.0),
-            "duration": duration,
-            "message": result.message
-        }
+            res["duration"] = time.time() - start_time
+            return res
+            
+        else:
+            # Parallel Execution
+            print(f"Starting Parallel Basin-Hopping ({n_parallel} runs, Width={self.beam_width}, Steps={self.circuit.steps})...")
+            
+            if base_seed is None:
+                base_seed = np.random.randint(0, 100000)
+            seeds = [base_seed + i for i in range(n_parallel)]
 
-
+            n_iter = n_iter // n_parallel
+            
+            args_list = [(seeds[i], i, n_parallel, n_iter, method, full_bounds, prob_power) for i in range(n_parallel)]
+            
+            workers = min(n_parallel, self.num_processes if self.num_processes > 1 else multiprocessing.cpu_count())
+            
+            with multiprocessing.Pool(processes=workers) as pool:
+                results = pool.starmap(self._execute_single_run, args_list)
+            
+            valid_results = [r for r in results if r.get("success", False)]
+            if not valid_results:
+                raise RuntimeError("All parallel Basin-Hopping runs failed.")
+                
+            best_res = min(valid_results, key=lambda x: x["loss"])
+            total_duration = time.time() - start_time
+            
+            final_output = {
+                "x": best_res["x"],
+                "loss": best_res["loss"],
+                "expected_fidelity": best_res.get("expected_fidelity", 0.0),
+                "photon_similarity": best_res.get("photon_similarity", 0.0),
+                "branches": best_res.get("branches", []),
+                "total_probability": best_res.get("total_probability", 0.0),
+                "duration": total_duration,
+                "message": f"Best of {n_parallel} parallel runs",
+                "run_results": results,
+                "best_run_idx": seeds.index(best_res["seed"])
+            }
+            return final_output
 
 class CMAESOptimizationRunner:
     """
