@@ -179,7 +179,8 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
 
         n_sequences = int(patterns_arr.shape[0])
         meas_modes = [m for m, c in meas_specs]
-        meas_cutoffs = [c for m, c in meas_specs]
+        # Cap measurement cutoffs by simulation cutoff_dim to prevent indexing errors
+        meas_cutoffs = [min(c, cutoff_dim) for m, c in meas_specs]
         perm = [0] + meas_modes  # Loop mode first, then measured
 
         # Validate shape
@@ -318,7 +319,8 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         
         # Precompute slicing info
         meas_modes = [m for m, c in meas_specs]
-        meas_cutoffs = [c for m, c in meas_specs]
+        # Cap measurement cutoffs by simulation cutoff_dim to prevent indexing errors
+        meas_cutoffs = [min(c, cutoff_dim) for m, c in meas_specs]
         perm = [0] + meas_modes
 
         total_truncation_error = 0.0
@@ -464,13 +466,16 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
         # Logarithmic Reward
-        min_infidel=1e-6
+
+        expected_fidelity = np.sum(final_probs + fidelities)
+
+        min_infidel=1e-5
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
         # expected_fidelity = np.sum((final_probs**prob_power)
         #                            * (capped_fidelities**2 *log_vals)**4)
-        expected_fidelity = np.sum(final_probs + capped_fidelities)
+        
         # expected_fidelity = np.sum(np.log(1e-25+(final_probs+ 1e-7) * np.log(1-capped_fidelities)))
           # expected_fidelity = np.log(expected_fidelity)
 
@@ -489,7 +494,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         log_diff = np.log10(infidelities)  /  np.log10(min_infidel) - np.log10(1-success_threshold)  /  np.log10(min_infidel)
         # Update soft_success_prob for reporting (Optional)
         # Using a higher steepness for a harder "Success" count
-        epsilon = 1e-3
+        epsilon = 1e-2
         # success_threshold= 1 - 5e-2
         sigmoids = expit(10.0 * (fidelities - success_threshold))
         # sigmoids = expit(100.0 * log_diff)
@@ -501,9 +506,9 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         gradient_leak2 = np.sum(final_probs**0.2  * (capped_fidelities**2 *log_vals))
         # gradient_leak = np.sum(final_probs**0.2 * sigmoids2 * log_vals)
         objective = (1- epsilon) * soft_success_prob + epsilon * gradient_leak2
-        objective2 = np.sum(final_probs  * (capped_fidelities**2 *log_vals)**4)
+        objective2 = np.sum(final_probs * (capped_fidelities**2 *log_vals)**4)
 
-        # expected_fidelity = np.log(objective2) + 1e3 * objective2
+        expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
 
         ng_weight = 0
         # Non-Gaussianity Penalty
@@ -768,10 +773,21 @@ class BasinHoppingRunner:
         # Initial guess
         x0 = np.array([np.random.uniform(l, h) for l, h in full_bounds])
         
-        minimizer_kwargs = {
-            "method": method,
-            "bounds": full_bounds,
-        }
+        # Nelder-Mead requires a penalty wrapper for bounds as it doesn't natively support them
+        if method == 'Nelder-Mead':
+            def bounded_loss(x):
+                for val, (low, high) in zip(x, full_bounds):
+                    if val < low or val > high:
+                        return 1e10
+                return self._loss_function(x)
+            objective = bounded_loss
+            minimizer_kwargs = {"method": method}
+        else:
+            objective = self._loss_function
+            minimizer_kwargs = {
+                "method": method,
+                "bounds": full_bounds,
+            }
         
         def local_callback(x, f, accept):
             self.iteration_count += 1
@@ -782,7 +798,7 @@ class BasinHoppingRunner:
 
         try:
             result = basinhopping(
-                self._loss_function,
+                objective,
                 x0,
                 niter=n_iter,
                 minimizer_kwargs=minimizer_kwargs,
@@ -827,7 +843,7 @@ class BasinHoppingRunner:
             # Catch exceptions to prevent crashing all runs
             return {"success": False, "error": str(e), "seed": seed}
 
-    def run(self, n_iter=20, method="SLSQP", prob_power=1.0, n_generations=None, 
+    def run(self, n_iter=20, method="L-BFGS-B", prob_power=1.0, n_generations=None, 
             num_parallel_runs=None, base_seed=None):
         """
         Runs the global optimization.

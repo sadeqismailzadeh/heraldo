@@ -240,7 +240,8 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
         step_params = flat_params
 
     mapped_params = circuit.map_parameters(step_params)
-    meas_specs = circuit.get_measurement_specs() 
+    # Cap measurement cutoffs by simulation cutoff_dim to prevent indexing errors
+    meas_specs = [(m, min(c, cutoff_dim)) for m, c in circuit.get_measurement_specs()]
     
     # Identify modes: Max measured mode index + 1 (assuming Loop is 0)
     meas_modes = [m for m, c in meas_specs]
@@ -546,7 +547,8 @@ def run_deterministic_path(circuit: TimeMultiplexedCircuit, flat_params: np.ndar
     mapped_params = circuit.map_parameters(step_params)
     
     # Get measurement specs (modes and cutoffs)
-    meas_specs = circuit.get_measurement_specs()
+    # Cap measurement cutoffs by simulation cutoff_dim to prevent indexing errors
+    meas_specs = [(m, min(c, cutoff_dim)) for m, c in circuit.get_measurement_specs()]
     meas_modes = [m for m, c in meas_specs]
     meas_cutoffs = [c for m, c in meas_specs]
     perm = [0] + meas_modes
@@ -670,6 +672,79 @@ def plot_ket_wigner(ket, title="State", cutoff_dim=40, grid_size=200, x_limit=5)
     plt.show()
 
 
+def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cutoff_dim=50, grid_size=400, x_limit=6):
+    """
+    Generates a high-resolution Wigner function and Fock distribution plot suitable for publication/print.
+    Saves the figure to disk.
+    """
+    # Ensure normalization
+    norm = np.linalg.norm(ket)
+    if abs(norm - 1.0) > 1e-6:
+        ket = ket / norm
+
+    # Run simple engine to get state object
+    prog = sf.Program(1)
+    with prog.context as q:
+        Ket(ket) | q[0]
+    eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
+    result = eng.run(prog)
+    state = result.state
+
+    # 1. Calculate Wigner
+    xvec = np.linspace(-x_limit, x_limit, grid_size)
+    pvec = np.linspace(-x_limit, x_limit, grid_size)
+    W = state.wigner(mode=0, xvec=xvec, pvec=pvec)
+
+    # 2. Calculate Fock Probs
+    probs = state.all_fock_probs(cutoff=cutoff_dim)
+    
+    # 3. Setup High-Res Plot
+    # Use standard settings for cleanliness
+    plt.rcParams.update({'font.size': 14, 'font.family': 'sans-serif'})
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7), dpi=300)
+    
+    # Plot Wigner
+    X, P = np.meshgrid(xvec, pvec)
+    lim = np.max(np.abs(W))
+    # Use RdBu_r so red is positive, blue is negative (standard in some papers) or RdBu
+    c = ax1.pcolormesh(X, P, W, cmap='RdBu', shading='auto', vmin=-lim, vmax=lim, rasterized=True)
+    
+    cbar = fig.colorbar(c, ax=ax1, label='W(x, p)', pad=0.02)
+    cbar.ax.tick_params(labelsize=12)
+    
+    ax1.set_title(f"Wigner Function: {title}", fontsize=16, pad=15)
+    ax1.set_xlabel("x (Position)", fontsize=14)
+    ax1.set_ylabel("p (Momentum)", fontsize=14)
+    ax1.set_aspect('equal')
+    # Subtle guidelines
+    ax1.axhline(0, color='gray', linestyle=':', alpha=0.5, linewidth=1)
+    ax1.axvline(0, color='gray', linestyle=':', alpha=0.5, linewidth=1)
+
+    # Plot Fock
+    display_cutoff = min(cutoff_dim, 60)
+    indices = np.arange(display_cutoff)
+    ax2.bar(indices, probs[:display_cutoff], color='#2c7bb6', alpha=0.8, edgecolor='black', width=0.7)
+    
+    ax2.set_title("Fock State Probabilities", fontsize=16, pad=15)
+    ax2.set_xlabel("Fock Number |n>", fontsize=14)
+    ax2.set_ylabel("Probability", fontsize=14)
+    
+    # Clean up x-axis ticks
+    step = 5 if display_cutoff > 20 else 1
+    ax2.set_xticks(np.arange(0, display_cutoff, step))
+    ax2.grid(axis='y', linestyle='--', alpha=0.3)
+    ax2.set_xlim(-0.5, display_cutoff - 0.5)
+    ax2.set_ylim(0, max(probs) * 1.1)
+
+    plt.tight_layout()
+    
+    save_path = Path(filename).resolve()
+    plt.savefig(save_path, bbox_inches='tight', dpi=300)
+    plt.close(fig)
+    print(f"High-quality plot saved to: {save_path}")
+
+
 def _find_latest_results_dir(base_dir: Path):
     # Modified to match "opt_*" instead of "opt_run_*" to support new naming tags
     # and sort by modification time to ensure we get the actual latest run.
@@ -689,14 +764,20 @@ def load_optimization_run(results_dir: Path, selection: str = "best"):
     Args:
         results_dir: The opt_XXXX directory.
         selection: 
-            - "best": loads from best/best_run_0001.pkl
-            - "latest": loads the highest numbered run_XXXX.pkl
-            - integer string (e.g. "5"): loads run_0005.pkl
+            - "best": loads the highest numbered best_run_XXXX.pkl from the 'best' subdirectory
+            - "latest": loads the highest numbered run_XXXX.pkl from the results directory
+            - integer string (e.g. "5"): loads run_0005.pkl from the results directory
     """
     target_file = None
 
     if selection == "best":
-        target_file = results_dir / "best" / "best_run_0001.pkl"
+        best_dir = results_dir / "best"
+        best_files = sorted(best_dir.glob("best_run_*.pkl"))
+        if best_files:
+            target_file = best_files[-1]
+        else:
+            # Fallback or specific file check
+            target_file = best_dir / "best_run_0001.pkl"
     elif selection == "latest":
         runs = sorted(results_dir.glob("run_*.pkl"))
         if runs:
@@ -823,16 +904,17 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired
-    run_selection = "best" # "best", "latest", or a run number string like "5"
+    results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq3_GKP_20260130T150046Z"  # Set to specific path if desired
+    run_selection = "latest" # "best", "latest", or a run number string like "5"
     params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
     # params_json_path =  Path(__file__).resolve().parent.parent.parent / "results" / "manual" / "optimized_params.json"
     branch_index = 0  # Index of branch to visualize from best_result['branches']
-    measurement = None  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
-    cutoff = 50  # Cutoff dimension for visualization
+    measurement = "3,1"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
+    cutoff = 15  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
-    FORCE_BEAM_SEARCH = False # If True, ignores stored fixed patterns and re-runs Beam Search
+    FORCE_BEAM_SEARCH = True # If True, ignores stored fixed patterns and re-runs Beam Search
     
-    LOSS_TRANSMISSIVITY = 1   # Set < 1.0 to enable Density Matrix simulation with loss
+    LOSS_TRANSMISSIVITY = 0 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
     # Find results directory
@@ -884,6 +966,14 @@ def main():
     circuit_config = sanitize_config_paths(circuit_config)
     target_configs = sanitize_config_paths(target_configs)
     # ============================
+
+    # csv_path_abs = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
+    # target_configs = [
+    #     {'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': n, 'delta_db': 10, 'mu': m}}
+    #     # for n in [8, 12] for m in [0]
+    #     for n in [4, 6, 8, 10, 12] for m in [0]
+    # ]
+
 
     # Inject Loss Parameter if configured
     if circuit_config and 'params' in circuit_config:
@@ -1036,7 +1126,10 @@ def main():
     # print(ket[:min(len(ket), 20)])
 
     # Visualize
-    plot_ket_wigner(ket, title=f"postselect {measurement_outcomes}", cutoff_dim=cutoff)
+    # plot_ket_wigner(ket, title=f"postselect {measurement_outcomes}", cutoff_dim=cutoff)
+    
+    # Save High Quality Plot
+    plot_wigner_print_quality(ket, filename="optimized_state_hq.png", title=f"Outcome {measurement_outcomes}", cutoff_dim=cutoff)
 
 if __name__ == "__main__":
     main()
