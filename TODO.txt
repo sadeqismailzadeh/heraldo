@@ -53,3 +53,17 @@ mit licesnce not gpl
 - interferometer
 - no terminate test squuezed cat
 - multi target article
+- sgate on mode 0 time circuit
+- optimization control mode 0 at start
+- real prob of beam elements
+- mrmustard?
+-- target weight
+- truncation for high fidelity branches with sigmoid
+- test if other points of high fidelity in tzitrin and casemine... are in the same or different circuits
+-- fixed post select list
+- extended eval script
+- save circuit info
+- save all circuits info
+-- give llm  info and related articles and my results and take paper skeleton
+- cubic phase target
+-  discard or zero-out any branches with probability below a minimum threshold 
