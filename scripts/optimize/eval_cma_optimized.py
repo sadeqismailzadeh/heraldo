@@ -904,17 +904,17 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired
-    results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq3_GKP_20260130T150046Z"  # Set to specific path if desired
+    results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq3_GKP_20260205T134849Z"  # Set to specific path if desired
     run_selection = "latest" # "best", "latest", or a run number string like "5"
     params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
     # params_json_path =  Path(__file__).resolve().parent.parent.parent / "results" / "manual" / "optimized_params.json"
     branch_index = 0  # Index of branch to visualize from best_result['branches']
-    measurement = "3,1"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
-    cutoff = 15  # Cutoff dimension for visualization
+    measurement = "1,3"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
+    cutoff = 30  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
-    FORCE_BEAM_SEARCH = True # If True, ignores stored fixed patterns and re-runs Beam Search
+    FORCE_BEAM_SEARCH = False # If True, ignores stored fixed patterns and re-runs Beam Search
     
-    LOSS_TRANSMISSIVITY = 0 # Set < 1.0 to enable Density Matrix simulation with loss
+    LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
     # Find results directory
@@ -1125,11 +1125,41 @@ def main():
     # print("Final ket (truncated):")
     # print(ket[:min(len(ket), 20)])
 
+    # --- SAVE DENSITY MATRIX FOR PLOTTING ---
+    print("\nSaving density matrix...")
+    
+    # Convert ket to DM if necessary
+    if 'final_state_ket' in res:
+        ket = res['final_state_ket']
+        # Outer product |psi><psi|
+        dm = np.outer(ket, np.conj(ket))
+    elif 'final_state_dm' in res:
+        dm = res['final_state_dm']
+    else:
+        # Fallback if manual DM evaluation was run
+        dm = None
+        print("No final state found to save.")
+
+    if dm is not None:
+        # Create a filename based on the measurement outcomes
+        # flattens ((1,), (3,)) -> "1_3" or ((1,3),) -> "1_3"
+        flat_outcomes = []
+        for step_out in measurement_outcomes:
+            flat_outcomes.extend(step_out)
+        
+        outcome_str = "_".join(map(str, flat_outcomes))
+        filename = f"state_dm_{outcome_str}.npy"
+        
+        save_path = results_dir / filename
+        np.save(save_path, dm)
+        print(f"Density matrix saved to: {save_path}")
+        print(f"Run this script again with different measurements to generate comparison files.")
+
     # Visualize
     # plot_ket_wigner(ket, title=f"postselect {measurement_outcomes}", cutoff_dim=cutoff)
     
     # Save High Quality Plot
-    plot_wigner_print_quality(ket, filename="optimized_state_hq.png", title=f"Outcome {measurement_outcomes}", cutoff_dim=cutoff)
+    # plot_wigner_print_quality(ket, filename="optimized_state_hq.png", title=f"Outcome {measurement_outcomes}", cutoff_dim=cutoff)
 
 if __name__ == "__main__":
     main()
