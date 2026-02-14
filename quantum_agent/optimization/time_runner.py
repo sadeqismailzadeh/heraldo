@@ -467,7 +467,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
 
         # Logarithmic Reward
 
-        expected_fidelity = np.sum(final_probs + fidelities)
+        expected_fidelity = np.sum(0.1*final_probs + fidelities)
 
         min_infidel=1e-5
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
@@ -508,7 +508,7 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         objective = (1- epsilon) * soft_success_prob + epsilon * gradient_leak2
         objective2 = np.sum(final_probs * (capped_fidelities**2 *log_vals)**4)
 
-        expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
+        # expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
 
         ng_weight = 0
         # Non-Gaussianity Penalty

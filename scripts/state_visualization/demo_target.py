@@ -93,13 +93,17 @@ def plot_target_wigner(target_instance, name, cutoff_dim=35, grid_size=200, x_li
 def main():
     # 1. Cubic Phase Target
     # Demonstrating the cubic phase state generation
-    # cubic = CubicPhaseTarget(gamma=-0.2, r=-0.7, alpha=1.25)
+    cubic = CubicPhaseTarget(gamma=-0.2, r=-0.7, alpha=1.25)
     # plot_target_wigner(cubic, "Cubic Phase", cutoff_dim=25)
 
     # 2. Squeezed Cat Target
     # Superposition of coherent states with squeezing
     # cat = SqueezedCatTarget(alpha=3.0, r=1.38, p=1) # p=1 for odd parity
     # plot_target_wigner(cat, "Squeezed Cat (Odd)", cutoff_dim=70)
+
+
+    cat1 = CatTarget(alpha=2, p=1) # p=1 for odd parity
+    plot_target_wigner(cat1, " Cat (Odd)", cutoff_dim=40)
 
     # # 3. Square GKP Target
     # # Gottesman-Kitaev-Preskill state (Logical 0)

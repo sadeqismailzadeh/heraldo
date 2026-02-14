@@ -17,7 +17,7 @@ patch_beamsplitter()
 
 # 2. Imports
 from quantum_agent.optimization.circuits import ThreeModeGadget, ThreeModeSqueezeOnly, TwoModeGadget, TwoModeSqueezeOnly
-from quantum_agent.optimization.runner import OptimizationRunner
+from quantum_agent.optimization.runner import *
 from quantum_agent.components.targets import *
 
 def main():
@@ -49,26 +49,36 @@ def main():
 
     csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     target3=CoreGKPTarget(csv_path=csv_path, 
-                          n_max=12, 
-                          delta_db=10.4, 
+                          n_max=4, 
+                          delta_db=10, 
                           mu=0)
     
     # 3. Runner
     # We want to measure mode 0 and find Fock state 2.
     # The dictionary maps {mode_index: fock_value}
     post_select = {0: POST_SELECT_VAL} 
-    post_select_3mode = {0: 5, 1: 7}
+    post_select_3mode = {1: 1, 2: 3}
     
     current_circuit = circuit1
-    runner = OptimizationRunner(
+    runner1 = OptimizationRunner(
         circuit=circuit4,
-        target_gen=target1,
+        target_gen=target3,
         cutoff_dim=CUTOFF_DIM,
         post_select_dict=post_select_3mode,
-        alpha_prob=0.1,      # Weight for probability in loss
+        alpha_prob=1,      # Weight for probability in loss
         penalty_strength=10.0
     )
-    
+
+    # runner2 = CMAESOptimizationRunner(
+    #     circuit=circuit4,
+    #     target_gen=target3,
+    #     cutoff_dim=CUTOFF_DIM,
+    #     post_select_dict=post_select_3mode,
+    #     alpha_prob=1,      # Weight for probability in loss
+    #     penalty_strength=10.0,
+    #     num_processes=4
+    # )
+    runner = runner1
     # --- Execution ---
     print(f"Target: Cubic Resource (a={TARGET_A})")
     print(f"Post-selection: Measure Mode 0 -> |{POST_SELECT_VAL}>")
@@ -86,6 +96,7 @@ def main():
     for e in range(niter):
         print(f"Global explore {e+1}/{niter}")
         res = runner.run(n_iter=nhp, method="SLSQP")
+        # res = runner.run(n_generations=50)
         
         print("final fid {}, prob {}".format(res['fidelity'], res['probability']))
 

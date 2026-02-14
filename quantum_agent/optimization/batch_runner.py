@@ -79,7 +79,7 @@ class BatchOptimizationRunner:
         soft_success_prob = 0.0
         
         # Sigmoid steepness for soft indicator
-        steepness = 500.0
+        steepness = 100.0
         
         # 3. Vectorized Expected Fidelity and Soft Success Probability
         total_prob = np.sum(probs)
@@ -124,9 +124,9 @@ class BatchOptimizationRunner:
             soft_success_prob = np.sum(filtered_probs * sigmoids)
 
             # Logarithmic Reward
-            infidelities = np.maximum(1.0 - best_fids, 1e-2)
+            infidelities = np.maximum(1.0 - best_fids, 1e-3)
             log_vals = -np.log10(infidelities)
-            expected_fidelity = np.sum((filtered_probs**0.1) * log_vals)
+            expected_fidelity = np.sum((filtered_probs**0.1) * (best_fids*log_vals)**2)
 
         # 4. Calculate Penalties
         

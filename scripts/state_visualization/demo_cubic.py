@@ -19,7 +19,7 @@ from strawberryfields.ops import *
 
 def plot_cubic_phase_target():
     # --- 1. CONFIGURATION ---
-    cutoff_dim = 25
+    cutoff_dim = 60
     grid_size = 200
     x_limit = 5
     
@@ -28,24 +28,27 @@ def plot_cubic_phase_target():
     with prog.context as q:
         # Note on ordering: The equation applies operators right-to-left on vacuum.
         # 1. Squeezing S(r)
-        Sgate(-0.7) | q[0]
+
+        Sgate(1.38) | q[0]
         
-        # 2. Cubic Phase Gate V(gamma) = exp(i * gamma * x^3)
-        # Note: SF uses hbar=2 convention by default. 
-        # Vgate matches the definition of Q^3 interaction.
-        Vgate(-0.2*2) | q[0]
+        # Sgate(-0.7) | q[0]
         
-        # 3. Displacement D(alpha)
-        # Paper Fig 2 caption says alpha = i1.25
-        # numpy complex to polar
+        # # 2. Cubic Phase Gate V(gamma) = exp(i * gamma * x^3)
+        # # Note: SF uses hbar=2 convention by default. 
+        # # Vgate matches the definition of Q^3 interaction.
+        # Vgate(-0.2*2) | q[0]
+        
+        # # 3. Displacement D(alpha)
+        # # Paper Fig 2 caption says alpha = i1.25
+        # # numpy complex to polar
 
-        z = 1j * 1.25
+        # z = 1j * 1.25
 
-        # Convert to polar
-        r = np.abs(z)
-        theta = np.angle(z)
+        # # Convert to polar
+        # r = np.abs(z)
+        # theta = np.angle(z)
 
-        Dgate(r, theta) | q[0]
+        # Dgate(r, theta) | q[0]
 
     eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
     state = eng.run(prog).state

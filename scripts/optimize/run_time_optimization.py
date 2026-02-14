@@ -302,20 +302,20 @@ def main():
     # --- Configuration ---
     CUTOFF_DIM = 30          # Simulation cutoff
     STEPS = 1                # Time steps (depth of the circuit)
-    BEAM_WIDTH = 100          # Number of branches to keep
+    BEAM_WIDTH = 200          # Number of branches to keep
     TIME_INVARIANT = False   # False = different params per step
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
-    SUCCESS_THRESHOLD = 1 - 1e-2
+    SUCCESS_THRESHOLD = 1 - 3e-2
     
-    OPTIMIZER_METHOD = "CMA" # Options: "CMA", "DE", "BASIN", "DUAL", "NEVERGRAD"
+    OPTIMIZER_METHOD = "BASIN" # Options: "CMA", "DE", "BASIN", "DUAL", "NEVERGRAD"
     
     # CMA-specific settings (only used if OPTIMIZER_METHOD == "CMA")
     BIPOP = False
     RESTARTS = 0
 
     # --- Execution ---
-    n_generations = 1_000       # Number of hops per global search
-    niter = 10       # Number of global searches
+    n_generations = 100       # Number of hops per global search
+    niter = 1       # Number of global searches
 
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
@@ -330,15 +330,26 @@ def main():
 
     # 1.1 Squeezed Cat
     target_configs1 = [
-        {'class_name': 'SqueezedCatTarget', 'params': {'alpha': 3, 'r': 1.38, 'p': 0}},
-        {'class_name': 'SqueezedCatTarget', 'params': {'alpha': 3, 'r': 1.38, 'p': 1}}
+        {'class_name': 'SqueezedCatTarget', 'params': {'alpha': 3, 'r': squeezing, 'p': 0}},
+        {'class_name': 'SqueezedCatTarget', 'params': {'alpha': 3, 'r': squeezing, 'p': 1}}
     ]
 
-    # 1.2 Cat
-    target_configs_cat = [
-        {'class_name': 'CatTarget', 'params': {'alpha': 2, 'p': 0}},
-        {'class_name': 'CatTarget', 'params': {'alpha': 2, 'p': 1}}
+    # # 1.2 Cat
+    # target_configs_cat = [
+    #     {'class_name': 'CatTarget', 'params': {'alpha': 2, 'p': 0}},
+    #     {'class_name': 'CatTarget', 'params': {'alpha': 2, 'p': 1}}
+    # ]
+
+    target_configs_cat2 = [
+        {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}},
+        {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 1}}
     ]
+
+    # target_configs_cat3 = [
+    #     {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(8), 'r': 0.5, 'p': 0}},
+    #     {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(8), 'r': 0.5, 'p': 1}}
+    # ]
+
 
     # 1.6 Cubic Phase Target
     cubic_phase_config = [
@@ -356,20 +367,20 @@ def main():
     gkp_target_configs = [
         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': n, 'delta_db': 10, 'mu': m}}
         # for n in [8, 12] for m in [0]
-        for n in [4, 6, 8, 10, 12] for m in [1]
+        for n in [4, 6, 8, 10, 12] for m in [0, 1]
     ]
 
     # 1.4 Binomial
     binomial_target_configs_all = []
     max_fock_n = 14
-    for S in range(1, max_fock_n):
+    for S in range(2, max_fock_n):
         for N in range(2, max_fock_n):
             if (N + 1) * (S + 1) <= max_fock_n:
                 binomial_target_configs_all.append({'class_name': 'BinomialCodeTarget', 'params': {'N': N, 'S': S, 'mu': 0}})
                 binomial_target_configs_all.append({'class_name': 'BinomialCodeTarget', 'params': {'N': N, 'S': S, 'mu': 1}})
     
     # 1.5 Single Core GKP
-    target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 8, 'delta_db': 10, 'mu': 0}}]
+    target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 4, 'delta_db': 10, 'mu': 1}}]
     
     # 1.6 Cubic
     target_config_cubic = [{'class_name': 'CubicResourceTarget', 'params': {'a': 0.61}}]
@@ -379,7 +390,7 @@ def main():
     # Here we select which group we want to use. 
     # NOTE: Binomial needs filtering, handled below.
     
-    active_target_configs = gkp_target_configs 
+    active_target_configs =  cubic_phase_config
     # active_target_configs = target_configs1
     # active_target_configs = binomial_target_configs_all # Needs filtering below
 
@@ -478,7 +489,7 @@ def main():
     }
 
     # --- Select Active Circuit ---
-    active_circuit_config = circuit_config_1
+    active_circuit_config = circuit_config_gadget_2
     
     # --- Results Directory Setup ---
     # Generate short tags for folder name based on active configs
@@ -518,14 +529,32 @@ def main():
     # -------------------------------------------------------------------------
     patterns = None
 
-    patterns = generate_measurement_patterns(circuit, exact_total=4)
+    # patterns = generate_measurement_patterns(circuit, exact_total=3) + \
+    #  generate_measurement_patterns(circuit, exact_total=4) + \
+    #      generate_measurement_patterns(circuit, exact_total=6) + \
+    #       generate_measurement_patterns(circuit, exact_total=8) + \
+    #        generate_measurement_patterns(circuit, exact_total=10) 
    
-    # pattern = [[(1,), (3,)], [(2,), (2,)], [(3,), (1,)]] 
-    # patterns = [(2,2,4)]
-    # patterns = [(4,4)]
-    # patterns = [[(1,3)]]
-    # patterns = [[(1,2)]]
+    # patterns = generate_measurement_patterns(circuit, exact_total=4) 
+
+            
+    # patterns = [(2,4)]
+    # patterns = [[(4,)]]
+
+    patterns = [[(0,6)]]
+    # patterns = [[(3,)], [(4,)], [(6,)], [(8,)], [(10,)]] 
+    # patterns = [[(1, 3)], [(0, 4)], [(1, 4)], [(0, 5)], [(2, 2)], [(2, 3)], [(3, 2)],]
+    # patterns = [[(0,6)], [(2,6)], [(4,6)], [(8,6)], [(10,6)]]
+    # patterns = [[(2,2)], [(3,3)], [(4,4)],[(5,5)], [(6,6)]]
+    # patterns = [[(2,2)], [(4,4)], [(6,6)]]
+
+    # patterns = [[(2,4)]]
+
+    # patterns = [[(1,)]]
     # patterns = [[(1,3)], [(3,1)]]
+    # patterns = [[(0,5)], [(5,0)]]
+
+    # patterns = [[(1,2)], [(2,1)]]
     # patterns = None
     print(f"Measurement patterns: {patterns}")
 

@@ -53,7 +53,7 @@ def main():
     # Environment Parameters
     CUTOFF_DIM = 50
     MAX_STEPS = 50
-    INITIAL_DIFFICULTY = 0.85 # Start with lower fidelity target
+    INITIAL_DIFFICULTY = 0.99 # Start with lower fidelity target
 
 
     # Training Parameters
@@ -77,7 +77,7 @@ def main():
     # --- Setup Paths ---
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Train_Modular")
     os.makedirs(log_dir, exist_ok=True)
-    model_prefix = "ppo_modular_cat"
+    model_prefix = "ppo_modular_circuit"
 
     # --- Instantiate Modules ---
     # We create instances of the components to define what the environment does.
@@ -97,7 +97,8 @@ def main():
 
     circuit_context3 = CubicSpecificCircuit(max_sq_r=1.38)
 
-    circuit_context4 = ThreeModeSqueezeOnlyCircuit(max_sq_r=1)
+    circuit_context4 = ThreeModeSqueezeOnlyCircuit(max_sq_r=0.9, 
+                                                   num_single_photon=2)
     
     circuit_2mode_gadget = GadgetCircuit(max_squeezing=1.38, max_disp=1)
 
@@ -125,7 +126,7 @@ def main():
                           mu=0)
     
     # 3. Reward Mechanism: How we calculate success
-    reward_mech = LogFidelityReward(is_terminate=False)
+    reward_mech = LogFidelityReward(is_terminate=True)
 
     # add target1 and 2 to the current gkp_targets list
     # gkp_targets.append(target1)
