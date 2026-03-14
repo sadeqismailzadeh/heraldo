@@ -740,7 +740,7 @@ def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cut
     plt.tight_layout()
     
     save_path = Path(filename).resolve()
-    plt.savefig(save_path, bbox_inches='tight', dpi=300)
+    plt.savefig(save_path, bbox_inches='tight', dpi=100)
     plt.close(fig)
     print(f"High-quality plot saved to: {save_path}")
 
@@ -901,10 +901,51 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
     return tuple(reshaped)
 
 
+def save_all_fixed_pattern_wigners(circuit, flat_x, measurement_patterns, cutoff, results_dir):
+    """
+    Iterates over all saved fixed measurement patterns, evaluates them deterministically,
+    and saves their high-quality Wigner plots.
+    """
+    if measurement_patterns is None or len(measurement_patterns) == 0:
+        print("No fixed measurement patterns provided to save.")
+        return
+
+    print(f"\n=== Saving Wigner plots for {len(measurement_patterns)} fixed patterns ===")
+    
+    for i, pattern in enumerate(measurement_patterns):
+        try:
+            # Attempt to reshape the pattern to the required per-step tuple format
+            reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
+        except Exception as e:
+            print(f"Failed to reshape pattern {pattern}: {e}")
+            continue
+            
+        print(f"Evaluating pattern {i+1}/{len(measurement_patterns)}: {reshaped_pattern}")
+        res = run_deterministic_path(circuit, flat_x, reshaped_pattern, cutoff)
+        
+        if res is None:
+            print(f"  -> Path {reshaped_pattern} is not physically possible (zero probability). Skipping.")
+            continue
+            
+        ket = res['final_state_ket']
+        prob = res['final_probability']
+        
+        # Format filename based on measurement sequence
+        flat_outcomes = []
+        for step_out in reshaped_pattern:
+            flat_outcomes.extend(step_out)
+        outcome_str = "_".join(map(str, flat_outcomes))
+        
+        filename = results_dir / f"wigner_hq_{outcome_str}.png"
+        title = f"Outcome {reshaped_pattern} (P={prob:.2e})"
+        
+        plot_wigner_print_quality(ket, filename=filename, title=title, cutoff_dim=cutoff)
+
+
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired
-    results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq3_GKP_20260205T134849Z"  # Set to specific path if desired
+    results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq2_GKP_20260205T140644Z"  # Set to specific path if desired
     run_selection = "latest" # "best", "latest", or a run number string like "5"
     params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
     # params_json_path =  Path(__file__).resolve().parent.parent.parent / "results" / "manual" / "optimized_params.json"
@@ -913,6 +954,7 @@ def main():
     cutoff = 30  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
     FORCE_BEAM_SEARCH = False # If True, ignores stored fixed patterns and re-runs Beam Search
+    SAVE_ALL_FIXED_PATTERNS = True # If True, generates and saves Wigner plots for all fixed patterns
     
     LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
@@ -1069,7 +1111,17 @@ def main():
             print("No result dictionary available to analyze.")
             
     # -------------------------------------------------------------------------
-    # 2. Visualize Specific Outcome
+    # 2. Save all fixed patterns Wigners (If enabled)
+    # -------------------------------------------------------------------------
+    if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
+        stored_patterns = best_res.get('measurement_patterns')
+        if stored_patterns is not None:
+            save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
+        else:
+            print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
+
+    # -------------------------------------------------------------------------
+    # 3. Visualize Specific Outcome
     # -------------------------------------------------------------------------
     if USE_DM_EVAL:
         print("\n=== Single Branch Visualization ===")
