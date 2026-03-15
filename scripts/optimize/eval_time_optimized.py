@@ -9,6 +9,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import platform
 import itertools
+import re
 
 import quantum_agent
 import strawberryfields as sf
@@ -23,6 +24,31 @@ from quantum_agent.optimization.time_runner import evaluate_time_domain_circuit
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 from quantum_agent.factory import create_from_config
+
+
+
+def windows_to_wsl_path(win_path: str) -> str:
+    """
+    Converts an absolute Windows path to an absolute WSL path.
+    Example: 'C:\\Users\\name\\folder' -> '/mnt/c/Users/name/folder'
+    """
+    # 1. Remove any accidental surrounding quotes
+    clean_path = win_path.strip('\'"')
+    
+    # 2. Convert all Windows backslashes to forward slashes
+    clean_path = clean_path.replace('\\', '/')
+    
+    # 3. Match the Windows drive letter pattern (e.g., "C:/..." or "d:/...")
+    match = re.match(r'^([a-zA-Z]):/(.*)$', clean_path)
+    
+    if match:
+        drive_letter = match.group(1).lower()
+        rest_of_path = match.group(2)
+        # 4. Construct the WSL /mnt/ path
+        return f"/mnt/{drive_letter}/{rest_of_path}"
+    
+    # If it doesn't match a drive letter, return the normalized path as-is
+    return clean_path
 
 
 def print_optimized_parameters(circuit, flat_x, mapped_params=None):
@@ -672,10 +698,10 @@ def plot_ket_wigner(ket, title="State", cutoff_dim=40, grid_size=200, x_limit=5)
     plt.show()
 
 
-def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cutoff_dim=50, grid_size=400, x_limit=6):
+def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cutoff_dim=50, grid_size=400, x_limit=6, ax_wigner=None, ax_fock=None):
     """
     Generates a high-resolution Wigner function and Fock distribution plot suitable for publication/print.
-    Saves the figure to disk.
+    Can either save to disk as a single image or plot onto provided Matplotlib axes.
     """
     # Ensure normalization
     norm = np.linalg.norm(ket)
@@ -699,15 +725,20 @@ def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cut
     probs = state.all_fock_probs(cutoff=cutoff_dim)
     
     # 3. Setup High-Res Plot
-    # Use standard settings for cleanliness
     plt.rcParams.update({'font.size': 14, 'font.family': 'sans-serif'})
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7), dpi=300)
+    # Check if we are plotting on an existing combined figure
+    custom_axes = (ax_wigner is not None) and (ax_fock is not None)
+    
+    if custom_axes:
+        ax1, ax2 = ax_wigner, ax_fock
+        fig = ax1.figure
+    else:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7), dpi=300)
     
     # Plot Wigner
     X, P = np.meshgrid(xvec, pvec)
     lim = np.max(np.abs(W))
-    # Use RdBu_r so red is positive, blue is negative (standard in some papers) or RdBu
     c = ax1.pcolormesh(X, P, W, cmap='RdBu', shading='auto', vmin=-lim, vmax=lim, rasterized=True)
     
     cbar = fig.colorbar(c, ax=ax1, label='W(x, p)', pad=0.02)
@@ -737,12 +768,14 @@ def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cut
     ax2.set_xlim(-0.5, display_cutoff - 0.5)
     ax2.set_ylim(0, max(probs) * 1.1)
 
-    plt.tight_layout()
-    
-    save_path = Path(filename).resolve()
-    plt.savefig(save_path, bbox_inches='tight', dpi=100)
-    plt.close(fig)
-    print(f"High-quality plot saved to: {save_path}")
+    # Only save and close if we created a new figure inside this function
+    if not custom_axes:
+        plt.tight_layout()
+        save_path = Path(filename).resolve()
+        plt.savefig(save_path, bbox_inches='tight', dpi=100)
+        plt.close(fig)
+        print(f"High-quality plot saved to: {save_path}")
+
 
 
 def _find_latest_results_dir(base_dir: Path):
@@ -901,20 +934,25 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
     return tuple(reshaped)
 
 
-def save_all_fixed_pattern_wigners(circuit, flat_x, measurement_patterns, cutoff, results_dir):
+def save_all_fixed_pattern_wigners(circuit, flat_x, measurement_patterns, cutoff, results_dir, combine_plots=False):
     """
     Iterates over all saved fixed measurement patterns, evaluates them deterministically,
     and saves their high-quality Wigner plots.
+    
+    Parameters:
+    - combine_plots (bool): If False, saves each pattern as an individual image. 
+                            If True, saves all patterns stacked vertically in one large image.
     """
     if measurement_patterns is None or len(measurement_patterns) == 0:
         print("No fixed measurement patterns provided to save.")
         return
 
-    print(f"\n=== Saving Wigner plots for {len(measurement_patterns)} fixed patterns ===")
+    print(f"\n=== Evaluating Wigner plots for {len(measurement_patterns)} fixed patterns ===")
     
+    # 1. Evaluate all paths and collect valid states
+    valid_results = []
     for i, pattern in enumerate(measurement_patterns):
         try:
-            # Attempt to reshape the pattern to the required per-step tuple format
             reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
         except Exception as e:
             print(f"Failed to reshape pattern {pattern}: {e}")
@@ -927,25 +965,243 @@ def save_all_fixed_pattern_wigners(circuit, flat_x, measurement_patterns, cutoff
             print(f"  -> Path {reshaped_pattern} is not physically possible (zero probability). Skipping.")
             continue
             
+        valid_results.append({
+            'reshaped_pattern': reshaped_pattern,
+            'ket': res['final_state_ket'],
+            'prob': res['final_probability']
+        })
+
+    if not valid_results:
+        print("No valid patterns found to plot.")
+        return
+
+    # 2. Output Plot(s) based on user preference
+    if not combine_plots:
+        # Original Behavior: Multiple individual images
+        print(f"\n=== Saving {len(valid_results)} individual Wigner plots ===")
+        for res_dict in valid_results:
+            reshaped_pattern = res_dict['reshaped_pattern']
+            ket = res_dict['ket']
+            prob = res_dict['prob']
+            
+            # Format filename
+            flat_outcomes = []
+            for step_out in reshaped_pattern:
+                flat_outcomes.extend(step_out)
+            outcome_str = "_".join(map(str, flat_outcomes))
+            
+            filename = results_dir / f"wigner_hq_{outcome_str}.png"
+            title = f"Outcome {reshaped_pattern} (P={prob:.2e})"
+            
+            plot_wigner_print_quality(ket, filename=filename, title=title, cutoff_dim=cutoff)
+
+    else:
+        # New Behavior: One large combined picture
+        print(f"\n=== Saving {len(valid_results)} Wigner plots into a single combined image ===")
+        n_plots = len(valid_results)
+        
+        # Determine layout size based on amount of patterns (height = 7 inches per pattern)
+        # Using dpi=150 to prevent massive memory usage when stacking many plots
+        fig, axes = plt.subplots(nrows=n_plots, ncols=2, figsize=(16, 7 * n_plots), dpi=150)
+        
+        # Ensure 'axes' is consistently a 2D array, even if there's only 1 pattern
+        if n_plots == 1:
+            axes = np.array([axes])
+            
+        for i, res_dict in enumerate(valid_results):
+            reshaped_pattern = res_dict['reshaped_pattern']
+            ket = res_dict['ket']
+            prob = res_dict['prob']
+            
+            # Extract specific axes for this row
+            ax_wigner, ax_fock = axes[i]
+            title = f"Outcome {reshaped_pattern} (P={prob:.2e})"
+            
+            # Draw on the combined figure without saving individually
+            plot_wigner_print_quality(
+                ket, 
+                title=title, 
+                cutoff_dim=cutoff, 
+                ax_wigner=ax_wigner, 
+                ax_fock=ax_fock
+            )
+            
+        plt.tight_layout()
+        combined_filename = results_dir / "wigner_hq_combined_all_patterns.png"
+        plt.savefig(combined_filename, bbox_inches='tight', dpi=150)
+        plt.close(fig)
+        print(f"Combined high-quality plot saved to: {combined_filename}")
+
+
+def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets, cutoff, results_dir):
+    """
+    Evaluates the optimal rotation angle for fixed measurement patterns with respect to the best target.
+    Saves the results in a report file in the results directory.
+    """
+    if not measurement_patterns or not targets:
+        print("Skipping rotation report: Missing measurement patterns or targets.")
+        return
+
+    print(f"\n=== Evaluating rotations for {len(measurement_patterns)} fixed patterns ===")
+    
+    target_kets = [t.get_target_ket(cutoff) for t in targets]
+    
+    target_names = []
+    for t in targets:
+        if isinstance(t, CoreGKPTarget):
+            target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
+        elif isinstance(t, SqueezedCatTarget):
+            target_names.append(f"SqCat_a{t.alpha}_r{t.r}_p{t.p}")
+        elif isinstance(t, CatTarget):
+            target_names.append(f"Cat_a{t.alpha}_p{t.p}")
+        elif isinstance(t, BinomialCodeTarget):
+            target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
+        else:
+            target_names.append(t.__class__.__name__)
+            
+    report_lines = []
+    report_lines.append(f"{'Pattern':<20} | {'Prob':<10} | {'Best Target':<15} | {'Fidelity':<10} | {'Angle (rad)':<12} | {'Angle (deg)':<12}")
+    report_lines.append("-" * 92)
+
+    n_fft = 256
+    valid_count = 0
+
+    for i, pattern in enumerate(measurement_patterns):
+        try:
+            reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
+        except Exception as e:
+            continue
+            
+        res = run_deterministic_path(circuit, flat_x, reshaped_pattern, cutoff)
+        if res is None:
+            continue
+            
         ket = res['final_state_ket']
         prob = res['final_probability']
         
-        # Format filename based on measurement sequence
+        # Compute FFT fidelity
+        # prod shape: (N_targets, D)
+        prod = np.conj(ket) * np.array(target_kets)
+        fft_vals = np.fft.fft(prod, n=n_fft, axis=-1)
+        fidelities = np.abs(fft_vals)**2
+        
+        # Max fidelity over phase for each target
+        max_fid_per_target = np.max(fidelities, axis=-1)
+        
+        # Best target
+        best_t_idx = int(np.argmax(max_fid_per_target))
+        best_fid = float(max_fid_per_target[best_t_idx])
+        
+        # Optimal angle index
+        best_k = int(np.argmax(fidelities[best_t_idx]))
+        
+        angle_rad = 2 * np.pi * best_k / n_fft
+        if angle_rad > np.pi:
+            angle_rad -= 2 * np.pi
+        angle_deg = np.degrees(angle_rad)
+        
+        # Format pattern string
         flat_outcomes = []
         for step_out in reshaped_pattern:
             flat_outcomes.extend(step_out)
-        outcome_str = "_".join(map(str, flat_outcomes))
+        pattern_str = "_".join(map(str, flat_outcomes))
         
-        filename = results_dir / f"wigner_hq_{outcome_str}.png"
-        title = f"Outcome {reshaped_pattern} (P={prob:.2e})"
+        t_name = target_names[best_t_idx] if best_t_idx < len(target_names) else f"Target_{best_t_idx}"
         
-        plot_wigner_print_quality(ket, filename=filename, title=title, cutoff_dim=cutoff)
+        report_lines.append(f"{pattern_str:<20} | {prob:<10.2e} | {t_name:<15} | {best_fid:<10.4f} | {angle_rad:<12.4f} | {angle_deg:<12.1f}")
+        valid_count += 1
+
+    if valid_count > 0:
+        report_path = results_dir / "rotation_report.txt"
+        with open(report_path, "w") as f:
+            f.write("\n".join(report_lines))
+        print(f"Saved rotation report to: {report_path}")
+    else:
+        print("No valid patterns found to evaluate rotations.")
+
+
+def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module, cutoff: int = 30):
+    """
+    Iterates through all 'opt_*' folders in a given base directory and saves
+    fixed pattern Wigner figures for each valid optimization result.
+    """
+    base_dir = Path(results_base_dir)
+    
+    # Find all folders starting with "opt_" (based on lines 758-767)
+    opt_folders = list(base_dir.rglob("opt_*"))
+    
+    if not opt_folders:
+        print(f"No 'opt_' folders found in {base_dir}")
+        return
+
+    for results_dir in opt_folders:
+        if not results_dir.is_dir():
+            continue
+            
+        print(f"Processing folder: {results_dir.name}...")
+        
+        try:
+            # 1. Load the best optimization run from the folder (based on lines 770-830)
+            best = load_optimization_run(results_dir, selection="best")
+            best_res = best.get('best_res', {})
+            
+            # 2. Extract the measurement patterns (based on line 1186)
+            stored_patterns = best_res.get('measurement_patterns')
+            if stored_patterns is None:
+                print(f"  [Skip] No measurement_patterns found in {results_dir.name}.")
+                continue
+                
+            # 3. Extract parameters 'x' and ensure it's a numpy array (based on lines 1053-1056, 1188)
+            flat_x = best.get('x')
+            if flat_x is None:
+                flat_x = best_res.get('x')
+                
+            if flat_x is None:
+                print(f"  [Skip] No parameter vector 'x' found in {results_dir.name}.")
+                continue
+                
+            # 4. Reconstruct the circuit and targets from the saved config
+            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
+            target_configs = sanitize_config_paths(best_res.get('target_configs'))
+            
+            # NOTE: make sure `create_from_config` is imported in your script
+            circuit = create_from_config(circuit_config, circuit_module)
+            
+            targets = []
+            if target_configs:
+                targets = [create_from_config(cfg, target_module) for cfg in target_configs]
+            
+            # 5. Save the fixed pattern Wigner figures
+            save_all_fixed_pattern_wigners(
+                circuit=circuit, 
+                flat_x=np.asarray(flat_x), 
+                measurement_patterns=stored_patterns, 
+                cutoff=cutoff, 
+                results_dir=results_dir,
+                combine_plots=False 
+            )
+            
+            # 6. Evaluate and report rotations
+            if targets:
+                evaluate_and_report_rotations(
+                    circuit=circuit,
+                    flat_x=np.asarray(flat_x),
+                    measurement_patterns=stored_patterns,
+                    targets=targets,
+                    cutoff=cutoff,
+                    results_dir=results_dir
+                )
+                
+            print(f"  [Success] Processed figures and rotations for {results_dir.name}.")
+            
+        except Exception as e:
+            print(f"  [Error] Failed to process {results_dir.name}: {e}")
 
 
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired
-    results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq2_GKP_20260205T140644Z"  # Set to specific path if desired
+    results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq3_GKP_20260205T154126Z"  # Set to specific path if desired
     run_selection = "latest" # "best", "latest", or a run number string like "5"
     params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
     # params_json_path =  Path(__file__).resolve().parent.parent.parent / "results" / "manual" / "optimized_params.json"
@@ -958,6 +1214,9 @@ def main():
     
     LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
+
+    all_results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1")
+    # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
 
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
@@ -1111,12 +1370,14 @@ def main():
             print("No result dictionary available to analyze.")
             
     # -------------------------------------------------------------------------
-    # 2. Save all fixed patterns Wigners (If enabled)
+    # 2. Save all fixed patterns Wigners and Rotation Reports (If enabled)
     # -------------------------------------------------------------------------
     if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
         stored_patterns = best_res.get('measurement_patterns')
         if stored_patterns is not None:
             save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
+            if targets:
+                evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
         else:
             print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
 
