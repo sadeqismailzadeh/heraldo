@@ -508,112 +508,13 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         objective = (1- epsilon) * soft_success_prob + epsilon * gradient_leak2
         objective2 = np.sum(final_probs * (capped_fidelities**2 *log_vals)**4)
 
-        # expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
-
-        ng_weight = 0
-        # Non-Gaussianity Penalty
-        ng_threshold =0.5
-        if ng_weight > 1e-19:
-            ng_scores = compute_ng_scores(final_kets, cutoff_dim)
-
-            # Sigmoid penalty: High (1.0) if score < threshold (Gaussian), Low (0.0) if score > threshold
-            # S = 1 / (1 + exp(k * (score - threshold)))
-            #   = expit( -k * (score - threshold) )
-            ng_steepness = 20.0
-            # ng_penalty_terms = 1/(1+np.exp(ng_steepness * (ng_scores - ng_threshold)))
-            # NOTE: We use expit(-z) to calculate 1/(1+exp(z)) safely
-            ng_penalty_terms = expit(ng_steepness * (ng_scores - ng_threshold))
-            
-            # ng_loss = np.sum(ng_penalty_terms)
-            ng_loss = np.sum(final_probs * abs(ng_threshold - ng_scores))
-
-        # Photon Moment Similarity
-        if photon_dist_weight > 1e-6:
-            # Compute photon moments for each branch
-            branch_photon_moments = np.array([
-                _compute_photon_moments(ket, max_photon_dist)
-                for ket in final_kets
-            ])
-
-            # Get corresponding target moments
-            if target_photon_moments is None:
-                target_photon_moments = [
-                    _compute_photon_moments(ket, max_photon_dist)
-                    for ket in target_kets
-                ]
-
-            # Compute similarity for each branch with its best matching target
-            branch_similarities = np.zeros(len(final_kets))
-            for i, branch_moments in enumerate(branch_photon_moments):
-                target_idx = best_target_indices[i]
-                target_moments = target_photon_moments[target_idx]
-                similarity = _compute_moment_similarity(
-                    target_moments, branch_moments
-                )
-                branch_similarities[i] = similarity
-
-            # Weighted average similarity
-            photon_dist_similarity = np.sum(branch_similarities)
-
-        vacuum_excluded_weight = 0
-        # Vacuum-Excluded SSD (Rotationally Invariant)
-        if vacuum_excluded_weight > 1e-12:
-            # 1. Mask Vacuum (n=0 set to 0) - preserve original normalization for energy calc
-            masked_gen = final_kets.copy()
-            masked_gen[:, 0] = 0.0
-            
-            masked_tgt = np.array(target_kets, dtype=np.complex128)
-            masked_tgt[:, 0] = 0.0
-            
-            # 2. Energies (Squared Norms)
-            E_gen = np.sum(np.abs(masked_gen)**2, axis=1) # (N_branches,)
-            E_tgt = np.sum(np.abs(masked_tgt)**2, axis=1) # (N_targets,)
-            
-            # 3. FFT Overlap (Maximize over phase)
-            # P = masked_gen * conj(masked_tgt)
-            # Broadcasting: (N_branches, 1, D) * (1, N_targets, D)
-            prod_ssd = masked_gen[:, None, :] * np.conj(masked_tgt[None, :, :])
-            
-            # FFT along Fock axis
-            fft_vals_ssd = np.fft.fft(prod_ssd, n=256, axis=-1)
-            M_max = np.max(np.abs(fft_vals_ssd), axis=-1) # (N_branches, N_targets)
-            
-            # 4. SSD Calculation
-            # SSD = E_gen + E_tgt - 2*M_max
-            # Broadcast E terms
-            ssd_matrix = E_gen[:, None] + E_tgt[None, :] - 2 * M_max
-            ssd_matrix = np.maximum(ssd_matrix, 0.0) # Numerical stability
-            
-            # 5. Best target per branch
-            best_ssd_per_branch = np.min(ssd_matrix, axis=1)
-            
-            # 6. Weighted Sum
-            # vacuum_excluded_ssd_score = np.sum(final_probs * best_ssd_per_branch**4)
-
-            # Modified calculation to prevent zero-probability cheating
-
-
-            total_prob = np.sum(final_probs)
-            if total_prob > 1e-12:
-                min_infidel=1e-6
-                infidelities = np.maximum(1.0 - best_ssd_per_branch, min_infidel)
-                log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
-                capped_fidelities = np.minimum(best_ssd_per_branch, 1-min_infidel)
-                vacuum_excluded_ssd_score = np.sum((final_probs**prob_power)
-                                        * (capped_fidelities**2 *log_vals)**4)
-                # Normalize by total probability to get the Conditional Expected SSD
-                vacuum_excluded_ssd_score = np.sum(final_probs * best_ssd_per_branch) / total_prob
-            else:
-                # Penalize if probability is too low
-                vacuum_excluded_ssd_score = 10.0
 
 
     # Return loss
     # loss = -expected_fidelity - (success_weight * soft_success_prob) \
     #        + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
 
-    loss = -1*expected_fidelity + (penalty_strength * total_truncation_error) \
-           + (vacuum_excluded_weight * vacuum_excluded_ssd_score)
+    loss = -1*expected_fidelity + (penalty_strength * total_truncation_error)
     
     
     if not return_details:
