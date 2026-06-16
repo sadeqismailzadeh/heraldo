@@ -3,7 +3,6 @@ Script to run time-domain Beam Search optimization for a loop-based gadget.
 """
 
 
-from ast import pattern
 import os
 import re
 import glob
@@ -19,7 +18,6 @@ os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
-import operator
 import numpy as np
 import time
 import shutil
@@ -27,13 +25,6 @@ from pathlib import Path
 from sklearn.cluster import KMeans
 import itertools
 import warnings
-
-# Suppress CMA injection warnings (benign bookkeeping warning)
-try:
-    import cma.evolution_strategy
-    warnings.simplefilter("ignore", cma.evolution_strategy.InjectionWarning)
-except ImportError:
-    pass
 
 
 # 3. Suppress SciPy numerical overflow warnings during local search/polishing
@@ -45,7 +36,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimiz
 import quantum_agent.optimization.time_circuits as circuit_module
 import quantum_agent.components.targets as target_module
 from quantum_agent.optimization.time_circuits import *
-from quantum_agent.optimization.time_runner import CMAESOptimizationRunner, DifferentialEvolutionRunner, BasinHoppingRunner, DualAnnealingRunner, NevergradOptimizationRunner
+from quantum_agent.optimization.time_runner import  BasinHoppingRunner
 from quantum_agent.components.targets import *
 from quantum_agent.utils import *
 from quantum_agent.factory import create_from_config
@@ -307,19 +298,13 @@ def main():
     MEASURE_CUTOFF = CUTOFF_DIM       # Max Fock state to measure on Ancilla (0, 1)
     SUCCESS_THRESHOLD = 1 - 3e-2
     
-    OPTIMIZER_METHOD = "BASIN" # Options: "CMA", "DE", "BASIN", "DUAL", "NEVERGRAD"
-    
-    # CMA-specific settings (only used if OPTIMIZER_METHOD == "CMA")
-    BIPOP = False
-    RESTARTS = 0
-
     # --- Execution ---
-    n_generations = 100       # Number of hops per global search
-    niter = 1       # Number of global searches
+    n_generations = 20       # Number of hops per global search
+    niter = 1                # Number of global searches
 
     # Setup
     print("--- Setting up Time-Domain Optimization ---")
-    print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}, Optimizer: {OPTIMIZER_METHOD}")
+    print(f"Steps: {STEPS}, Beam Width: {BEAM_WIDTH}, Cutoff: {CUTOFF_DIM}")
 
     squeezing = db_to_r(12)
     print(f"squeezing r = {squeezing}")
@@ -380,7 +365,7 @@ def main():
                 binomial_target_configs_all.append({'class_name': 'BinomialCodeTarget', 'params': {'N': N, 'S': S, 'mu': 1}})
     
     # 1.5 Single Core GKP
-    target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 4, 'delta_db': 10, 'mu': 1}}]
+    target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 4, 'delta_db': 10, 'mu': 0}}]
     
     # 1.6 Cubic
     target_config_cubic = [{'class_name': 'CubicResourceTarget', 'params': {'a': 0.61}}]
@@ -390,7 +375,7 @@ def main():
     # Here we select which group we want to use. 
     # NOTE: Binomial needs filtering, handled below.
     
-    active_target_configs =  cubic_phase_config
+    active_target_configs =  target_config_3
     # active_target_configs = target_configs1
     # active_target_configs = binomial_target_configs_all # Needs filtering below
 
@@ -489,7 +474,7 @@ def main():
     }
 
     # --- Select Active Circuit ---
-    active_circuit_config = circuit_config_gadget_2
+    active_circuit_config = circuit_config_2
     
     # --- Results Directory Setup ---
     # Generate short tags for folder name based on active configs
@@ -541,7 +526,7 @@ def main():
     # patterns = [(2,4)]
     # patterns = [[(4,)]]
 
-    patterns = [[(0,6)]]
+    # patterns = [[(2,2)],[(1,3)],]
     # patterns = [[(3,)], [(4,)], [(6,)], [(8,)], [(10,)]] 
     # patterns = [[(1, 3)], [(0, 4)], [(1, 4)], [(0, 5)], [(2, 2)], [(2, 3)], [(3, 2)],]
     # patterns = [[(0,6)], [(2,6)], [(4,6)], [(8,6)], [(10,6)]]
@@ -551,7 +536,7 @@ def main():
     # patterns = [[(2,4)]]
 
     # patterns = [[(1,)]]
-    # patterns = [[(1,3)], [(3,1)]]
+    patterns = [[(1,3)], [(3,1)],]
     # patterns = [[(0,5)], [(5,0)]]
 
     # patterns = [[(1,2)], [(2,1)]]
@@ -579,19 +564,7 @@ def main():
         print(f"  Target {i+1}: {ng_score:.4f}")
 
     # 3. Runner
-    runner_map = {
-        "CMA": CMAESOptimizationRunner,
-        "DE": DifferentialEvolutionRunner,
-        "BASIN": BasinHoppingRunner,
-        "DUAL": DualAnnealingRunner,
-        "NEVERGRAD": NevergradOptimizationRunner
-    }
-    
-    UnifiedRunner = runner_map.get(OPTIMIZER_METHOD)
-    if UnifiedRunner is None:
-        raise ValueError(f"Unknown optimizer method: {OPTIMIZER_METHOD}")
-
-    runner = UnifiedRunner(
+    runner = BasinHoppingRunner(
         num_processes=4,
         circuit=circuit,
         target_gens=targets,
@@ -649,17 +622,7 @@ def main():
 
             print(f"prob_power = {prob_power:.5f}")
             
-            if OPTIMIZER_METHOD == "DUAL":
-                res = runner.run(maxiter=n_generations, prob_power=prob_power)
-            elif OPTIMIZER_METHOD == "CMA":
-                res = runner.run(
-                    n_generations=n_generations, 
-                    prob_power=prob_power, 
-                    bipop=BIPOP, 
-                    restarts=RESTARTS
-                )
-            else:
-                res = runner.run(n_generations=n_generations, prob_power=prob_power)
+            res = runner.run(n_generations=n_generations, prob_power=prob_power)
             
             # Recalculate expected fidelity from branches
             # (TimeDomainRunner objective is -ExpFid + Penalty, but we want pure ExpFid for stats)
