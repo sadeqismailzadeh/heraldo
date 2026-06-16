@@ -1217,11 +1217,35 @@ def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module,
             print(f"  [Error] Failed to process {results_dir.name}: {e}")
 
 
+def format_infidelity_with_error(F_30, F_50):
+    I_30 = 1.0 - F_30
+    I_50 = 1.0 - F_50
+    error = abs(I_50 - I_30)
+
+    if error < 1e-16: 
+        return f"{I_50:.2e}"
+
+    err_mag = np.floor(np.log10(error))
+    val_mag = np.floor(np.log10(max(I_50, 1e-30))) # Prevent -inf for exact match
+
+    # If error is larger than or equal to the infidelity itself, report an upper bound
+    if I_50 <= error or err_mag >= val_mag:
+        bound_power = int(np.ceil(np.log10(error)))
+        return f"< 10^{{{bound_power}}}"
+
+    # Otherwise, round I_50 to the decimal place matching the error's scale
+    else:
+        sig_figs = int(val_mag - err_mag)
+        if sig_figs <= 0:
+            sig_figs = 1
+        return f"{{:.{sig_figs}e}}".format(I_50)
+
+
 def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff: int = 30, high_cutoff: int = 50):
     """
-    Evaluates the fidelity between states generated with low_cutoff and high_cutoff 
+    Evaluates the target fidelity for states generated with low_cutoff and high_cutoff 
     for all fixed measurement patterns across all opt_* folders.
-    Reports the maximum infidelity found.
+    Reports 1-F_30, 1-F_50, absolute/relative truncation deviations, and formatting.
     """
     base_dir = Path(results_base_dir)
     opt_folders = list(base_dir.rglob("opt_*"))
@@ -1234,11 +1258,14 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
     
     report_lines = []
     report_lines.append(f"Cutoff Fidelity Report: {low_cutoff} vs {high_cutoff}")
-    report_lines.append("=" * 85)
-    report_lines.append(f"{'Folder':<40} | {'Pattern':<15} | {'Fidelity':<12} | {'Infidelity':<12}")
-    report_lines.append("-" * 85)
+    report_lines.append("=" * 145)
+    report_lines.append(
+        f"{'Folder':<40} | {'Pattern':<15} | {'1-F_'+str(low_cutoff):<10} | {'1-F_'+str(high_cutoff):<10} | "
+        f"{'Abs. Error':<10} | {'Rel. Dev.':<10} | {'Reliable Dec.':<13} | {'Formatted I':<15}"
+    )
+    report_lines.append("-" * 145)
 
-    max_infidelity = -1.0
+    max_error = -1.0
     worst_pattern = None
     worst_folder = None
 
@@ -1266,6 +1293,19 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
                 continue
             circuit = create_from_config(circuit_config, circuit_module)
             
+            target_configs = sanitize_config_paths(best_res.get('target_configs'))
+            targets = []
+            if target_configs:
+                targets = [create_from_config(cfg, target_module) for cfg in target_configs]
+                
+            if not targets:
+                print(f"  [Skip] No targets found in {results_dir.name} for fidelity evaluation.")
+                continue
+                
+            target_kets_low = np.array([t.get_target_ket(low_cutoff) for t in targets])
+            target_kets_high = np.array([t.get_target_ket(high_cutoff) for t in targets])
+            n_fft = 256
+            
             for pattern in stored_patterns:
                 try:
                     reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
@@ -1281,32 +1321,58 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
                 ket_low = res_low['final_state_ket']
                 ket_high = res_high['final_state_ket']
                 
-                # Pad low_cutoff ket to match high_cutoff length for vdot
-                padded_ket_low = np.zeros(high_cutoff, dtype=np.complex128)
-                min_len = min(len(ket_low), high_cutoff)
-                padded_ket_low[:min_len] = ket_low[:min_len]
+                # Max fidelity over targets and phase for low_cutoff
+                prod_low = np.conj(ket_low) * target_kets_low
+                fft_vals_low = np.fft.fft(prod_low, n=n_fft, axis=-1)
+                fidelities_low = np.abs(fft_vals_low)**2
+                F_low = float(np.max(fidelities_low))
                 
-                overlap = np.abs(np.vdot(padded_ket_low, ket_high))
-                fidelity = overlap ** 2
-                infidelity = 1.0 - fidelity
+                # Max fidelity over targets and phase for high_cutoff
+                prod_high = np.conj(ket_high) * target_kets_high
+                fft_vals_high = np.fft.fft(prod_high, n=n_fft, axis=-1)
+                fidelities_high = np.abs(fft_vals_high)**2
+                F_high = float(np.max(fidelities_high))
+                
+                I_low = 1.0 - F_low
+                I_high = 1.0 - F_high
+                error = abs(I_high - I_low)
+                
+                # Find relative magnitude differences to check if significant digits are ruined
+                if I_low > 1e-18:
+                    rel_deviation = error / I_low
+                    if error > 1e-18:
+                        reliable_decades = np.log10(I_low / error)
+                    else:
+                        reliable_decades = float('inf')
+                else:
+                    rel_deviation = 0.0 if error < 1e-18 else float('inf')
+                    reliable_decades = float('inf') if error < 1e-18 else -float('inf')
+                
+                formatted_I = format_infidelity_with_error(F_low, F_high)
                 
                 flat_outcomes = []
                 for step_out in reshaped_pattern:
                     flat_outcomes.extend(step_out)
                 pattern_str = "_".join(map(str, flat_outcomes))
                 
-                report_lines.append(f"{results_dir.name:<40} | {pattern_str:<15} | {fidelity:<12.6f} | {infidelity:<12.2e}")
+                rel_dev_str = f"{rel_deviation:.2e}" if rel_deviation != float('inf') else "inf"
+                decades_str = f"{reliable_decades:.1f}" if reliable_decades not in [float('inf'), -float('inf')] else ("inf" if reliable_decades > 0 else "-inf")
                 
-                if infidelity > max_infidelity:
-                    max_infidelity = infidelity
+                report_lines.append(
+                    f"{results_dir.name:<40} | {pattern_str:<15} | {I_low:<10.2e} | {I_high:<10.2e} | "
+                    f"{error:<10.2e} | {rel_dev_str:<10} | {decades_str:<13} | {formatted_I:<15}"
+                )
+                
+                if error > max_error:
+                    max_error = error
                     worst_pattern = pattern_str
                     worst_folder = results_dir.name
                     
         except Exception as e:
             print(f"  [Error] Failed to process {results_dir.name} for fidelity: {e}")
 
-    report_lines.append("=" * 85)
-    report_lines.append(f"MAXIMUM INFIDELITY: {max_infidelity:.6e}")
+    report_lines.append("=" * 145)
+    report_lines.append(f"MAXIMUM TRUNCATION ERROR: {max_error:.6e}")
     if worst_folder:
         report_lines.append(f"Found in Folder: {worst_folder}")
         report_lines.append(f"With Pattern: {worst_pattern}")
@@ -1316,7 +1382,7 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
         f.write("\n".join(report_lines))
     
     print(f"\nSaved cutoff infidelity report to: {report_path}")
-    print(f"Maximum Infidelity: {max_infidelity:.6e} (Folder: {worst_folder}, Pattern: {worst_pattern})")
+    print(f"Maximum Truncation Error: {max_error:.6e} (Folder: {worst_folder}, Pattern: {worst_pattern})")
 
 
 def main():
@@ -1337,9 +1403,9 @@ def main():
     LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
-    all_results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1")
+    all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1")
     # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
-    # evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
+    evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
 
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
