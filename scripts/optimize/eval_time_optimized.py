@@ -1038,7 +1038,7 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
     Evaluates the optimal rotation angle for fixed measurement patterns with respect to the best target.
     Saves the results in a report file in the results directory.
     """
-    if not measurement_patterns or not targets:
+    if measurement_patterns is None or len(measurement_patterns) == 0 or targets is None or len(targets) == 0:
         print("Skipping rotation report: Missing measurement patterns or targets.")
         return
 
@@ -1063,6 +1063,12 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
     report_lines.append(f"{'Pattern':<20} | {'Prob':<10} | {'Best Target':<15} | {'Fidelity':<10} | {'Angle (rad)':<12} | {'Angle (deg)':<12}")
     report_lines.append("-" * 92)
 
+    ket_report_lines = []
+    ket_report_lines.append("==================================================")
+    ket_report_lines.append(" RAW STATE KET REPORT")
+    ket_report_lines.append("==================================================")
+    ket_report_lines.append("")
+
     n_fft = 256
     valid_count = 0
 
@@ -1078,6 +1084,20 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
             
         ket = res['final_state_ket']
         prob = res['final_probability']
+        
+        # Format pattern string
+        flat_outcomes = []
+        for step_out in reshaped_pattern:
+            flat_outcomes.extend(step_out)
+        pattern_str = "_".join(map(str, flat_outcomes))
+        
+        # --- Append to Ket Report ---
+        ket_report_lines.append(f"Pattern: {pattern_str} (Prob: {prob:.4e})")
+        ket_report_lines.append("-" * 50)
+        for n, amp in enumerate(ket):
+            # Pretty print with 3 decimal accuracy: e.g. "  | 0> :  0.400 +0.000j"
+            ket_report_lines.append(f"  |{n:>2}> : {amp.real:>6.3f} {amp.imag:>+6.3f}j")
+        ket_report_lines.append("\n")
         
         # Compute FFT fidelity
         # prod shape: (N_targets, D)
@@ -1100,12 +1120,6 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
             angle_rad -= 2 * np.pi
         angle_deg = np.degrees(angle_rad)
         
-        # Format pattern string
-        flat_outcomes = []
-        for step_out in reshaped_pattern:
-            flat_outcomes.extend(step_out)
-        pattern_str = "_".join(map(str, flat_outcomes))
-        
         t_name = target_names[best_t_idx] if best_t_idx < len(target_names) else f"Target_{best_t_idx}"
         
         report_lines.append(f"{pattern_str:<20} | {prob:<10.2e} | {t_name:<15} | {best_fid:<10.4f} | {angle_rad:<12.4f} | {angle_deg:<12.1f}")
@@ -1116,6 +1130,11 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
         with open(report_path, "w") as f:
             f.write("\n".join(report_lines))
         print(f"Saved rotation report to: {report_path}")
+        
+        ket_report_path = results_dir / "ket_report.txt"
+        with open(ket_report_path, "w") as f:
+            f.write("\n".join(ket_report_lines))
+        print(f"Saved ket report to:      {ket_report_path}")
     else:
         print("No valid patterns found to evaluate rotations.")
 
@@ -1172,14 +1191,14 @@ def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module,
                 targets = [create_from_config(cfg, target_module) for cfg in target_configs]
             
             # 5. Save the fixed pattern Wigner figures
-            save_all_fixed_pattern_wigners(
-                circuit=circuit, 
-                flat_x=np.asarray(flat_x), 
-                measurement_patterns=stored_patterns, 
-                cutoff=cutoff, 
-                results_dir=results_dir,
-                combine_plots=False 
-            )
+            # save_all_fixed_pattern_wigners(
+            #     circuit=circuit, 
+            #     flat_x=np.asarray(flat_x), 
+            #     measurement_patterns=stored_patterns, 
+            #     cutoff=cutoff, 
+            #     results_dir=results_dir,
+            #     combine_plots=False 
+            # )
             
             # 6. Evaluate and report rotations
             if targets:
@@ -1198,25 +1217,129 @@ def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module,
             print(f"  [Error] Failed to process {results_dir.name}: {e}")
 
 
+def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff: int = 30, high_cutoff: int = 50):
+    """
+    Evaluates the fidelity between states generated with low_cutoff and high_cutoff 
+    for all fixed measurement patterns across all opt_* folders.
+    Reports the maximum infidelity found.
+    """
+    base_dir = Path(results_base_dir)
+    opt_folders = list(base_dir.rglob("opt_*"))
+    
+    if not opt_folders:
+        print(f"No 'opt_' folders found in {base_dir} for fidelity evaluation.")
+        return
+
+    print(f"\n=== Starting Cutoff Fidelity Evaluation ({low_cutoff} vs {high_cutoff}) ===")
+    
+    report_lines = []
+    report_lines.append(f"Cutoff Fidelity Report: {low_cutoff} vs {high_cutoff}")
+    report_lines.append("=" * 85)
+    report_lines.append(f"{'Folder':<40} | {'Pattern':<15} | {'Fidelity':<12} | {'Infidelity':<12}")
+    report_lines.append("-" * 85)
+
+    max_infidelity = -1.0
+    worst_pattern = None
+    worst_folder = None
+
+    for results_dir in opt_folders:
+        if not results_dir.is_dir():
+            continue
+            
+        try:
+            best = load_optimization_run(results_dir, selection="best")
+            if not best: continue
+            best_res = best.get('best_res', {})
+            
+            stored_patterns = best_res.get('measurement_patterns')
+            if stored_patterns is None or len(stored_patterns)==0:
+                continue
+                
+            flat_x = best.get('x')
+            if flat_x is None:
+                flat_x = best_res.get('x')
+            if flat_x is None:
+                continue
+                
+            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
+            if not circuit_config:
+                continue
+            circuit = create_from_config(circuit_config, circuit_module)
+            
+            for pattern in stored_patterns:
+                try:
+                    reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
+                except Exception:
+                    continue
+                    
+                res_low = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, low_cutoff)
+                res_high = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, high_cutoff)
+                
+                if res_low is None or res_high is None:
+                    continue
+                    
+                ket_low = res_low['final_state_ket']
+                ket_high = res_high['final_state_ket']
+                
+                # Pad low_cutoff ket to match high_cutoff length for vdot
+                padded_ket_low = np.zeros(high_cutoff, dtype=np.complex128)
+                min_len = min(len(ket_low), high_cutoff)
+                padded_ket_low[:min_len] = ket_low[:min_len]
+                
+                overlap = np.abs(np.vdot(padded_ket_low, ket_high))
+                fidelity = overlap ** 2
+                infidelity = 1.0 - fidelity
+                
+                flat_outcomes = []
+                for step_out in reshaped_pattern:
+                    flat_outcomes.extend(step_out)
+                pattern_str = "_".join(map(str, flat_outcomes))
+                
+                report_lines.append(f"{results_dir.name:<40} | {pattern_str:<15} | {fidelity:<12.6f} | {infidelity:<12.2e}")
+                
+                if infidelity > max_infidelity:
+                    max_infidelity = infidelity
+                    worst_pattern = pattern_str
+                    worst_folder = results_dir.name
+                    
+        except Exception as e:
+            print(f"  [Error] Failed to process {results_dir.name} for fidelity: {e}")
+
+    report_lines.append("=" * 85)
+    report_lines.append(f"MAXIMUM INFIDELITY: {max_infidelity:.6e}")
+    if worst_folder:
+        report_lines.append(f"Found in Folder: {worst_folder}")
+        report_lines.append(f"With Pattern: {worst_pattern}")
+
+    report_path = base_dir / "cutoff_infidelity_report.txt"
+    with open(report_path, "w") as f:
+        f.write("\n".join(report_lines))
+    
+    print(f"\nSaved cutoff infidelity report to: {report_path}")
+    print(f"Maximum Infidelity: {max_infidelity:.6e} (Folder: {worst_folder}, Pattern: {worst_pattern})")
+
+
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired
-    results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq3_GKP_20260205T154126Z"  # Set to specific path if desired
+    # results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq3_GKP_20260205T154126Z"  # Set to specific path if desired
+    results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1\cat\opt_Sq3_SqCat_20260206T190432Z")
     run_selection = "latest" # "best", "latest", or a run number string like "5"
     params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
     # params_json_path =  Path(__file__).resolve().parent.parent.parent / "results" / "manual" / "optimized_params.json"
     branch_index = 0  # Index of branch to visualize from best_result['branches']
-    measurement = "1,3"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
+    measurement = "0,4"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
     cutoff = 30  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
     FORCE_BEAM_SEARCH = False # If True, ignores stored fixed patterns and re-runs Beam Search
-    SAVE_ALL_FIXED_PATTERNS = True # If True, generates and saves Wigner plots for all fixed patterns
+    SAVE_ALL_FIXED_PATTERNS = False # If True, generates and saves Wigner plots for all fixed patterns
     
     LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
     all_results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1")
     # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
+    # evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
 
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
@@ -1372,14 +1495,14 @@ def main():
     # -------------------------------------------------------------------------
     # 2. Save all fixed patterns Wigners and Rotation Reports (If enabled)
     # -------------------------------------------------------------------------
-    if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
-        stored_patterns = best_res.get('measurement_patterns')
-        if stored_patterns is not None:
-            save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
-            if targets:
-                evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
-        else:
-            print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
+    # if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
+    #     stored_patterns = best_res.get('measurement_patterns')
+    #     if stored_patterns is not None:
+    #         save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
+    #         if targets:
+    #             evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
+    #     else:
+    #         print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
 
     # -------------------------------------------------------------------------
     # 3. Visualize Specific Outcome
