@@ -1258,16 +1258,20 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
     
     report_lines = []
     report_lines.append(f"Cutoff Fidelity Report: {low_cutoff} vs {high_cutoff}")
-    report_lines.append("=" * 145)
+    report_lines.append("=" * 110)
     report_lines.append(
         f"{'Folder':<40} | {'Pattern':<15} | {'1-F_'+str(low_cutoff):<10} | {'1-F_'+str(high_cutoff):<10} | "
-        f"{'Abs. Error':<10} | {'Rel. Dev.':<10} | {'Reliable Dec.':<13} | {'Formatted I':<15}"
+        f"{'Abs. Error':<10} | {'error / ( 1-F_' + str(low_cutoff) + ')':<18}"
     )
-    report_lines.append("-" * 145)
+    report_lines.append("-" * 110)
 
     max_error = -1.0
     worst_pattern = None
     worst_folder = None
+    
+    max_rel_dev = -1.0
+    worst_rel_pattern = None
+    worst_rel_folder = None
 
     for results_dir in opt_folders:
         if not results_dir.is_dir():
@@ -1340,15 +1344,8 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
                 # Find relative magnitude differences to check if significant digits are ruined
                 if I_low > 1e-18:
                     rel_deviation = error / I_low
-                    if error > 1e-18:
-                        reliable_decades = np.log10(I_low / error)
-                    else:
-                        reliable_decades = float('inf')
                 else:
                     rel_deviation = 0.0 if error < 1e-18 else float('inf')
-                    reliable_decades = float('inf') if error < 1e-18 else -float('inf')
-                
-                formatted_I = format_infidelity_with_error(F_low, F_high)
                 
                 flat_outcomes = []
                 for step_out in reshaped_pattern:
@@ -1356,26 +1353,36 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
                 pattern_str = "_".join(map(str, flat_outcomes))
                 
                 rel_dev_str = f"{rel_deviation:.2e}" if rel_deviation != float('inf') else "inf"
-                decades_str = f"{reliable_decades:.1f}" if reliable_decades not in [float('inf'), -float('inf')] else ("inf" if reliable_decades > 0 else "-inf")
                 
                 report_lines.append(
                     f"{results_dir.name:<40} | {pattern_str:<15} | {I_low:<10.2e} | {I_high:<10.2e} | "
-                    f"{error:<10.2e} | {rel_dev_str:<10} | {decades_str:<13} | {formatted_I:<15}"
+                    f"{error:<10.2e} | {rel_dev_str:<18}"
                 )
                 
                 if error > max_error:
                     max_error = error
                     worst_pattern = pattern_str
                     worst_folder = results_dir.name
+
+                if rel_deviation != float('inf') and rel_deviation > max_rel_dev:
+                    max_rel_dev = rel_deviation
+                    worst_rel_pattern = pattern_str
+                    worst_rel_folder = results_dir.name
                     
         except Exception as e:
             print(f"  [Error] Failed to process {results_dir.name} for fidelity: {e}")
 
-    report_lines.append("=" * 145)
+    report_lines.append("=" * 110)
     report_lines.append(f"MAXIMUM TRUNCATION ERROR: {max_error:.6e}")
     if worst_folder:
         report_lines.append(f"Found in Folder: {worst_folder}")
         report_lines.append(f"With Pattern: {worst_pattern}")
+    
+    report_lines.append("-" * 110)
+    report_lines.append(f"MAXIMUM RELATIVE ERROR (error / ( 1-F_{low_cutoff})): {max_rel_dev:.6e}")
+    if worst_rel_folder:
+        report_lines.append(f"Found in Folder: {worst_rel_folder}")
+        report_lines.append(f"With Pattern: {worst_rel_pattern}")
 
     report_path = base_dir / "cutoff_infidelity_report.txt"
     with open(report_path, "w") as f:
@@ -1383,6 +1390,7 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
     
     print(f"\nSaved cutoff infidelity report to: {report_path}")
     print(f"Maximum Truncation Error: {max_error:.6e} (Folder: {worst_folder}, Pattern: {worst_pattern})")
+    print(f"Maximum Relative Error (error / ( 1-F_{low_cutoff})): {max_rel_dev:.6e} (Folder: {worst_rel_folder}, Pattern: {worst_rel_pattern})")
 
 
 def main():
