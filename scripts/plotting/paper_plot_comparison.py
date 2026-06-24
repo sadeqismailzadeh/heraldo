@@ -1,4 +1,5 @@
 import quantum_agent
+from quantum_agent.components.targets import CoreGKPTarget
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -69,15 +70,23 @@ def main():
     print("Calculating Wigner for (3,1)...")
     _, W_31 = get_wigner_from_dm(rho_31)
 
+    # --- TARGET STATE ---
+    print("Calculating Wigner for Target...")
+    csv_path = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
+    target = CoreGKPTarget(csv_path=csv_path, n_max=4, delta_db=10, mu=0)
+    ket_target = target.get_target_ket(cutoff_dim=30)
+    rho_target = np.outer(ket_target, ket_target.conj())
+    _, W_target = get_wigner_from_dm(rho_target, cutoff_dim=30)
+
     # --- PLOTTING ---
     print("Generating Figure...")
-    
+    fontsize = 32
     # Publication settings
     plt.rcParams.update({
         # "text.usetex": True,  # Use LaTeX if available, otherwise False
         # "font.family": "serif",
         # "font.serif": ["Computer Modern Roman"],
-        "font.size": 24
+        "font.size": fontsize
     })
     
     # Fallback if LaTeX not installed
@@ -86,19 +95,29 @@ def main():
     except:
         plt.rcParams.update({"text.usetex": False, "font.family": "sans-serif"})
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 5), dpi=300, sharey=True)
+    fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(16, 5), dpi=300, sharey=True)
     plt.subplots_adjust(wspace=0.1)
 
     # Common max value for symmetric colormap
-    w_max = max(np.max(np.abs(W_13)), np.max(np.abs(W_31)))
+    w_max = max(np.max(np.abs(W_target)), np.max(np.abs(W_13)), np.max(np.abs(W_31)))
     levels = np.linspace(-w_max, w_max, 100)
+
+    # --- Subplot 0: Target ---
+    c0 = ax0.contourf(X, P, W_target, levels=levels, cmap='RdBu_r')
+    ax0.set_aspect('equal')
+    ax0.set_xlabel(r'$q$', fontsize=fontsize)
+    ax0.set_ylabel(r'$p$', fontsize=fontsize)
+    ax0.set_title(r'(a) Target', y=-0.45, fontsize=fontsize)
+    
+    ax0.axhline(0, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
+    ax0.axvline(0, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
 
     # --- Subplot 1: (1,3) ---
     c1 = ax1.contourf(X, P, W_13, levels=levels, cmap='RdBu_r')
     ax1.set_aspect('equal')
-    ax1.set_xlabel(r'$q$', fontsize=28)
-    ax1.set_ylabel(r'$p$', fontsize=28)
-    ax1.set_title(r'(a) Pattern (1,3)', y=-0.35, fontsize=28) 
+    ax1.set_xlabel(r'$q$', fontsize=fontsize)
+    # ax1.set_ylabel(r'$p$', fontsize=28)
+    ax1.set_title(r'(b) Pattern (1,3)', y=-0.45, fontsize=fontsize) 
     
     # Subtle guidelines
     ax1.axhline(0, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
@@ -107,9 +126,9 @@ def main():
     # --- Subplot 2: (3,1) ---
     c2 = ax2.contourf(X, P, W_31, levels=levels, cmap='RdBu_r')
     ax2.set_aspect('equal')
-    ax2.set_xlabel(r'$q$', fontsize=28)
+    ax2.set_xlabel(r'$q$', fontsize=fontsize)
     # ax2.set_ylabel is omitted because sharey=True
-    ax2.set_title(r'(b) Pattern (3,1)', y=-0.35, fontsize=28) 
+    ax2.set_title(r'(c) Pattern (3,1)', y=-0.45, fontsize=fontsize) 
     
     # Subtle guidelines
     ax2.axhline(0, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
@@ -117,12 +136,12 @@ def main():
 
     # --- Shared Colorbar ---
     # Create space on the right for one colorbar
-    fig.subplots_adjust(right=0.85)
-    cbar_ax = fig.add_axes([0.88, 0.15, 0.02, 0.7]) # [left, bottom, width, height]
+    fig.subplots_adjust(right=0.9)
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7]) # [left, bottom, width, height]
     cb = fig.colorbar(c2, cax=cbar_ax)
     # cb.set_label(r'$W(q,p)$', rotation=270, labelpad=20, fontsize=24)
     
-    # Custom ticks based on the data range (assuming 0.15 scale)
+    # Custom ticks based on the data range
     cb.set_ticks([-0.15, -0.10, -0.05, 0.0, 0.05, 0.10, 0.15])
 
     # Save

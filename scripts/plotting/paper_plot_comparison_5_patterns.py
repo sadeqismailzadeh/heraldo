@@ -1,5 +1,5 @@
 import quantum_agent
-from quantum_agent.components.targets import CoreGKPTarget
+from quantum_agent.components.targets import CoreGKPTarget, CatTarget, SqueezedCatTarget
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,7 +35,7 @@ def X_mesh(xvec, pvec):
 def main():
     # --- CONFIGURATION ---    
     # Update this path to point to your specific results folder
-    results_dir = Path(windows_to_wsl_path(r"E:\Quantum\paper\results1\mu1\n=4\opt_Sq3_GKP_20260205T154126Z"))
+    results_dir = Path(windows_to_wsl_path(r"E:\Quantum\paper\results1\cat\opt_Sq3_SqCat_20260206T190432Z"))
 
     if not results_dir.exists():
         print(f"Could not find results directory: {results_dir}")
@@ -53,7 +53,8 @@ def main():
     # Calculate Wigner for Target
     print("Calculating Wigner for Target...")
     csv_path = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
-    target = CoreGKPTarget(csv_path=csv_path, n_max=4, delta_db=10, mu=1)
+    # target = CoreGKPTarget(csv_path=csv_path, n_max=4, delta_db=10, mu=1)
+    target = SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0) # p=1 for odd parity
     ket_target = target.get_target_ket(cutoff_dim=30)
     rho_target = np.outer(ket_target, ket_target.conj())
     (X, P), W_target = get_wigner_from_dm(rho_target, cutoff_dim=30)
@@ -68,18 +69,17 @@ def main():
 
     # --- PLOTTING ---
     print("Generating Figure...")
-    fontsize = 24
+    fontsize = 32
     plt.rcParams.update({"font.size": fontsize})
     
-    fig, axes = plt.subplots(2, 3, figsize=(18, 11), dpi=300, sharex=True, sharey=True)
-    plt.subplots_adjust(wspace=0.1, hspace=0.4)
+    # Increase figsize height slightly and set hspace for more vertical room
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12), dpi=300, sharex=True, sharey=True)
+    plt.subplots_adjust(wspace=0.1, hspace=0.6) # Increased hspace to prevent overlap
 
-    # Common max value for symmetric colormap
     all_ws = [W_target] + list(wigner_data.values())
     w_max = max(np.max(np.abs(w)) for w in all_ws)
     levels = np.linspace(-w_max, w_max, 100)
 
-    # Mapping patterns to grid positions (Row 0: Target, 0_4, 1_3; Row 1: 2_2, 3_1, 4_0)
     plot_list = [
         ("Target", W_target, "(a) Target"),
         ("0_4", wigner_data["0_4"], "(b) Pattern (0,4)"),
@@ -94,12 +94,16 @@ def main():
         cf = ax.contourf(X, P, W, levels=levels, cmap='RdBu_r')
         ax.set_aspect('equal')
         
-        if idx // 3 == 1: # Bottom row
-            ax.set_xlabel(r'$q$', fontsize=fontsize)
-        if idx % 3 == 0: # Left column
+        # Enable q label and ticks for ALL subplots (including top row)
+        ax.set_xlabel(r'$q$', fontsize=fontsize)
+        ax.tick_params(labelbottom=True)
+        
+        if idx % 3 == 0: # Left column only for p label
             ax.set_ylabel(r'$p$', fontsize=fontsize)
             
-        ax.set_title(title, y=-0.35, fontsize=fontsize)
+        # Move title to the top with extra padding to avoid overlap with upper plot labels
+        ax.set_title(title, y=-0.45, fontsize=fontsize)
+        
         ax.axhline(0, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
         ax.axvline(0, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
 
@@ -110,7 +114,7 @@ def main():
     cb.set_ticks([-0.15, -0.10, -0.05, 0.0, 0.05, 0.10, 0.15])
 
     # Save
-    output_path = results_dir / "Figure_Comparison_5_Patterns.pdf"
+    output_path = results_dir / "Figure_Comparison_5_Patterns_Fixed.pdf"
     plt.savefig(output_path, bbox_inches='tight', dpi=300)
     print(f"Saved PDF to: {output_path}")
 
