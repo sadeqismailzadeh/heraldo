@@ -148,22 +148,14 @@ def format_patterns(pats):
     return ", ".join(str(p) for p in pats_tuples[:3]) + ", ..."
 
 
-def safe_db_to_r(db_val):
-    """Converts dB to squeezing parameter r safely."""
-    try:
-        return db_to_r(db_val)
-    except NameError:
-        return 0.11512925464970229 * db_val
-
-
 def main():
     CUTOFF_DIM = 30
     STEPS = 1
     BEAM_WIDTH = 200
     TIME_INVARIANT = False
     MEASURE_CUTOFF = CUTOFF_DIM
-    SUCCESS_THRESHOLD = 0.99  # Fixed at 0.99 per referee request
-    N_GENERATIONS = 20
+    SUCCESS_THRESHOLD = 0.93  # Fixed at 0.99 per referee request
+    N_GENERATIONS = 100
     NITER = 1
 
     squeezing = db_to_r(12)
@@ -201,29 +193,29 @@ def main():
         "patterns": [[(1, 3)]]
     })
 
-    # # 2. GKP mu=0, 3 modes, Single (2,2)
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "GKP mu=0",
-    #     "strategy": "Single (2,2)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 0}}
-    #     ],
-    #     "patterns": [[(2, 2)]]
-    # })
+    # 2. GKP mu=0, 3 modes, Single (2,2)
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "GKP mu=0",
+        "strategy": "Single (2,2)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 0}}
+        ],
+        "patterns": [[(2, 2)]]
+    })
 
     # 3. GKP mu=0, 3 modes, Multi
     sweep_jobs.append({
@@ -251,411 +243,411 @@ def main():
         "patterns": [[(2, 2)], [(4, 4)], [(6, 6)]]
     })
 
-    # # 4. Cat, 2 modes, Single (+)
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "Cat",
-    #     "strategy": "Single (+)",
-    #     "modes": 2,
-    #     "circuit_config": {
-    #         'class_name': 'TwoModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing,
-    #             'initial_fock_one': False
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}}
-    #     ],
-    #     "patterns": [[(4,)]]
-    # })
+    # 4. Cat, 2 modes, Single (+)
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "Cat",
+        "strategy": "Single (+)",
+        "modes": 2,
+        "circuit_config": {
+            'class_name': 'TwoModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing,
+                'initial_fock_one': False
+            }
+        },
+        "target_configs": [
+            {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}}
+        ],
+        "patterns": [[(4,)]]
+    })
 
-    # # 5. Cat, 2 modes, Single (-)
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "Cat",
-    #     "strategy": "Single (-)",
-    #     "modes": 2,
-    #     "circuit_config": {
-    #         'class_name': 'TwoModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing,
-    #             'initial_fock_one': False
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 1}}
-    #     ],
-    #     "patterns": [[(5,)]]
-    # })
+    # 5. Cat, 2 modes, Single (-)
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "Cat",
+        "strategy": "Single (-)",
+        "modes": 2,
+        "circuit_config": {
+            'class_name': 'TwoModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing,
+                'initial_fock_one': False
+            }
+        },
+        "target_configs": [
+            {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 1}}
+        ],
+        "patterns": [[(5,)]]
+    })
 
-    # # 6. Cat, 2 modes, Multi
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "Cat",
-    #     "strategy": "Multi (2 modes)",
-    #     "modes": 2,
-    #     "circuit_config": {
-    #         'class_name': 'TwoModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing,
-    #             'initial_fock_one': False
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}},
-    #         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 1}}
-    #     ],
-    #     "patterns": [[(4,)], [(5,)]]
-    # })
+    # 6. Cat, 2 modes, Multi
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "Cat",
+        "strategy": "Multi (2 modes)",
+        "modes": 2,
+        "circuit_config": {
+            'class_name': 'TwoModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing,
+                'initial_fock_one': False
+            }
+        },
+        "target_configs": [
+            {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}},
+            {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 1}}
+        ],
+        "patterns": [[(4,)], [(5,)]]
+    })
 
-    # # 7. Cat, 3 modes, Multi
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "Cat",
-    #     "strategy": "Multi (3 modes)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}},
-    #         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 1}}
-    #     ],
-    #     "patterns": [[(i, 4-i)] for i in range(5)] + [[(i, 5-i)] for i in range(6)]
-    # })
+    # 7. Cat, 3 modes, Multi
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "Cat",
+        "strategy": "Multi (3 modes)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}},
+            {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 1}}
+        ],
+        "patterns": [[(i, 4-i)] for i in range(5)] + [[(i, 5-i)] for i in range(6)]
+    })
 
-    # # 8. GKP mu=1, 2 modes, Single
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "GKP mu=1",
-    #     "strategy": "Single (4)",
-    #     "modes": 2,
-    #     "circuit_config": {
-    #         'class_name': 'TwoModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing,
-    #             'initial_fock_one': False
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
-    #     ],
-    #     "patterns": [[(4,)]]
-    # })
+    # 8. GKP mu=1, 2 modes, Single
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "GKP mu=1",
+        "strategy": "Single (4)",
+        "modes": 2,
+        "circuit_config": {
+            'class_name': 'TwoModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing,
+                'initial_fock_one': False
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
+        ],
+        "patterns": [[(4,)]]
+    })
 
-    # # 9. GKP mu=1, 2 modes, Multi
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "GKP mu=1",
-    #     "strategy": "Multi (2 modes)",
-    #     "modes": 2,
-    #     "circuit_config": {
-    #         'class_name': 'TwoModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing,
-    #             'initial_fock_one': False
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}},
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 6, 'delta_db': 10, 'mu': 1}},
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 8, 'delta_db': 10, 'mu': 1}},
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 10, 'delta_db': 10, 'mu': 1}}
-    #     ],
-    #     "patterns": [[(4,)], [(6,)], [(8,)], [(10,)]]
-    # })
+    # 9. GKP mu=1, 2 modes, Multi
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "GKP mu=1",
+        "strategy": "Multi (2 modes)",
+        "modes": 2,
+        "circuit_config": {
+            'class_name': 'TwoModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing,
+                'initial_fock_one': False
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}},
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 6, 'delta_db': 10, 'mu': 1}},
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 8, 'delta_db': 10, 'mu': 1}},
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 10, 'delta_db': 10, 'mu': 1}}
+        ],
+        "patterns": [[(4,)], [(6,)], [(8,)], [(10,)]]
+    })
 
-    # # 10. GKP mu=1, 3 modes, Single
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "GKP mu=1",
-    #     "strategy": "Single (4,0)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
-    #     ],
-    #     "patterns": [[(4, 0)]]
-    # })
+    # 10. GKP mu=1, 3 modes, Single
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "GKP mu=1",
+        "strategy": "Single (4,0)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
+        ],
+        "patterns": [[(4, 0)]]
+    })
 
-    # # 11. GKP mu=1, 3 modes, Multi
-    # gkp_mu1_3m_multi_patterns = []
-    # for s in [4, 6, 8, 10]:
-    #     gkp_mu1_3m_multi_patterns.extend([[(i, s-i)] for i in range(s + 1)])
+    # 11. GKP mu=1, 3 modes, Multi
+    gkp_mu1_3m_multi_patterns = []
+    for s in [4, 6, 8, 10]:
+        gkp_mu1_3m_multi_patterns.extend([[(i, s-i)] for i in range(s + 1)])
 
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "GKP mu=1",
-    #     "strategy": "Multi (3 modes)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}},
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 6, 'delta_db': 10, 'mu': 1}},
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 8, 'delta_db': 10, 'mu': 1}},
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 10, 'delta_db': 10, 'mu': 1}}
-    #     ],
-    #     "patterns": gkp_mu1_3m_multi_patterns
-    # })
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "GKP mu=1",
+        "strategy": "Multi (3 modes)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}},
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 6, 'delta_db': 10, 'mu': 1}},
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 8, 'delta_db': 10, 'mu': 1}},
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 10, 'delta_db': 10, 'mu': 1}}
+        ],
+        "patterns": gkp_mu1_3m_multi_patterns
+    })
 
-    # # 12. Binomial, 3 modes, Single
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "Binomial",
-    #     "strategy": "Single (2,4)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 2, 'mu': 0}}
-    #     ],
-    #     "patterns": [[(2, 4)]]
-    # })
+    # 12. Binomial, 3 modes, Single
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "Binomial",
+        "strategy": "Single (2,4)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 2, 'mu': 0}}
+        ],
+        "patterns": [[(2, 4)]]
+    })
 
-    # # 13. Binomial, 3 modes, Multi
-    # sweep_jobs.append({
-    #     "table": "Table 1",
-    #     "family": "Binomial",
-    #     "strategy": "Multi",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 2, 'mu': 0}},
-    #         {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 3, 'mu': 0}}
-    #     ],
-    #     "patterns": [[(2, 4)], [(4, 2)], [(3, 5)], [(5, 3)]]
-    # })
+    # 13. Binomial, 3 modes, Multi
+    sweep_jobs.append({
+        "table": "Table 1",
+        "family": "Binomial",
+        "strategy": "Multi",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 2, 'mu': 0}},
+            {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 3, 'mu': 0}}
+        ],
+        "patterns": [[(2, 4)], [(4, 2)], [(3, 5)], [(5, 3)]]
+    })
 
-    # # ==========================================
-    # # TABLE 2 CONFIGURATIONS (Non-redundant entries)
-    # # ==========================================
+    # ==========================================
+    # TABLE 2 CONFIGURATIONS (Non-redundant entries)
+    # ==========================================
 
-    # # 14. Table 2: GKP mu=0, 3 modes, (1,3) + (3,1)
-    # sweep_jobs.append({
-    #     "table": "Table 2",
-    #     "family": "GKP mu=0",
-    #     "strategy": "Harvesting (1,3), (3,1)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 0}}
-    #     ],
-    #     "patterns": [[(1, 3)], [(3, 1)]]
-    # })
+    # 14. Table 2: GKP mu=0, 3 modes, (1,3) + (3,1)
+    sweep_jobs.append({
+        "table": "Table 2",
+        "family": "GKP mu=0",
+        "strategy": "Harvesting (1,3), (3,1)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 0}}
+        ],
+        "patterns": [[(1, 3)], [(3, 1)]]
+    })
 
-    # # 15. Table 2: GKP mu=0, 3 modes, (1,3) + (3,1) + (2,2)
-    # sweep_jobs.append({
-    #     "table": "Table 2",
-    #     "family": "GKP mu=0",
-    #     "strategy": "Harvesting (1,3), (3,1), (2,2)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 0}}
-    #     ],
-    #     "patterns": [[(1, 3)], [(3, 1)], [(2, 2)]]
-    # })
+    # 15. Table 2: GKP mu=0, 3 modes, (1,3) + (3,1) + (2,2)
+    sweep_jobs.append({
+        "table": "Table 2",
+        "family": "GKP mu=0",
+        "strategy": "Harvesting (1,3), (3,1), (2,2)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 0}}
+        ],
+        "patterns": [[(1, 3)], [(3, 1)], [(2, 2)]]
+    })
 
-    # # 16. Table 2: GKP mu=1, 3 modes, (2,2)
-    # sweep_jobs.append({
-    #     "table": "Table 2",
-    #     "family": "GKP mu=1",
-    #     "strategy": "Harvesting (2,2)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
-    #     ],
-    #     "patterns": [[(2, 2)]]
-    # })
+    # 16. Table 2: GKP mu=1, 3 modes, (2,2)
+    sweep_jobs.append({
+        "table": "Table 2",
+        "family": "GKP mu=1",
+        "strategy": "Harvesting (2,2)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
+        ],
+        "patterns": [[(2, 2)]]
+    })
 
-    # # 17. Table 2: GKP mu=1, 3 modes, (3,1), (2,2), (4,0), (1,3), (0,4)
-    # sweep_jobs.append({
-    #     "table": "Table 2",
-    #     "family": "GKP mu=1",
-    #     "strategy": "Harvesting 5-patterns",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
-    #     ],
-    #     "patterns": [[(3, 1)], [(2, 2)], [(4, 0)], [(1, 3)], [(0, 4)]]
-    # })
+    # 17. Table 2: GKP mu=1, 3 modes, (3,1), (2,2), (4,0), (1,3), (0,4)
+    sweep_jobs.append({
+        "table": "Table 2",
+        "family": "GKP mu=1",
+        "strategy": "Harvesting 5-patterns",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
+        ],
+        "patterns": [[(3, 1)], [(2, 2)], [(4, 0)], [(1, 3)], [(0, 4)]]
+    })
 
-    # # 18. Table 2: Cat, 3 modes, (2,2)
-    # sweep_jobs.append({
-    #     "table": "Table 2",
-    #     "family": "Cat",
-    #     "strategy": "Harvesting (2,2)",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}}
-    #     ],
-    #     "patterns": [[(2, 2)]]
-    # })
+    # 18. Table 2: Cat, 3 modes, (2,2)
+    sweep_jobs.append({
+        "table": "Table 2",
+        "family": "Cat",
+        "strategy": "Harvesting (2,2)",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}}
+        ],
+        "patterns": [[(2, 2)]]
+    })
 
-    # # 19. Table 2: Cat, 3 modes, 5-patterns
-    # sweep_jobs.append({
-    #     "table": "Table 2",
-    #     "family": "Cat",
-    #     "strategy": "Harvesting 5-patterns",
-    #     "modes": 3,
-    #     "circuit_config": {
-    #         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
-    #         'params': {
-    #             'steps': STEPS,
-    #             'time_invariant': TIME_INVARIANT,
-    #             'clip_size': squeezing,
-    #             'measure_fock_cutoff': MEASURE_CUTOFF,
-    #             'num_single_photon': 0,
-    #             'train_initial_state': True,
-    #             'initial_r': squeezing
-    #         }
-    #     },
-    #     "target_configs": [
-    #         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}}
-    #     ],
-    #     "patterns": [[(2, 2)], [(1, 3)], [(3, 1)], [(0, 4)], [(4, 0)]]
-    # })
+    # 19. Table 2: Cat, 3 modes, 5-patterns
+    sweep_jobs.append({
+        "table": "Table 2",
+        "family": "Cat",
+        "strategy": "Harvesting 5-patterns",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}}
+        ],
+        "patterns": [[(2, 2)], [(1, 3)], [(3, 1)], [(0, 4)], [(4, 0)]]
+    })
 
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     results_dir = Path(__file__).resolve().parent.parent.parent / "results" / f"sweeps_fid099_{timestamp}"
@@ -719,8 +711,8 @@ def main():
                     tgt_fidelities = [b['fidelity'] for b in tgt_branches]
                     tgt_min_fid = min(tgt_fidelities)
                     tgt_max_infid = 1.0 - tgt_min_fid
-                    tgt_agg_prob = sum(b['prob'] for b in tgt_branches if b['fidelity'] >= SUCCESS_THRESHOLD)
-                    tgt_n_pat_success = sum(1 for b in tgt_branches if b['fidelity'] >= SUCCESS_THRESHOLD)
+                    tgt_agg_prob = sum(b['prob'] for b in tgt_branches if b['fidelity'])
+                    tgt_n_pat_success = sum(1 for b in tgt_branches if b['fidelity'])
                 else:
                     tgt_max_infid = float('nan')
                     tgt_agg_prob = 0.0
@@ -741,8 +733,8 @@ def main():
                 fidelities = [b['fidelity'] for b in branches]
                 min_fid = min(fidelities)
                 max_infid = 1.0 - min_fid
-                agg_prob = sum(b['prob'] for b in branches if b['fidelity'] >= SUCCESS_THRESHOLD)
-                n_pat_success = sum(1 for b in branches if b['fidelity'] >= SUCCESS_THRESHOLD)
+                agg_prob = sum(b['prob'] for b in branches if b['fidelity'] )
+                n_pat_success = sum(1 for b in branches if b['fidelity'] )
             else:
                 max_infid = float('nan')
                 agg_prob = 0.0
