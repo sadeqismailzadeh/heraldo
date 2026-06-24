@@ -467,49 +467,18 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
 
         # Logarithmic Reward
 
-        expected_fidelity = np.sum(final_probs + fidelities)
-
-        min_infidel=1e-5
+       
+        min_infidel=5e-2
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
-        # expected_fidelity = np.sum((final_probs**prob_power)
-        #                            * (capped_fidelities**2 *log_vals)**4)
-        
-        # expected_fidelity = np.sum(np.log(1e-25+(final_probs+ 1e-7) * np.log(1-capped_fidelities)))
-          # expected_fidelity = np.log(expected_fidelity)
 
-        # Softplus(x) = log(1 + exp(x))
-        # Numerically stable implementation: np.logaddexp(0, x)
-        alpha=  100
-        x = alpha * (fidelities - success_threshold)
-        softplus_reward = np.logaddexp(0, x) / alpha
-        
-        # The objective is the sum of probabilities weighted by the softplus of fidelity
-        # This maximizes Prob for branches above the threshold while maintaining a 
-        # small gradient for those below it.
-        # expected_fidelity = np.sum(final_probs * softplus_reward)
+        expected_fidelity = np.sum(final_probs + capped_fidelities)
 
 
-        log_diff = np.log10(infidelities)  /  np.log10(min_infidel) - np.log10(1-success_threshold)  /  np.log10(min_infidel)
-        # Update soft_success_prob for reporting (Optional)
-        # Using a higher steepness for a harder "Success" count
-        epsilon = 1e-2
-        # success_threshold= 1 - 5e-2
-        sigmoids = expit(10.0 * (fidelities - success_threshold))
-        # sigmoids = expit(100.0 * log_diff)
-        sigmoids2 = expit(5.0 * (final_probs - 0.0005))
-        soft_success_prob = np.sum(final_probs* sigmoids2 * sigmoids)
-        sigmoids3 = expit(5.0 * (final_probs - 0.0))
-        gradient_leak1 = np.sum(final_probs * sigmoids3 * log_vals**2)
-        # randpower = np.random.uniform(0.02, 1)
-        gradient_leak2 = np.sum(final_probs**0.2  * (capped_fidelities**2 *log_vals))
-        # gradient_leak = np.sum(final_probs**0.2 * sigmoids2 * log_vals)
-        objective = (1- epsilon) * soft_success_prob + epsilon * gradient_leak2
+
         objective2 = np.sum(final_probs * (capped_fidelities**2 *log_vals)**4)
-
-
-
+        # expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
     # Return loss
     # loss = -expected_fidelity - (success_weight * soft_success_prob) \
     #        + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
