@@ -14,7 +14,31 @@ import strawberryfields as sf
 from strawberryfields.ops import Ket, Sgate, Dgate
 from functools import lru_cache
 import scipy.sparse as sp
+import re
 
+
+def windows_to_wsl_path(win_path: str) -> str:
+    """
+    Converts an absolute Windows path to an absolute WSL path.
+    Example: 'C:\\Users\\name\\folder' -> '/mnt/c/Users/name/folder'
+    """
+    # 1. Remove any accidental surrounding quotes
+    clean_path = win_path.strip('\'"')
+    
+    # 2. Convert all Windows backslashes to forward slashes
+    clean_path = clean_path.replace('\\', '/')
+    
+    # 3. Match the Windows drive letter pattern (e.g., "C:/..." or "d:/...")
+    match = re.match(r'^([a-zA-Z]):/(.*)$', clean_path)
+    
+    if match:
+        drive_letter = match.group(1).lower()
+        rest_of_path = match.group(2)
+        # 4. Construct the WSL /mnt/ path
+        return f"/mnt/{drive_letter}/{rest_of_path}"
+    
+    # If it doesn't match a drive letter, return the normalized path as-is
+    return clean_path
 
 @lru_cache(maxsize=8)
 def _get_ng_operators(dim):
