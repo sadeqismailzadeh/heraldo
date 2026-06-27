@@ -1033,6 +1033,35 @@ def save_all_fixed_pattern_wigners(circuit, flat_x, measurement_patterns, cutoff
         print(f"Combined high-quality plot saved to: {combined_filename}")
 
 
+def compute_angular_range(angles_deg):
+    """
+    Computes the shortest interval containing all angles on a circle.
+    """
+    if not angles_deg:
+        return 0.0
+    if len(angles_deg) == 1:
+        return 0.0
+
+    normalized = [a % 360.0 for a in angles_deg]
+
+    if max(normalized) - min(normalized) < 1e-9:
+        return 0.0
+
+    normalized.sort()
+
+    gaps = []
+    n = len(normalized)
+    for i in range(n):
+        gap = (normalized[(i + 1) % n] - normalized[i]) % 360.0
+        gaps.append(gap)
+
+    max_gap = max(gaps)
+    if max_gap < 1e-9:
+        return 0.0
+
+    return 360.0 - max_gap
+
+
 def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets, cutoff, results_dir):
     """
     Evaluates the optimal rotation angle for fixed measurement patterns with respect to the best target.
@@ -1071,6 +1100,9 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
 
     n_fft = 256
     valid_count = 0
+
+    all_angles = []
+    target_angles = {}
 
     for i, pattern in enumerate(measurement_patterns):
         try:
@@ -1123,9 +1155,32 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
         t_name = target_names[best_t_idx] if best_t_idx < len(target_names) else f"Target_{best_t_idx}"
         
         report_lines.append(f"{pattern_str:<20} | {prob:<10.2e} | {t_name:<15} | {best_fid:<10.4f} | {angle_rad:<12.4f} | {angle_deg:<12.1f}")
+        all_angles.append(angle_deg)
+        if best_t_idx not in target_angles:
+            target_angles[best_t_idx] = []
+        target_angles[best_t_idx].append(angle_deg)
         valid_count += 1
 
     if valid_count > 0:
+        overall_range = compute_angular_range(all_angles)
+
+        summary_lines = []
+        summary_lines.append("")
+        summary_lines.append("=" * 92)
+        summary_lines.append(" ROTATION RANGE SUMMARY")
+        summary_lines.append("=" * 92)
+        summary_lines.append(f"Overall Rotation Range (All Patterns): {overall_range:.2f}° ({np.radians(overall_range):.4f} rad)")
+
+        for idx in sorted(target_angles.keys()):
+            t_angs = target_angles[idx]
+            t_name = target_names[idx] if idx < len(target_names) else f"Target_{idx}"
+            t_range = compute_angular_range(t_angs)
+            summary_lines.append(f"Range for {t_name:<20} ({len(t_angs)} states): {t_range:.2f}° ({np.radians(t_range):.4f} rad)")
+        summary_lines.append("=" * 92)
+
+        report_lines.extend(summary_lines)
+        print("\n".join(summary_lines))
+
         report_path = results_dir / "rotation_report.txt"
         with open(report_path, "w") as f:
             f.write("\n".join(report_lines))
@@ -1406,14 +1461,14 @@ def main():
     cutoff = 30  # Cutoff dimension for visualization
     recalc_statistics = True # If True, will print the full branch table and aggregated targets
     FORCE_BEAM_SEARCH = False # If True, ignores stored fixed patterns and re-runs Beam Search
-    SAVE_ALL_FIXED_PATTERNS = False # If True, generates and saves Wigner plots for all fixed patterns
+    SAVE_ALL_FIXED_PATTERNS = True # If True, generates and saves Wigner plots for all fixed patterns
     
     LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
     all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1")
-    # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
-    evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
+    generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
+    # evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
 
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
@@ -1569,14 +1624,14 @@ def main():
     # -------------------------------------------------------------------------
     # 2. Save all fixed patterns Wigners and Rotation Reports (If enabled)
     # -------------------------------------------------------------------------
-    # if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
-    #     stored_patterns = best_res.get('measurement_patterns')
-    #     if stored_patterns is not None:
-    #         save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
-    #         if targets:
-    #             evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
-    #     else:
-    #         print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
+    if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
+        stored_patterns = best_res.get('measurement_patterns')
+        if stored_patterns is not None:
+            save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
+            if targets:
+                evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
+        else:
+            print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
 
     # -------------------------------------------------------------------------
     # 3. Visualize Specific Outcome
