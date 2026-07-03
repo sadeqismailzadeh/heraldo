@@ -711,8 +711,8 @@ def main():
                     tgt_fidelities = [b['fidelity'] for b in tgt_branches]
                     tgt_min_fid = min(tgt_fidelities)
                     tgt_max_infid = 1.0 - tgt_min_fid
-                    tgt_agg_prob = sum(b['prob'] for b in tgt_branches if b['fidelity'])
-                    tgt_n_pat_success = sum(1 for b in tgt_branches if b['fidelity'])
+                    tgt_agg_prob = sum(b['prob'] for b in tgt_branches if b['fidelity'] >= SUCCESS_THRESHOLD)
+                    tgt_n_pat_success = sum(1 for b in tgt_branches if b['fidelity'] >= SUCCESS_THRESHOLD)
                 else:
                     tgt_max_infid = float('nan')
                     tgt_agg_prob = 0.0
@@ -733,8 +733,8 @@ def main():
                 fidelities = [b['fidelity'] for b in branches]
                 min_fid = min(fidelities)
                 max_infid = 1.0 - min_fid
-                agg_prob = sum(b['prob'] for b in branches if b['fidelity'] )
-                n_pat_success = sum(1 for b in branches if b['fidelity'] )
+                agg_prob = sum(b['prob'] for b in branches if b['fidelity'] >= SUCCESS_THRESHOLD)
+                n_pat_success = sum(1 for b in branches if b['fidelity'] >= SUCCESS_THRESHOLD)
             else:
                 max_infid = float('nan')
                 agg_prob = 0.0
