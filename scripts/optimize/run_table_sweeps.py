@@ -17,6 +17,7 @@ import json
 import pickle
 import time
 import warnings
+import shutil
 import multiprocessing as mp
 from pathlib import Path
 from datetime import datetime
@@ -48,6 +49,56 @@ def prepare_measurement_patterns(patterns):
         return patterns_np
     except Exception:
         return patterns
+
+
+def format_branches_report(branches, target_names, success_threshold):
+    """Returns a formatted string of branch statistics."""
+    lines = []
+    lines.append("-" * 80)
+    lines.append(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
+    lines.append("-" * 80)
+
+    sorted_branches = sorted(branches, key=lambda x: x['prob'], reverse=True)
+    total_prob = 0.0
+    for b in sorted_branches:
+        total_prob += b['prob']
+        outcome_str = str(b['outcome'])
+        t_idx = b.get('target_idx', 0)
+        tgt_name = target_names[t_idx] if t_idx < len(target_names) else f"Target_{t_idx}"
+        lines.append(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {(1-b['fidelity']):<10.1e} {tgt_name:<15}")
+
+    lines.append(f"\nTotal Probability captured: {total_prob:.5f}")
+
+    # Target Analysis
+    lines.append("-" * 60)
+    lines.append(f"Target Distribution Analysis (Success > {success_threshold}):")
+    lines.append(f"{'Rank':<5} {'Target Name':<20} {'Tot. Prob':<10} {'Outcomes (Top 3)'}")
+    lines.append("-" * 60)
+
+    target_stats = {}
+    for b in branches:
+        if b['fidelity'] > success_threshold:
+            idx = b.get('target_idx', 0)
+            if idx not in target_stats:
+                target_stats[idx] = {'prob': 0.0, 'outcomes': []}
+            target_stats[idx]['prob'] += b['prob']
+            target_stats[idx]['outcomes'].append((b['outcome'], b['prob']))
+
+    sorted_targets = sorted(target_stats.items(), key=lambda x: x[1]['prob'], reverse=True)
+
+    if not sorted_targets:
+        lines.append("No branches met the success threshold.")
+    else:
+        for rank, (idx, stats) in enumerate(sorted_targets):
+            stats['outcomes'].sort(key=lambda x: x[1], reverse=True)
+            top_outcomes = [str(o[0]) for o in stats['outcomes'][:3]]
+            outcome_str = ", ".join(top_outcomes)
+            if len(stats['outcomes']) > 3:
+                outcome_str += ", ..."
+            t_name = target_names[idx] if idx < len(target_names) else f"Target_{idx}"
+            lines.append(f"{rank+1:<5} {t_name:<20} {stats['prob']:<10.4f} {outcome_str}")
+
+    return "\n".join(lines)
 
 
 def get_target_name_brief(cfg):
@@ -767,12 +818,100 @@ def main():
             if len(target_results) > 1:
                 print(f"   * Total Aggregated Success Prob (P_agg @ >=0.99): {agg_prob:.2%}")
 
-            # Save raw pickle metadata
+            # Generate target names for report
+            target_names = []
+            for t in targets:
+                if isinstance(t, CoreGKPTarget):
+                    target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
+                elif isinstance(t, SqueezedCatTarget):
+                    target_names.append(f"Sq_cat_a{t.alpha}_r{t.r}_p{t.p}")
+                elif isinstance(t, CatTarget):
+                    target_names.append(f"Cat_a{t.alpha}_p{t.p}")
+                elif isinstance(t, BinomialCodeTarget):
+                    target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
+                elif isinstance(t, CubicPhaseTarget):
+                    target_names.append(f"CubicPh_g{t.gamma}_r{t.r}")
+                elif isinstance(t, TrisqueezedTarget):
+                    target_names.append("TriSq")
+                elif isinstance(t, QuadsqueezedTarget):
+                    target_names.append("QuadSq")
+                else:
+                    target_names.append("UnknownTarget")
+
+            # Sort branches as done in run_time_optimization.py
+            branches.sort(key=lambda x: x['prob'], reverse=True)
+            expected_fidelity = sum(b['prob'] * b['fidelity'] for b in branches)
+            
+            # Inject values into res dictionary so it matches expectation of run_time_optimization.py structure
+            res['expected_fidelity'] = expected_fidelity
+            res['success_prob'] = agg_prob
+            res['run_index'] = 1
+            
+            # Prepare metadata matching structure expected by eval_time_optimized.py
+            run_meta = {
+                "run_index": 1,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "prob_power": 1.0,
+                "expected_fidelity": float(expected_fidelity),
+                "success_prob": float(agg_prob),
+                "circuit_config": job['circuit_config'],
+                "target_configs": job['target_configs'],
+                "measurement_patterns": job['patterns']
+            }
+
+            # Save PKL and branches reports
+            run_file = job_dir / "run_0001.pkl"
+            with open(run_file, "wb") as f:
+                pickle.dump({"meta": run_meta, "res": res}, f)
+
+            summary = {
+                "run_index": 1,
+                "expected_fidelity": float(expected_fidelity),
+                "success_prob": float(agg_prob),
+                "total_probability": float(res.get("total_probability", 0.0))
+            }
+            with open(job_dir / "run_0001_summary.json", "w") as f:
+                json.dump(summary, f, indent=2)
+
+            branches_report = format_branches_report(branches, target_names, SUCCESS_THRESHOLD)
+            with open(job_dir / "run_0001_branches.txt", "w") as f:
+                f.write(branches_report)
+
+            # Save reformatted results.pkl for compatibility with older load scripts if needed
             with open(job_dir / "results.pkl", "wb") as f:
-                pickle.dump({"config": job, "results": res}, f)
+                pickle.dump({"meta": run_meta, "res": res}, f)
 
             with open(job_dir / "summary.json", "w") as f:
                 json.dump(job_result, f, indent=2)
+
+            # Reconstruct the "best/" folder directory structure as in run_time_optimization.py
+            try:
+                best_dir = job_dir / "best"
+                best_dir.mkdir(exist_ok=True)
+
+                shutil.copy(run_file, best_dir / "best_run_0001.pkl")
+                with open(best_dir / "best_run_0001_branches.txt", "w") as f:
+                    f.write(branches_report)
+                with open(best_dir / "best_run_0001_summary.json", "w") as f:
+                    json.dump(summary, f, indent=2)
+
+                # Save parameter files
+                if 'x' in res:
+                    np.save(best_dir / "best_x.npy", res['x'])
+                    mapped_params = circuit.map_parameters(res['x'])
+                    param_names = circuit.per_step_parameter_names
+                    np.savez(best_dir / "mapped_params.npz", mapped_params=mapped_params)
+                    
+                    schedule = {
+                        "param_names": param_names,
+                        "mapped_params": mapped_params.tolist() if hasattr(mapped_params, "tolist") else [[float(v) for v in row] for row in mapped_params],
+                        "circuit_config": job['circuit_config'],
+                        "target_configs": job['target_configs']
+                    }
+                    with open(best_dir / "schedule.json", "w") as f:
+                        json.dump(schedule, f, indent=2)
+            except Exception as e_best:
+                print(f"Warning: Failed to save best directory outputs: {e_best}")
 
         except Exception as e:
             print(f"Error executing job {idx+1}: {e}")
