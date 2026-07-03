@@ -779,9 +779,9 @@ def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cut
 
 
 def _find_latest_results_dir(base_dir: Path):
-    # Modified to match "opt_*" instead of "opt_run_*" to support new naming tags
+    # Modified to match "opt_*" and "job_*" to support new naming tags
     # and sort by modification time to ensure we get the actual latest run.
-    matches = [p for p in base_dir.glob("opt_*") if p.is_dir()]
+    matches = [p for p in base_dir.glob("opt_*") if p.is_dir()] + [p for p in base_dir.glob("job_*") if p.is_dir()]
     
     if not matches:
         return None
@@ -795,7 +795,7 @@ def load_optimization_run(results_dir: Path, selection: str = "best"):
     Unified loader for optimization results.
     
     Args:
-        results_dir: The opt_XXXX directory.
+        results_dir: The opt_XXXX or job_XXXX directory.
         selection: 
             - "best": loads the highest numbered best_run_XXXX.pkl from the 'best' subdirectory
             - "latest": loads the highest numbered run_XXXX.pkl from the results directory
@@ -803,7 +803,9 @@ def load_optimization_run(results_dir: Path, selection: str = "best"):
     """
     target_file = None
 
-    if selection == "best":
+    if (results_dir / "results.pkl").exists():
+        target_file = results_dir / "results.pkl"
+    elif selection == "best":
         best_dir = results_dir / "best"
         best_files = sorted(best_dir.glob("best_run_*.pkl"))
         if best_files:
@@ -1196,16 +1198,16 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
 
 def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module, cutoff: int = 30):
     """
-    Iterates through all 'opt_*' folders in a given base directory and saves
+    Iterates through all 'opt_*' and 'job_*' folders in a given base directory and saves
     fixed pattern Wigner figures for each valid optimization result.
     """
     base_dir = Path(results_base_dir)
     
-    # Find all folders starting with "opt_" (based on lines 758-767)
-    opt_folders = list(base_dir.rglob("opt_*"))
+    # Find all folders starting with "opt_" or "job_"
+    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
     
     if not opt_folders:
-        print(f"No 'opt_' folders found in {base_dir}")
+        print(f"No 'opt_' or 'job_' folders found in {base_dir}")
         return
 
     for results_dir in opt_folders:
@@ -1299,14 +1301,14 @@ def format_infidelity_with_error(F_30, F_50):
 def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff: int = 30, high_cutoff: int = 50):
     """
     Evaluates the target fidelity for states generated with low_cutoff and high_cutoff 
-    for all fixed measurement patterns across all opt_* folders.
+    for all fixed measurement patterns across all opt_* and job_* folders.
     Reports 1-F_30, 1-F_50, absolute/relative truncation deviations, and formatting.
     """
     base_dir = Path(results_base_dir)
-    opt_folders = list(base_dir.rglob("opt_*"))
+    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
     
     if not opt_folders:
-        print(f"No 'opt_' folders found in {base_dir} for fidelity evaluation.")
+        print(f"No 'opt_' or 'job_' folders found in {base_dir} for fidelity evaluation.")
         return
 
     print(f"\n=== Starting Cutoff Fidelity Evaluation ({low_cutoff} vs {high_cutoff}) ===")
