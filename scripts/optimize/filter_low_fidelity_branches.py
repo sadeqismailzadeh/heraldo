@@ -275,10 +275,17 @@ def filter_batch_results():
                     tgt_agg_prob = 0.0
                     tgt_n_pat_success = 0
 
+                # Gather only the successful patterns for this target
+                tgt_pats_filtered = []
+                for b in filtered_tgt_branches:
+                    pat = b.get('outcome') or b.get('pattern')
+                    if pat is not None:
+                        tgt_pats_filtered.append(pat)
+
                 target_results.append({
                     "target_idx": k,
                     "target_label": format_target_latex(tgt_cfg),
-                    "patterns_str": format_patterns(tgt_pats),
+                    "patterns_str": format_patterns(tgt_pats_filtered),
                     "n_pat_total": n_pat_total,
                     "n_pat_success": tgt_n_pat_success,
                     "max_infid": tgt_max_infid,
@@ -341,11 +348,11 @@ def filter_batch_results():
                     
                     infid_str = f"{tgt['max_infid']:.2e}" if not np.isnan(tgt['max_infid']) else "N/A"
                     prob_str = f"{tgt['agg_prob']:.2%}"
-                    f.write(f"| {fam_str} | {modes_str} | {strat_str} | {tgt['target_label']} | {tgt['patterns_str']} | {tgt['n_pat_total']} | {infid_str} | {prob_str} | {r['status'] if i == 0 else ''} |\n")
+                    f.write(f"| {fam_str} | {modes_str} | {strat_str} | {tgt['target_label']} | {tgt['patterns_str']} | {tgt['n_pat_success']} | {infid_str} | {prob_str} | {r['status'] if i == 0 else ''} |\n")
                 
                 if is_multi:
                     prob_total_str = f"{r['agg_prob']:.2%}"
-                    f.write(f"| | | | *Total* | | {r['n_pat_total']} | -- | {prob_total_str} | |\n")
+                    f.write(f"| | | | *Total* | | {r['n_pat_success']} | -- | {prob_total_str} | |\n")
                 
                 f.write("| | | | | | | | | |\n")
 
