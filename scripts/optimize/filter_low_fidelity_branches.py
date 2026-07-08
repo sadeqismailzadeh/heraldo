@@ -360,8 +360,8 @@ def filter_batch_results():
 
         # Table 2 Section
         f.write("## Table 2 Harvesting Summary\n\n")
-        f.write("| Target | Modes | Strategy/Patterns | Max Infidelity ($1-\\mathcal{F}_{\\mathrm{min}}$) | Total Success Prob ($P_{\\mathrm{total}}$) | Status |\n")
-        f.write("| :--- | :--- | :--- | :--- | :--- | :--- |\n")
+        f.write("| Target | Modes | Strategy/Patterns | $N_{\\mathrm{pat}}$ | Max Infidelity ($1-\\mathcal{F}_{\\mathrm{min}}$) | Total Success Prob ($P_{\\mathrm{total}}$) | Status |\n")
+        f.write("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
         for r in results_summary:
             if r["table"] == "Table 2":
                 detailed = r.get("targets_detailed", [])
@@ -369,9 +369,9 @@ def filter_batch_results():
                     tgt = detailed[0]
                     infid_str = f"{tgt['max_infid']:.2e}" if not np.isnan(tgt['max_infid']) else "N/A"
                     prob_str = f"{r['agg_prob']:.2%}"
-                    f.write(f"| {tgt['target_label']} | {r['modes']} | {r['strategy']} | {infid_str} | {prob_str} | {r['status']} |\n")
+                    f.write(f"| {tgt['target_label']} | {r['modes']} | {r['strategy']} | {r['n_pat_success']} | {infid_str} | {prob_str} | {r['status']} |\n")
                 else:
-                    f.write(f"| - | {r['modes']} | {r['strategy']} | N/A | 0.0% | {r['status']} |\n")
+                    f.write(f"| - | {r['modes']} | {r['strategy']} | 0 | N/A | 0.0% | {r['status']} |\n")
 
     print("\n" + "=" * 80)
     print(f"FILTERED SWEEP REPORT COMPILED AT: {report_path}")
