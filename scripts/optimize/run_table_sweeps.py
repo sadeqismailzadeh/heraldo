@@ -206,7 +206,7 @@ def main():
     TIME_INVARIANT = False
     MEASURE_CUTOFF = CUTOFF_DIM
     SUCCESS_THRESHOLD = 0.93  # Fixed at 0.99 per referee request
-    N_GENERATIONS = 100
+    N_GENERATIONS = 200
     NITER = 1
 
     squeezing = db_to_r(12)
@@ -550,6 +550,31 @@ def main():
             {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 3, 'mu': 0}}
         ],
         "patterns": [[(2, 4)], [(4, 2)], [(3, 5)], [(5, 3)]]
+    })
+
+
+    # 13.1 Binomial, 3 modes, Multi
+    sweep_jobs.append({
+        "table": "Table 2",
+        "family": "Binomial",
+        "strategy": "Harvest",
+        "modes": 3,
+        "circuit_config": {
+            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'params': {
+                'steps': STEPS,
+                'time_invariant': TIME_INVARIANT,
+                'clip_size': squeezing,
+                'measure_fock_cutoff': MEASURE_CUTOFF,
+                'num_single_photon': 0,
+                'train_initial_state': True,
+                'initial_r': squeezing
+            }
+        },
+        "target_configs": [
+            {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 2, 'mu': 0}}
+                ],
+        "patterns": [[(2, 4)], [(4, 2)]]
     })
 
     # ==========================================

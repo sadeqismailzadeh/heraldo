@@ -470,14 +470,15 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
        
         min_infidel=5e-2
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
-        log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
 
-        expected_fidelity = np.sum(final_probs + capped_fidelities)
+
+        n_pat = (patterns_arr.shape[0] if measurement_patterns is not None else 1)
+        expected_fidelity = np.sum(n_pat * final_probs + capped_fidelities)
 
 
-
-        objective2 = np.sum(final_probs * (capped_fidelities**2 *log_vals)**4)
+        # log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
+        # objective2 = np.sum(final_probs * (capped_fidelities**2 *log_vals)**4)
         # expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
     # Return loss
     # loss = -expected_fidelity - (success_weight * soft_success_prob) \

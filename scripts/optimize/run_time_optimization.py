@@ -299,7 +299,7 @@ def main():
     SUCCESS_THRESHOLD = 1 - 3e-2
     
     # --- Execution ---
-    n_generations = 20       # Number of hops per global search
+    n_generations = 100       # Number of hops per global search
     niter = 1                # Number of global searches
 
     # Setup
@@ -365,6 +365,8 @@ def main():
                 binomial_target_configs_all.append({'class_name': 'BinomialCodeTarget', 'params': {'N': N, 'S': S, 'mu': 1}})
     
     # 1.5 Single Core GKP
+
+    binom_single = [{'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 2, 'mu': 0}}]
     target_config_3 = [{'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': 4, 'delta_db': 10, 'mu': 0}}]
     
     # 1.6 Cubic
@@ -523,20 +525,20 @@ def main():
     # patterns = generate_measurement_patterns(circuit, exact_total=4) 
 
             
-    # patterns = [(2,4)]
+    # patterns = [[(1,3)],[(3,1)]]
     # patterns = [[(4,)]]
 
     # patterns = [[(2,2)],[(1,3)],]
     # patterns = [[(3,)], [(4,)], [(6,)], [(8,)], [(10,)]] 
-    # patterns = [[(1, 3)], [(0, 4)], [(1, 4)], [(0, 5)], [(2, 2)], [(2, 3)], [(3, 2)],]
+    patterns = [[(1, 3)], [(0, 4)], [(1, 4)], [(0, 5)], [(2, 2)], [(2, 3)], [(3, 2)],]
     # patterns = [[(0,6)], [(2,6)], [(4,6)], [(8,6)], [(10,6)]]
     # patterns = [[(2,2)], [(3,3)], [(4,4)],[(5,5)], [(6,6)]]
     # patterns = [[(2,2)], [(4,4)], [(6,6)]]
 
-    # patterns = [[(2,4)]]
+    # patterns = [[(2,4)],[(4,2)],[(3,3)],]
 
-    # patterns = [[(1,)]]
-    patterns = [[(1,3)], [(3,1)],]
+    # patterns = [[(6,)]]
+    # patterns = [[(4,0)]]
     # patterns = [[(0,5)], [(5,0)]]
 
     # patterns = [[(1,2)], [(2,1)]]

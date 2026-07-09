@@ -88,7 +88,11 @@ def plot_target_wigner(target_instance, name, cutoff_dim=35, grid_size=200, x_li
     ax2.set_xticks(range(display_cutoff))
 
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+    save_path = Path("winger.png").resolve()
+    plt.savefig(save_path, bbox_inches='tight', dpi=100)
+    plt.close(fig)
+    print(f"High-quality plot saved to: {save_path}")
 
 def main():
     # 1. Cubic Phase Target
@@ -102,13 +106,13 @@ def main():
     # plot_target_wigner(cat, "Squeezed Cat (Odd)", cutoff_dim=70)
 
 
-    cat1 = CatTarget(alpha=2, p=1) # p=1 for odd parity
-    plot_target_wigner(cat1, " Cat (Odd)", cutoff_dim=40)
+    cat1 = CatTarget(alpha=2, p=0) # p=1 for odd parity
+    # plot_target_wigner(cat1, " Cat (Odd)", cutoff_dim=40)
 
     # # 3. Square GKP Target
     # # Gottesman-Kitaev-Preskill state (Logical 0)
     # # Note: GKP states often require high cutoff dimensions.
-    # gkp_sq = GKPTarget(gkp_type='square', mu=0, delta=0.35)
+    gkp_sq = GKPTarget(gkp_type='square', mu=0, delta=0.35)
     # plot_target_wigner(gkp_sq, "Square GKP |0>", cutoff_dim=40, x_limit=6)
 
     # # 4. Hexagonal GKP Target
@@ -130,21 +134,21 @@ def main():
     # plot_target_wigner(target4, "BinomialCode", cutoff_dim=14)
 
 
-    target4 = TrisqueezedTarget()
-    plot_target_wigner(target4, "Trisqueezed", cutoff_dim=50)
+    # target4 = TrisqueezedTarget()
+    # plot_target_wigner(target4, "Trisqueezed", cutoff_dim=50)
 
-    target4 = QuadsqueezedTarget()
-    plot_target_wigner(target4, "Quadsqueezed", cutoff_dim=50)
+    # target4 = QuadsqueezedTarget()
+    # plot_target_wigner(target4, "Quadsqueezed", cutoff_dim=50)
 
 
     
 
     csv_path =  Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
-    # target3=CoreGKPTarget(csv_path=csv_path, 
-    #                       n_max=4, 
-    #                       delta_db=10.4, 
-    #                       mu=0)
-    # plot_target_wigner(target3, "Quartic Phase", cutoff_dim=30)
+    target3=CoreGKPTarget(csv_path=csv_path, 
+                          n_max=4, 
+                          delta_db=10, 
+                          mu=1)
+    plot_target_wigner(target3, "Quartic Phase", cutoff_dim=30)
 
 if __name__ == "__main__":
     main()

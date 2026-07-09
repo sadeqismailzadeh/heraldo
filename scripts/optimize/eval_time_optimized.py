@@ -1468,9 +1468,9 @@ def main():
     LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
-    all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1")
-    generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
-    # evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
+    all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1 - Copy")
+    # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
+    evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
 
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
