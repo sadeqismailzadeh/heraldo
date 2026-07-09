@@ -4,7 +4,7 @@ import numpy as np
 import scipy.integrate
 from scipy.special import eval_hermite
 from quantum_agent.core.interfaces import RewardMechanism
-from quantum_agent.envs.modular_env import fidelity_max_rotation, decode_measurement_result
+from RL.envs.modular_env import fidelity_max_rotation, decode_measurement_result
 import thewalrus
 import qutip as qt
 

@@ -21,7 +21,7 @@ patch_prepare_multimode()
 
 from quantum_agent.components.targets import TargetGenerator
 from quantum_agent.optimization.interfaces import OptimizableCircuit
-from quantum_agent.envs.modular_env import fidelity_max_rotation
+from quantum_agent.utils import fidelity_max_rotation
 
 class BatchOptimizationRunner:
     """

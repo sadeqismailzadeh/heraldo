@@ -1,7 +1,7 @@
 import numpy as np
 import qutip as qt
 import matplotlib.pyplot as plt
-from quantum_agent.components.rewards import WignerWeightedReward
+from RL.components.rewards import WignerWeightedReward
 
 def plot_wigner(state_vec, ax, title):
     """Helper to plot Wigner function of a state vector."""

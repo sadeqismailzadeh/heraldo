@@ -16,7 +16,7 @@ from thewalrus.quantum import state_vector, density_matrix_element, pure_state_a
 
 from quantum_agent.components.targets import TargetGenerator
 from quantum_agent.optimization.interfaces import OptimizableCircuit
-from quantum_agent.envs.modular_env import fidelity_pure_state
+from quantum_agent.utils import fidelity_pure_state
 
 class GaussianOptimizationRunner:
     """

@@ -1,6 +1,6 @@
 import numpy as np
 import qutip as qt
-from quantum_agent.components.rewards import WignerWeightedReward
+from RL.components.rewards import WignerWeightedReward
 
 # --- Helper Functions for State Generation ---
 
