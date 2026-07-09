@@ -20,16 +20,6 @@ import multiprocessing
 from functools import partial
 from tqdm import tqdm
 
-try:
-    import cma
-except ImportError:
-    raise ImportError("CMA-ES runner requires the 'cma' package. Please install it via 'pip install cma'.")
-
-try:
-    import nevergrad as ng
-except ImportError:
-    raise ImportError("Nevergrad runner requires the 'nevergrad' package. Please install it via 'pip install nevergrad'.")
-
 
 def _compute_photon_moments(ket, max_moment= 10):
     """
