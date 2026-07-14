@@ -1315,12 +1315,12 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
     
     report_lines = []
     report_lines.append(f"Cutoff Fidelity Report: {low_cutoff} vs {high_cutoff}")
-    report_lines.append("=" * 110)
+    report_lines.append("=" * 125)
     report_lines.append(
         f"{'Folder':<40} | {'Pattern':<15} | {'1-F_'+str(low_cutoff):<10} | {'1-F_'+str(high_cutoff):<10} | "
-        f"{'Abs. Error':<10} | {'error / ( 1-F_' + str(low_cutoff) + ')':<18}"
+        f"{'Abs. Error':<10} | {'error / ( 1-F_' + str(low_cutoff) + ')':<18} | {'Log Disc.':<10}"
     )
-    report_lines.append("-" * 110)
+    report_lines.append("-" * 125)
 
     max_error = -1.0
     worst_pattern = None
@@ -1411,9 +1411,15 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
                 
                 rel_dev_str = f"{rel_deviation:.2e}" if rel_deviation != float('inf') else "inf"
                 
+                if I_high > 1e-30 and I_low > 1e-30:
+                    log_discrepancy = np.log10(I_high) - np.log10(I_low)
+                    log_disc_str = f"{log_discrepancy:+.2f}"
+                else:
+                    log_disc_str = "N/A"
+                
                 report_lines.append(
                     f"{results_dir.name:<40} | {pattern_str:<15} | {I_low:<10.2e} | {I_high:<10.2e} | "
-                    f"{error:<10.2e} | {rel_dev_str:<18}"
+                    f"{error:<10.2e} | {rel_dev_str:<18} | {log_disc_str:<10}"
                 )
                 
                 if error > max_error:
@@ -1429,13 +1435,13 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
         except Exception as e:
             print(f"  [Error] Failed to process {results_dir.name} for fidelity: {e}")
 
-    report_lines.append("=" * 110)
+    report_lines.append("=" * 125)
     report_lines.append(f"MAXIMUM TRUNCATION ERROR: {max_error:.6e}")
     if worst_folder:
         report_lines.append(f"Found in Folder: {worst_folder}")
         report_lines.append(f"With Pattern: {worst_pattern}")
     
-    report_lines.append("-" * 110)
+    report_lines.append("-" * 125)
     report_lines.append(f"MAXIMUM RELATIVE ERROR (error / ( 1-F_{low_cutoff})): {max_rel_dev:.6e}")
     if worst_rel_folder:
         report_lines.append(f"Found in Folder: {worst_rel_folder}")
@@ -1468,7 +1474,7 @@ def main():
     LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
-    all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1 - Copy")
+    all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1")
     # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
     evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
 
