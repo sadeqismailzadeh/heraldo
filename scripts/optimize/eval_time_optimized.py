@@ -1330,6 +1330,10 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
     worst_rel_pattern = None
     worst_rel_folder = None
 
+    max_log_disc = -30.0
+    worst_log_pattern = None
+    worst_log_folder = None
+
     for results_dir in opt_folders:
         if not results_dir.is_dir():
             continue
@@ -1414,9 +1418,11 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
                 if I_high > 1e-30 and I_low > 1e-30:
                     log_discrepancy = np.log10(I_high) - np.log10(I_low)
                     log_disc_str = f"{log_discrepancy:+.2f}"
+                    abs_log_disc = abs(log_discrepancy)
                 else:
                     log_disc_str = "N/A"
-                
+                    abs_log_disc = -30.0
+
                 report_lines.append(
                     f"{results_dir.name:<40} | {pattern_str:<15} | {I_low:<10.2e} | {I_high:<10.2e} | "
                     f"{error:<10.2e} | {rel_dev_str:<18} | {log_disc_str:<10}"
@@ -1431,6 +1437,11 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
                     max_rel_dev = rel_deviation
                     worst_rel_pattern = pattern_str
                     worst_rel_folder = results_dir.name
+
+                if abs_log_disc > max_log_disc:
+                    max_log_disc = abs_log_disc
+                    worst_log_pattern = pattern_str
+                    worst_log_folder = results_dir.name
                     
         except Exception as e:
             print(f"  [Error] Failed to process {results_dir.name} for fidelity: {e}")
@@ -1447,6 +1458,12 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
         report_lines.append(f"Found in Folder: {worst_rel_folder}")
         report_lines.append(f"With Pattern: {worst_rel_pattern}")
 
+    report_lines.append("-" * 125)
+    report_lines.append(f"MAXIMUM ABSOLUTE LOG DISCREPANCY: {max_log_disc:.6f}")
+    if worst_log_folder:
+        report_lines.append(f"Found in Folder: {worst_log_folder}")
+        report_lines.append(f"With Pattern: {worst_log_pattern}")
+
     report_path = base_dir / "cutoff_infidelity_report.txt"
     with open(report_path, "w") as f:
         f.write("\n".join(report_lines))
@@ -1454,6 +1471,7 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
     print(f"\nSaved cutoff infidelity report to: {report_path}")
     print(f"Maximum Truncation Error: {max_error:.6e} (Folder: {worst_folder}, Pattern: {worst_pattern})")
     print(f"Maximum Relative Error (error / ( 1-F_{low_cutoff})): {max_rel_dev:.6e} (Folder: {worst_rel_folder}, Pattern: {worst_rel_pattern})")
+    print(f"Maximum Absolute Log Discrepancy: {max_log_disc:.6f} (Folder: {worst_log_folder}, Pattern: {worst_log_pattern})")
 
 
 def main():
