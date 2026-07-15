@@ -1740,6 +1740,79 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
     print(f"Maximum Log Discrepancy: {max_log_disc:.6f} (Folder: {worst_log_folder}, Pattern: {worst_log_pattern})")
 
 
+def save_density_matrices_for_all_opt_folders(results_base_dir: Path, circuit_module, cutoff: int = 30):
+    """
+    Iterates through all 'opt_*' and 'job_*' folders in a given base directory,
+    evaluates all fixed measurement patterns, and saves their density matrices as .npy files.
+    """
+    base_dir = Path(results_base_dir)
+    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
+    
+    if not opt_folders:
+        print(f"No 'opt_' or 'job_' folders found in {base_dir}")
+        return
+
+    for results_dir in opt_folders:
+        if not results_dir.is_dir():
+            continue
+            
+        print(f"Processing folder: {results_dir.name} for density matrix saving...")
+        
+        try:
+            best = load_optimization_run(results_dir, selection="best")
+            if not best:
+                continue
+            best_res = best.get('best_res', {})
+            
+            stored_patterns = best_res.get('measurement_patterns')
+            if stored_patterns is None:
+                print(f"  [Skip] No measurement_patterns found in {results_dir.name}.")
+                continue
+                
+            flat_x = best.get('x')
+            if flat_x is None:
+                flat_x = best_res.get('x')
+                
+            if flat_x is None:
+                print(f"  [Skip] No parameter vector 'x' found in {results_dir.name}.")
+                continue
+                
+            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
+            circuit = create_from_config(circuit_config, circuit_module)
+            
+            for pattern in stored_patterns:
+                try:
+                    reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
+                except Exception as e:
+                    print(f"  Failed to reshape pattern {pattern}: {e}")
+                    continue
+                    
+                res = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, cutoff)
+                if res is None:
+                    continue
+                    
+                ket = res.get('final_state_ket')
+                if ket is None:
+                    continue
+                    
+                dm = np.outer(ket, np.conj(ket))
+                
+                flat_outcomes = []
+                for step_out in reshaped_pattern:
+                    flat_outcomes.extend(step_out)
+                outcome_str = "_".join(map(str, flat_outcomes))
+                
+                filename = f"state_dm_{outcome_str}.npy"
+                save_path = results_dir / filename
+                np.save(save_path, dm)
+                print(f"  Saved DM for pattern {reshaped_pattern} to: {save_path.name}")
+                
+            print(f"  [Success] Processed density matrices for {results_dir.name}.")
+            
+        except Exception as e:
+            print(f"  [Error] Failed to process {results_dir.name}: {e}")
+
+
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
     results_path = None  # Set to specific path if desired
@@ -1760,8 +1833,10 @@ def main():
 
     all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1")
     loss_results_path= windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\loss2")
+    visualize_results_path= windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize")
     # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
     # evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
+    # save_density_matrices_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
     evaluate_loss_influence(loss_results_path, circuit_module)
 
     # Find results directory
