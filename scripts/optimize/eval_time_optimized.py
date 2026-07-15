@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import platform
 import itertools
 import re
+import copy
 
 import quantum_agent
 import strawberryfields as sf
@@ -1298,6 +1299,272 @@ def format_infidelity_with_error(F_30, F_50):
         return f"{{:.{sig_figs}e}}".format(I_50)
 
 
+def format_prob(p_val):
+    """Helper to format probability percentages matching paper style."""
+    pct = p_val * 100
+    if pct >= 1.0:
+        return f"{pct:.1f}\\%"
+    else:
+        return f"{pct:.2f}\\%"
+
+
+def format_outcome_latex(reshaped_pattern, target):
+    """Helper to format LaTeX representation of outcome state."""
+    flat_outcomes = []
+    for step_out in reshaped_pattern:
+        flat_outcomes.extend(step_out)
+    
+    outcome_str = ", ".join(map(str, flat_outcomes))
+    
+    if len(flat_outcomes) == 1 and hasattr(target, 'mu') and hasattr(target, 'n_max'):
+        return f"({flat_outcomes[0]}) \\to \\ket{{{target.mu}_{{A{target.n_max}}}}}"
+    elif len(flat_outcomes) == 1:
+        return f"({flat_outcomes[0]})"
+    else:
+        return f"({outcome_str})"
+
+
+def evaluate_loss_influence(results_base_dir: Path, circuit_module):
+    """
+    Re-runs the optimized circuits across different photon loss levels (ideal, 1%, and 10% loss)
+    for all configurations in the given base directory.
+    Outputs a LaTeX table showing the success probability (P) and state fidelity (F).
+    """
+    base_dir = Path(results_base_dir)
+    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
+    
+    if not opt_folders:
+        print(f"No 'opt_' or 'job_' folders found in {base_dir} for loss evaluation.")
+        return
+
+    print(f"\n=== Starting Loss Influence Evaluation ===")
+    
+    collected_data = []
+    
+    for results_dir in opt_folders:
+        if not results_dir.is_dir():
+            continue
+            
+        try:
+            best = load_optimization_run(results_dir, selection="best")
+            if not best: 
+                continue
+            best_res = best.get('best_res', {})
+            
+            stored_patterns = best_res.get('measurement_patterns')
+            if stored_patterns is None or len(stored_patterns) == 0:
+                continue
+                
+            flat_x = best.get('x')
+            if flat_x is None:
+                flat_x = best_res.get('x')
+            if flat_x is None:
+                continue
+                
+            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
+            if not circuit_config:
+                continue
+            
+            # Determine number of modes to set appropriate cutoff
+            temp_circuit = create_from_config(circuit_config, circuit_module)
+            meas_specs = temp_circuit.get_measurement_specs()
+            meas_modes = [m for m, c in meas_specs]
+            n_modes = max(meas_modes) + 1 if meas_modes else 1
+            
+            # 3-mode circuits run with cutoff 15, 2-mode with 30
+            cutoff = 15 if n_modes == 3 else 30
+            
+            target_configs = sanitize_config_paths(best_res.get('target_configs'))
+            targets = []
+            if target_configs:
+                targets = [create_from_config(cfg, target_module) for cfg in target_configs]
+                
+            if not targets:
+                continue
+            
+            target_kets = [t.get_target_ket(cutoff) for t in targets]
+            
+            # Setup target LaTeX name representation
+            target_names = []
+            for t in targets:
+                if isinstance(t, CoreGKPTarget):
+                    if n_modes == 3:
+                        target_names.append(f"{{GKP core}} $\\ket{{{t.mu}_{{A{t.n_max}}}}}$")
+                    else:
+                        target_names.append(f"{{GKP core}} $\\mu={t.mu}$")
+                elif isinstance(t, SqueezedCatTarget):
+                    target_names.append(f"{{SqCat}} $\\alpha={t.alpha}$")
+                elif isinstance(t, CatTarget):
+                    target_names.append(f"{{Cat}} $\\alpha={t.alpha}$")
+                else:
+                    target_names.append(f"{{{t.__class__.__name__.replace('Target', '')}}}")
+            
+            # Deduce Strategy
+            strategy = "Multiplex"
+            folder_lower = results_dir.name.lower()
+            if "harvest" in folder_lower:
+                strategy = "Harvest"
+            elif "single" in folder_lower:
+                strategy = "Single"
+            elif "multiplex" in folder_lower:
+                strategy = "Multiplex"
+            
+            # Run evaluations across three loss cases
+            loss_cases = [1.0, 0.99, 0.90]
+            runs_results = {}
+            
+            for loss_val in loss_cases:
+                current_config = copy.deepcopy(circuit_config)
+                if 'params' not in current_config:
+                    current_config['params'] = {}
+                current_config['params']['loss_transmissivity'] = loss_val
+                
+                eval_circuit = create_from_config(current_config, circuit_module)
+                
+                res_dm = evaluate_time_domain_circuit_dm(
+                    np.asarray(flat_x),
+                    eval_circuit,
+                    target_kets,
+                    cutoff,
+                    beam_width=100,
+                    penalty_strength=0.0,
+                    prob_power=1.0,
+                    measurement_patterns=stored_patterns
+                )
+                runs_results[loss_val] = res_dm
+            
+            branches_ideal = {b['outcome']: b for b in runs_results[1.0]['branches']}
+            branches_1 = {b['outcome']: b for b in runs_results[0.99]['branches']}
+            branches_10 = {b['outcome']: b for b in runs_results[0.90]['branches']}
+            
+            for pattern in stored_patterns:
+                try:
+                    reshaped_pattern = _reshape_outcome_flat(pattern, temp_circuit)
+                except Exception:
+                    continue
+                
+                b_ideal = branches_ideal.get(reshaped_pattern)
+                b_1 = branches_1.get(reshaped_pattern)
+                b_10 = branches_10.get(reshaped_pattern)
+                
+                if b_ideal is None:
+                    continue
+                    
+                p_ideal = b_ideal['prob']
+                f_ideal = b_ideal['fidelity']
+                
+                p_1 = b_1['prob'] if b_1 else 0.0
+                f_1 = b_1['fidelity'] if b_1 else 0.0
+                
+                p_10 = b_10['prob'] if b_10 else 0.0
+                f_10 = b_10['fidelity'] if b_10 else 0.0
+                
+                t_idx = b_ideal.get('target_idx', 0)
+                t_name = target_names[t_idx] if t_idx < len(target_names) else target_names[0]
+                t_obj = targets[t_idx] if t_idx < len(targets) else targets[0]
+                
+                outcome_latex = format_outcome_latex(reshaped_pattern, t_obj)
+                
+                collected_data.append({
+                    'folder': results_dir.name,
+                    'target': t_name,
+                    'modes': n_modes,
+                    'strategy': strategy,
+                    'outcome_latex': outcome_latex,
+                    'p_ideal': p_ideal,
+                    'f_ideal': f_ideal,
+                    'p_1': p_1,
+                    'f_1': f_1,
+                    'p_10': p_10,
+                    'f_10': f_10
+                })
+                
+        except Exception as e:
+            print(f"  [Error] Failed to process {results_dir.name} for loss evaluation: {e}")
+
+    if not collected_data:
+        print("No valid data collected to print a loss report.")
+        return
+        
+    # Group & Sort matching table layout
+    def get_sort_key(row):
+        target_val = 0 if "GKP" in row['target'] else 1
+        try:
+            nums = [int(s) for s in re.findall(r'\d+', row['outcome_latex'])]
+            out_val = nums[0] if nums else 0
+        except Exception:
+            out_val = 0
+        return (row['modes'], target_val, row['target'], row['strategy'], out_val)
+        
+    collected_data.sort(key=get_sort_key)
+    
+    latex_lines = []
+    latex_lines.append("\\begin{table*}[t]")
+    latex_lines.append("\\centering")
+    latex_lines.append("\\caption{Impact of photon loss on the performance of optimized multi-outcome circuits. We compare the success probability ($P$) and state fidelity $\\mathcal{F}$ across three loss conditions: ideal, 1\\% loss, and 10\\% loss. Photon loss is simulated by placing fictitious beam splitters on both the ancillary modes and the heralded output mode prior to detection.}")
+    latex_lines.append("\\label{tab:loss_analysis}")
+    latex_lines.append("\\begin{tabular}{l c l p{2.5cm} c @{\\hspace{1.5em}} c @{\\hspace{3em}} c @{\\hspace{1.5em}} c @{\\hspace{3em}} c @{\\hspace{1.5em}} c}")
+    latex_lines.append("    \\toprule")
+    latex_lines.append("    & & & & \\multicolumn{2}{c}{\\hspace{-1.5em}ideal} & \\multicolumn{2}{c}{\\hspace{-1.5em}1\\% Loss} & \\multicolumn{2}{c}{10\\% Loss} \\\\")
+    latex_lines.append("    \\cmidrule(l{0em}r{2em}){5-6} \\cmidrule(l{0em}r{2em}){7-8} \\cmidrule(l{0em}r{0em}){9-10}")
+    latex_lines.append("    {Target} & {Modes} & {Strategy} & {Outcome} $\\mathbf{n}$ & $P$ & $\\mathcal{F}$ & $P$ & $\\mathcal{F}$ & $P$ & $\\mathcal{F}$ \\\\ ")
+    latex_lines.append("    \\midrule")
+    
+    prev_target = None
+    prev_modes = None
+    prev_strategy = None
+    
+    for idx, row in enumerate(collected_data):
+        is_same_target = (row['target'] == prev_target)
+        is_same_modes = (row['modes'] == prev_modes)
+        is_same_strategy = (row['strategy'] == prev_strategy)
+        
+        t_col = row['target'] if (not is_same_target or not is_same_modes or not is_same_strategy) else ""
+        m_col = str(row['modes']) if (not is_same_target or not is_same_modes or not is_same_strategy) else ""
+        s_col = row['strategy'] if (not is_same_target or not is_same_modes or not is_same_strategy) else ""
+        
+        if idx > 0:
+            if not is_same_target or not is_same_modes:
+                latex_lines.append("    \\midrule")
+            elif not is_same_strategy:
+                latex_lines.append("    \\addlinespace")
+                
+        p_id_str = format_prob(row['p_ideal'])
+        p_1_str = format_prob(row['p_1'])
+        p_10_str = format_prob(row['p_10'])
+        
+        f_id_str = f"{row['f_ideal']:.2f}"
+        f_1_str = f"{row['f_1']:.2f}"
+        f_10_str = f"{row['f_10']:.2f}"
+        
+        latex_lines.append(
+            f" {t_col} & {m_col} & {s_col} & {row['outcome_latex']} & "
+            f"{p_id_str} & {f_id_str} & {p_1_str} & {f_1_str} & {p_10_str} & {f_10_str} \\\\"
+        )
+        
+        prev_target = row['target']
+        prev_modes = row['modes']
+        prev_strategy = row['strategy']
+        
+    latex_lines.append("    \\bottomrule")
+    latex_lines.append("\\end{tabular}")
+    latex_lines.append("\\end{table*}")
+    
+    latex_output = "\n".join(latex_lines)
+    
+    # Save to file
+    report_path = base_dir / "loss_influence_report.tex"
+    with open(report_path, "w") as f:
+        f.write(latex_output)
+        
+    print(f"\nSaved loss influence LaTeX report to: {report_path}")
+    print("\n--- GENERATED LATEX TABLE (MARKDOWN COMPATIBLE) ---")
+    print("```latex")
+    print(latex_output)
+    print("```")
+    print("------------------------------\n")
+
+
 def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff: int = 30, high_cutoff: int = 50):
     """
     Evaluates the target fidelity for states generated with low_cutoff and high_cutoff 
@@ -1492,8 +1759,10 @@ def main():
     USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
 
     all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1")
+    loss_results_path= windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\loss2")
     # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
-    evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
+    # evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
+    evaluate_loss_influence(loss_results_path, circuit_module)
 
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"
