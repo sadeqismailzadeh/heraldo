@@ -41,9 +41,10 @@ def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
     norm = TwoSlopeNorm(vmin=z_min, vcenter=0.0, vmax=z_max)
     z_offset = z_min
     
-    # 3D Surface Plot
+    # 3D Surface Plot with surface curvature guide grid
     surf = ax.plot_surface(X, P, W, cmap=cmap, norm=norm,
-                           rstride=1, cstride=1, linewidth=0, antialiased=True, alpha=0.95)
+                           rstride=2, cstride=2, linewidth=0.1, edgecolor='k',
+                           antialiased=True, alpha=0.95)
                            
     # 2D Projection (Contour lines) on the bottom plane
     ax.contour(X, P, W, zdir='z', offset=z_offset, cmap=cmap, norm=norm,
@@ -142,9 +143,9 @@ def main():
     ax2 = fig.add_subplot(1, 3, 3, projection='3d')
 
     # Draw Subplots using consistent scale range matching reference figure height
-    plot_3d_wigner(ax0, X, P, W_target, 'a)')
-    plot_3d_wigner(ax1, X, P, W_13, 'b)')
-    plot_3d_wigner(ax2, X, P, W_31, 'c)')
+    plot_3d_wigner(ax0, X, P, W_target, '(a) Target')
+    plot_3d_wigner(ax1, X, P, W_13, '(b) Pattern (1,3)')
+    plot_3d_wigner(ax2, X, P, W_31, '(c) Pattern (3,1)')
 
     # Save outputs
     output_path = results_dir / "Figure3_Comparison.pdf"
