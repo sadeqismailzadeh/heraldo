@@ -42,14 +42,14 @@ def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
     norm = TwoSlopeNorm(vmin=z_min, vcenter=0.0, vmax=z_max)
     z_offset = z_min
     
-    # 3D Surface Plot with surface curvature guide grid
+    # 3D Surface Plot
     surf = ax.plot_surface(X, P, W, cmap=cmap, norm=norm,
                            rstride=2, cstride=2, linewidth=0.1, edgecolor='k',
-                           antialiased=True, alpha=0.95)
+                           antialiased=False, alpha=0.95, rasterized=True)
                            
     # 2D Projection (Contour lines) on the bottom plane
     ax.contour(X, P, W, zdir='z', offset=z_offset, cmap=cmap, norm=norm,
-               levels=30, linewidths=1.2)
+               levels=30, linewidths=1.2, rasterized=True)
                 
     # Set Axis Limits
     ax.set_xlim([-x_limit, x_limit])
@@ -120,10 +120,10 @@ def main():
 
     # --- PLOTTING ---
     print("Generating Figure...")
-    fontsize = 32
-    plt.rcParams.update({
-        "font.size": fontsize
-    })
+    # fontsize = 32
+    # plt.rcParams.update({
+    #     "font.size": fontsize
+    # })
     
     try:
         plt.plot()
@@ -148,16 +148,16 @@ def main():
 
     # Save outputs
     output_path = results_dir / "Figure5_Comparison.pdf"
-    output_png = results_dir / "Figure5_Comparison.png"
+    output_eps = results_dir / "Figure5_Comparison.eps"
     output_jpg = results_dir / "Figure5_Comparison.jpg"
 
-    # plt.savefig(output_path, bbox_inches='tight', dpi=300)
-    # plt.savefig(output_png, bbox_inches='tight', dpi=600)
+    plt.savefig(output_path, bbox_inches='tight', dpi=300)
+    plt.savefig(output_eps, bbox_inches='tight', dpi=600)
     plt.savefig(output_jpg, bbox_inches='tight', dpi=600)
 
     print(f"Saved PDF to: {output_path}")
-    print(f"Saved PNG to: {output_png}")
-    print(f"Saved PNG to: {output_jpg}")
+    print(f"Saved EPS to: {output_eps}")
+    print(f"Saved JPG to: {output_jpg}")
 
 if __name__ == "__main__":
     main()
