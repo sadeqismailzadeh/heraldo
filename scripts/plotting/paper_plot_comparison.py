@@ -9,6 +9,7 @@ from strawberryfields.ops import DensityMatrix
 from pathlib import Path
 import matplotlib.gridspec as gridspec
 from quantum_agent.utils import windows_to_wsl_path
+from matplotlib.colors import TwoSlopeNorm
 
 def get_wigner_from_dm(rho, grid_size=150, x_limit=5, cutoff_dim=30):
     """Calculates Wigner function from a density matrix."""
@@ -32,62 +33,60 @@ def get_wigner_from_dm(rho, grid_size=150, x_limit=5, cutoff_dim=30):
 def X_mesh(xvec, pvec):
     return np.meshgrid(xvec, pvec)
 
-def plot_3d_wigner(ax, X, P, W, w_abs_max, title, x_limit=5):
-    """Helper function to create a 3D surface plot with a 2D projection below."""
-    cmap = 'jet'
+def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
+    """Helper function to create a 3D surface plot with a 2D contour projection below."""
+    cmap = 'RdYlGn'
     
-    # Apply a circular mask for the 3D surface to match standard phase-space plots
-    R = np.sqrt(X**2 + P**2)
-    W_surf = np.copy(W)
-    W_surf[R > x_limit] = np.nan
+    # Diverging norm to ensure zero maps to yellow/orange, positive to green, negative to red
+    norm = TwoSlopeNorm(vmin=z_min, vcenter=0.0, vmax=z_max)
+    z_offset = z_min
     
-    # 3D Surface Plot (Circular)
-    surf = ax.plot_surface(X, P, W_surf, cmap=cmap, vmin=-w_abs_max, vmax=w_abs_max,
-                           rstride=2, cstride=2, linewidth=0.15, edgecolor='gray', alpha=0.95)
+    # 3D Surface Plot
+    surf = ax.plot_surface(X, P, W, cmap=cmap, norm=norm,
+                           rstride=1, cstride=1, linewidth=0, antialiased=True, alpha=0.95)
                            
-    # 2D Projection (Contour) on the bottom plane (Square base)
-    z_offset = -w_abs_max * 1.4 
-    ax.contourf(X, P, W, zdir='z', offset=z_offset, cmap=cmap, 
-                levels=100, vmin=-w_abs_max, vmax=w_abs_max)
+    # 2D Projection (Contour lines) on the bottom plane
+    ax.contour(X, P, W, zdir='z', offset=z_offset, cmap=cmap, norm=norm,
+               levels=30, linewidths=1.2)
                 
     # Set Axis Limits
     ax.set_xlim([-x_limit, x_limit])
     ax.set_ylim([-x_limit, x_limit])
-    ax.set_zlim([z_offset, w_abs_max * 1.1])
+    ax.set_zlim([z_offset, z_max])
     
-    # Axis Labels (using bold x and p matching reference)
-    ax.set_xlabel(r'$\mathbf{x}$', fontsize=26, labelpad=10)
+    # Axis Labels
+    ax.set_xlabel(r'$\mathbf{q}$', fontsize=26, labelpad=10)
     ax.set_ylabel(r'$\mathbf{p}$', fontsize=26, labelpad=10)
     
-    # Adjust ticks to match reference bounds
+    # Adjust ticks matching reference height and limits
     ax.set_xticks([-5, 0, 5])
     ax.set_yticks([-5, 0, 5])
-    ax.set_zticks([-0.1, 0, 0.1])
+    ax.set_zticks([-0.20, -0.15, -0.10, -0.05, 0.00, 0.05, 0.10])
     
     ax.tick_params(axis='both', which='major', labelsize=18)
-    ax.tick_params(axis='z', which='major', labelsize=18, pad=8)
+    ax.tick_params(axis='z', which='major', labelsize=14, pad=6)
     
-    # Customize Grid lines to be dashed
-    ax.xaxis._axinfo["grid"].update({"linewidth": 0.8, "color": "black", "linestyle": "--", "alpha": 0.6})
-    ax.yaxis._axinfo["grid"].update({"linewidth": 0.8, "color": "black", "linestyle": "--", "alpha": 0.6})
-    ax.zaxis._axinfo["grid"].update({"linewidth": 0.8, "color": "black", "linestyle": "--", "alpha": 0.6})
+    # Grid lines styling
+    ax.xaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
+    ax.yaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
+    ax.zaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
     
-    # Remove axis panes backgrounds for cleaner look
+    # Clean axis pane backgrounds
     ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
     ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
     ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
     
-    # Better 3D viewing angle that shows the rotation clearly without flattening
-    ax.view_init(elev=28, azim=-55)
+    # Orientation and Viewing Angle matching reference image
+    ax.view_init(elev=28, azim=-60)
     
-    # Add Subplot Title
+    # Subplot Title
     ax.text2D(0.02, 0.95, title, transform=ax.transAxes, fontsize=32)
 
 def main():
     # --- CONFIGURATION ---
 
     results_dir = Path(windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize\job_15_GKP_mu=0_Harvesting__1_3____3_1_"))
-    if not results_dir:
+    if not results_dir.exists():
         print("Could not find results directory.")
         return
 
@@ -109,7 +108,6 @@ def main():
     rho_31 = np.load(file_31)
 
     # Calculate Wigner
-    # Note: Reduced grid size slightly to 150 for smoother/faster 3D rendering
     print("Calculating Wigner for (1,3)...")
     (X, P), W_13 = get_wigner_from_dm(rho_13, grid_size=150)
     
@@ -126,35 +124,29 @@ def main():
 
     # --- PLOTTING ---
     print("Generating Figure...")
-    fontsize = 32
-    # Publication settings
+    fontsize = 48
     plt.rcParams.update({
         "font.size": fontsize
     })
     
-    # Fallback if LaTeX not installed
     try:
         plt.plot()
-    except:
+    except Exception:
         plt.rcParams.update({"text.usetex": False, "font.family": "sans-serif"})
 
-    # Setup the figure for 3 side-by-side 3D plots
-    fig = plt.figure(figsize=(24, 7), dpi=300)
-    plt.subplots_adjust(left=0.01, right=0.99, bottom=0.05, top=0.95, wspace=0.05)
+    fig = plt.figure(figsize=(22, 7), dpi=300)
+    plt.subplots_adjust(left=0.01, right=0.92, bottom=0.05, top=0.95, wspace=0.00)
     
     ax0 = fig.add_subplot(1, 3, 1, projection='3d')
     ax1 = fig.add_subplot(1, 3, 2, projection='3d')
     ax2 = fig.add_subplot(1, 3, 3, projection='3d')
 
-    # Common max absolute value for symmetric colormap zero-point alignment
-    w_max = max(np.max(np.abs(W_target)), np.max(np.abs(W_13)), np.max(np.abs(W_31)))
+    # Draw Subplots using consistent scale range matching reference figure height
+    plot_3d_wigner(ax0, X, P, W_target, 'a)')
+    plot_3d_wigner(ax1, X, P, W_13, 'b)')
+    plot_3d_wigner(ax2, X, P, W_31, 'c)')
 
-    # --- Draw Subplots ---
-    plot_3d_wigner(ax0, X, P, W_target, w_max, 'a)')
-    plot_3d_wigner(ax1, X, P, W_13, w_max, 'b)')
-    plot_3d_wigner(ax2, X, P, W_31, w_max, 'c)')
-
-    # Save
+    # Save outputs
     output_path = results_dir / "Figure3_Comparison.pdf"
     output_png = results_dir / "Figure3_Comparison.png"
     plt.savefig(output_path, bbox_inches='tight', dpi=300)
