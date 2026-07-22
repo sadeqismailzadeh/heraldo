@@ -61,12 +61,13 @@ def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
     ax.set_ylabel(r'$\mathbf{p}$', fontsize=32, labelpad=10)
     
     # Adjust ticks matching reference height and limits
-    ax.set_xticks([-5, 0, 5])
-    ax.set_yticks([-5, 0, 5])
-    ax.set_zticks([-0.20, -0.15, -0.10, -0.05, 0.00, 0.05, 0.10])
+    ax.set_xticks([-4,  0,  4])
+    ax.set_yticks([-4,  0,  4])
+    ax.set_zticks([-0.10,  0.00,  0.10])
     
-    ax.tick_params(axis='both', which='major', labelsize=24)
-    ax.tick_params(axis='z', which='major', labelsize=24, pad=6)
+    ax.tick_params(axis='x', which='major', labelsize=24, pad=0)
+    ax.tick_params(axis='y', which='major', labelsize=24, pad=0)
+    ax.tick_params(axis='z', which='major', labelsize=24, pad=8)
     
     # Grid lines styling
     ax.xaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
@@ -129,7 +130,7 @@ def main():
     except Exception:
         plt.rcParams.update({"text.usetex": False, "font.family": "sans-serif"})
 
-    fig = plt.figure(figsize=(22, 14), dpi=300)
+    fig = plt.figure(figsize=(22, 14))
     plt.subplots_adjust(left=0.01, right=0.98, bottom=0.02, top=0.98, wspace=0.00, hspace=0.05)
 
     plot_list = [
@@ -148,12 +149,15 @@ def main():
     # Save outputs
     output_path = results_dir / "Figure5_Comparison.pdf"
     output_png = results_dir / "Figure5_Comparison.png"
-    plt.savefig(output_path, bbox_inches='tight', dpi=300)
-    plt.savefig(output_png, bbox_inches='tight', dpi=300)
+    output_jpg = results_dir / "Figure5_Comparison.jpg"
+
+    # plt.savefig(output_path, bbox_inches='tight', dpi=300)
+    # plt.savefig(output_png, bbox_inches='tight', dpi=600)
+    plt.savefig(output_jpg, bbox_inches='tight', dpi=600)
 
     print(f"Saved PDF to: {output_path}")
     print(f"Saved PNG to: {output_png}")
-
+    print(f"Saved PNG to: {output_jpg}")
 
 if __name__ == "__main__":
     main()
