@@ -57,16 +57,16 @@ def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
     ax.set_zlim([z_offset, z_max])
     
     # Axis Labels
-    ax.set_xlabel(r'$\mathbf{q}$', fontsize=26, labelpad=10)
-    ax.set_ylabel(r'$\mathbf{p}$', fontsize=26, labelpad=10)
+    ax.set_xlabel(r'$\mathbf{q}$', fontsize=32, labelpad=10)
+    ax.set_ylabel(r'$\mathbf{p}$', fontsize=32, labelpad=10)
     
     # Adjust ticks matching reference height and limits
     ax.set_xticks([-5, 0, 5])
     ax.set_yticks([-5, 0, 5])
     ax.set_zticks([-0.20, -0.15, -0.10, -0.05, 0.00, 0.05, 0.10])
     
-    ax.tick_params(axis='both', which='major', labelsize=18)
-    ax.tick_params(axis='z', which='major', labelsize=14, pad=6)
+    ax.tick_params(axis='both', which='major', labelsize=24)
+    ax.tick_params(axis='z', which='major', labelsize=24, pad=6)
     
     # Grid lines styling
     ax.xaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
@@ -119,7 +119,7 @@ def main():
 
     # --- PLOTTING ---
     print("Generating Figure...")
-    fontsize = 48
+    fontsize = 32
     plt.rcParams.update({
         "font.size": fontsize
     })
