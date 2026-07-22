@@ -3,14 +3,16 @@ from quantum_agent.components.targets import CoreGKPTarget, CatTarget, SqueezedC
 
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import strawberryfields as sf
 from strawberryfields.ops import DensityMatrix
 from pathlib import Path
 import matplotlib.gridspec as gridspec
-from   quantum_agent.utils import windows_to_wsl_path
+from quantum_agent.utils import windows_to_wsl_path
+from matplotlib.colors import TwoSlopeNorm
 
 
-def get_wigner_from_dm(rho, grid_size=200, x_limit=6, cutoff_dim=30):
+def get_wigner_from_dm(rho, grid_size=150, x_limit=5, cutoff_dim=30):
     """Calculates Wigner function from a density matrix."""
     # Ensure trace is 1
     tr = np.trace(rho)
@@ -32,9 +34,58 @@ def get_wigner_from_dm(rho, grid_size=200, x_limit=6, cutoff_dim=30):
 def X_mesh(xvec, pvec):
     return np.meshgrid(xvec, pvec)
 
+def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
+    """Helper function to create a 3D surface plot with a 2D contour projection below."""
+    cmap = 'RdYlGn'
+    
+    # Diverging norm to ensure zero maps to yellow/orange, positive to green, negative to red
+    norm = TwoSlopeNorm(vmin=z_min, vcenter=0.0, vmax=z_max)
+    z_offset = z_min
+    
+    # 3D Surface Plot with surface curvature guide grid
+    surf = ax.plot_surface(X, P, W, cmap=cmap, norm=norm,
+                           rstride=2, cstride=2, linewidth=0.1, edgecolor='k',
+                           antialiased=True, alpha=0.95)
+                           
+    # 2D Projection (Contour lines) on the bottom plane
+    ax.contour(X, P, W, zdir='z', offset=z_offset, cmap=cmap, norm=norm,
+               levels=30, linewidths=1.2)
+                
+    # Set Axis Limits
+    ax.set_xlim([-x_limit, x_limit])
+    ax.set_ylim([-x_limit, x_limit])
+    ax.set_zlim([z_offset, z_max])
+    
+    # Axis Labels
+    ax.set_xlabel(r'$\mathbf{q}$', fontsize=26, labelpad=10)
+    ax.set_ylabel(r'$\mathbf{p}$', fontsize=26, labelpad=10)
+    
+    # Adjust ticks matching reference height and limits
+    ax.set_xticks([-5, 0, 5])
+    ax.set_yticks([-5, 0, 5])
+    ax.set_zticks([-0.20, -0.15, -0.10, -0.05, 0.00, 0.05, 0.10])
+    
+    ax.tick_params(axis='both', which='major', labelsize=18)
+    ax.tick_params(axis='z', which='major', labelsize=14, pad=6)
+    
+    # Grid lines styling
+    ax.xaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
+    ax.yaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
+    ax.zaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
+    
+    # Clean axis pane backgrounds
+    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    
+    # Orientation and Viewing Angle matching reference image
+    ax.view_init(elev=28, azim=-60)
+    
+    # Subplot Title
+    ax.text2D(0.02, 0.95, title, transform=ax.transAxes, fontsize=32)
+
 def main():
     # --- CONFIGURATION ---    
-    # Update this path to point to your specific results folder
     results_dir = Path(windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize\job_20_Cat_Harvesting_5_patterns"))
 
     if not results_dir.exists():
@@ -53,67 +104,48 @@ def main():
     # Calculate Wigner for Target
     print("Calculating Wigner for Target...")
     csv_path = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
-    # target = CoreGKPTarget(csv_path=csv_path, n_max=4, delta_db=10, mu=1)
-    target = SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0) # p=1 for odd parity
+    target = SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0)
     ket_target = target.get_target_ket(cutoff_dim=30)
     rho_target = np.outer(ket_target, ket_target.conj())
-    (X, P), W_target = get_wigner_from_dm(rho_target, cutoff_dim=30)
+    (X, P), W_target = get_wigner_from_dm(rho_target, grid_size=150, x_limit=5, cutoff_dim=30)
 
     # Calculate Wigners for Patterns
     wigner_data = {}
     for p_name, f_path in pattern_files.items():
         print(f"Calculating Wigner for pattern ({p_name.replace('_', ',')})...")
         rho = np.load(f_path)
-        _, W = get_wigner_from_dm(rho)
+        _, W = get_wigner_from_dm(rho, grid_size=150, x_limit=5, cutoff_dim=30)
         wigner_data[p_name] = W
 
     # --- PLOTTING ---
     print("Generating Figure...")
-    fontsize = 32
-    plt.rcParams.update({"font.size": fontsize})
+    fontsize = 48
+    plt.rcParams.update({
+        "font.size": fontsize
+    })
     
-    # Increase figsize height slightly and set hspace for more vertical room
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12), dpi=300, sharex=True, sharey=True)
-    plt.subplots_adjust(wspace=0.1, hspace=0.6) # Increased hspace to prevent overlap
+    try:
+        plt.plot()
+    except Exception:
+        plt.rcParams.update({"text.usetex": False, "font.family": "sans-serif"})
 
-    all_ws = [W_target] + list(wigner_data.values())
-    w_max = max(np.max(np.abs(w)) for w in all_ws)
-    levels = np.linspace(-w_max, w_max, 100)
+    fig = plt.figure(figsize=(22, 14), dpi=300)
+    plt.subplots_adjust(left=0.01, right=0.98, bottom=0.02, top=0.98, wspace=0.00, hspace=0.05)
 
     plot_list = [
-        ("Target", W_target, "(a) Target"),
-        ("0_4", wigner_data["0_4"], "(b) Pattern (0,4)"),
-        ("1_3", wigner_data["1_3"], "(c) Pattern (1,3)"),
-        ("2_2", wigner_data["2_2"], "(d) Pattern (2,2)"),
-        ("3_1", wigner_data["3_1"], "(e) Pattern (3,1)"),
-        ("4_0", wigner_data["4_0"], "(f) Pattern (4,0)")
+        ("(a) Target", W_target),
+        ("(b) Pattern (0,4)", wigner_data["0_4"]),
+        ("(c) Pattern (1,3)", wigner_data["1_3"]),
+        ("(d) Pattern (2,2)", wigner_data["2_2"]),
+        ("(e) Pattern (3,1)", wigner_data["3_1"]),
+        ("(f) Pattern (4,0)", wigner_data["4_0"])
     ]
 
-    for idx, (name, W, title) in enumerate(plot_list):
-        ax = axes[idx // 3, idx % 3]
-        cf = ax.contourf(X, P, W, levels=levels, cmap='RdBu_r')
-        ax.set_aspect('equal')
-        
-        # Enable q label and ticks for ALL subplots (including top row)
-        ax.set_xlabel(r'$q$', fontsize=fontsize)
-        ax.tick_params(labelbottom=True)
-        
-        if idx % 3 == 0: # Left column only for p label
-            ax.set_ylabel(r'$p$', fontsize=fontsize)
-            
-        # Move title to the top with extra padding to avoid overlap with upper plot labels
-        ax.set_title(title, y=-0.45, fontsize=fontsize)
-        
-        ax.axhline(0, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
-        ax.axvline(0, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
+    for idx, (title, W) in enumerate(plot_list):
+        ax = fig.add_subplot(2, 3, idx + 1, projection='3d')
+        plot_3d_wigner(ax, X, P, W, title)
 
-    # --- Shared Colorbar ---
-    fig.subplots_adjust(right=0.9)
-    cbar_ax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
-    cb = fig.colorbar(cf, cax=cbar_ax)
-    cb.set_ticks([-0.15, -0.10, -0.05, 0.0, 0.05, 0.10, 0.15])
-
-    # Save
+    # Save outputs
     output_path = results_dir / "Figure5_Comparison.pdf"
     output_png = results_dir / "Figure5_Comparison.png"
     plt.savefig(output_path, bbox_inches='tight', dpi=300)
