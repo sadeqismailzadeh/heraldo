@@ -7,6 +7,7 @@ import strawberryfields as sf
 from strawberryfields.ops import DensityMatrix
 from pathlib import Path
 import matplotlib.gridspec as gridspec
+from   quantum_agent.utils import windows_to_wsl_path
 
 def get_wigner_from_dm(rho, grid_size=200, x_limit=6, cutoff_dim=30):
     """Calculates Wigner function from a density matrix."""
@@ -32,16 +33,8 @@ def X_mesh(xvec, pvec):
 
 def main():
     # --- CONFIGURATION ---
-    # Path to where eval_cma_optimized.py saved the .npy files
-    # Assuming this script is in scripts/plotting/ and results are in results/opt_...
-    # Update this path to point to your specific results folder containing the .npy files
-    base_results_path = Path(__file__).resolve().parent.parent.parent / "results"  
-    
-    # Auto-find latest opt run or specify manually
-    results_dir = base_results_path / "opt_Sq3_GKP_20260205T134849Z" 
-    # matches = sorted([p for p in base_results_path.glob("opt_*") if p.is_dir()], key=lambda p: p.stat().st_mtime)
-    # results_dir = matches[-1] if matches else None
-    
+
+    results_dir = Path(windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize\job_15_GKP_mu=0_Harvesting__1_3____3_1_"))
     if not results_dir:
         print("Could not find results directory.")
         return

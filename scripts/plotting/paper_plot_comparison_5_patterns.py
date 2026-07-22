@@ -35,7 +35,7 @@ def X_mesh(xvec, pvec):
 def main():
     # --- CONFIGURATION ---    
     # Update this path to point to your specific results folder
-    results_dir = Path(windows_to_wsl_path(r"E:\Quantum\paper\results1\cat\opt_Sq3_SqCat_20260206T190432Z"))
+    results_dir = Path(windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize\job_20_Cat_Harvesting_5_patterns"))
 
     if not results_dir.exists():
         print(f"Could not find results directory: {results_dir}")
@@ -114,9 +114,14 @@ def main():
     cb.set_ticks([-0.15, -0.10, -0.05, 0.0, 0.05, 0.10, 0.15])
 
     # Save
-    output_path = results_dir / "Figure_Comparison_5_Patterns_Fixed.pdf"
+    output_path = results_dir / "Figure5_Comparison.pdf"
+    output_png = results_dir / "Figure5_Comparison.png"
     plt.savefig(output_path, bbox_inches='tight', dpi=300)
+    plt.savefig(output_png, bbox_inches='tight', dpi=300)
+
     print(f"Saved PDF to: {output_path}")
+    print(f"Saved PNG to: {output_png}")
+
 
 if __name__ == "__main__":
     main()
