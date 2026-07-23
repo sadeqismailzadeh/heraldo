@@ -44,12 +44,12 @@ def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
     
     # 3D Surface Plot
     surf = ax.plot_surface(X, P, W, cmap=cmap, norm=norm,
-                           rstride=2, cstride=2, linewidth=0.1, edgecolor='k',
-                           antialiased=False, alpha=0.95, rasterized=True)
+                           rstride=2, cstride=2, linewidth=0, edgecolor='none',
+                           antialiased=True, alpha=0.9)
                            
     # 2D Projection (Contour lines) on the bottom plane
     ax.contour(X, P, W, zdir='z', offset=z_offset, cmap=cmap, norm=norm,
-               levels=30, linewidths=1.2, rasterized=True)
+               levels=15, linewidths=2.5)
                 
     # Set Axis Limits
     ax.set_xlim([-x_limit, x_limit])
@@ -108,14 +108,14 @@ def main():
     target = SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0)
     ket_target = target.get_target_ket(cutoff_dim=30)
     rho_target = np.outer(ket_target, ket_target.conj())
-    (X, P), W_target = get_wigner_from_dm(rho_target, grid_size=150, x_limit=5, cutoff_dim=30)
+    (X, P), W_target = get_wigner_from_dm(rho_target, grid_size=250, x_limit=5, cutoff_dim=30)
 
     # Calculate Wigners for Patterns
     wigner_data = {}
     for p_name, f_path in pattern_files.items():
         print(f"Calculating Wigner for pattern ({p_name.replace('_', ',')})...")
         rho = np.load(f_path)
-        _, W = get_wigner_from_dm(rho, grid_size=150, x_limit=5, cutoff_dim=30)
+        _, W = get_wigner_from_dm(rho, grid_size=250, x_limit=5, cutoff_dim=30)
         wigner_data[p_name] = W
 
     # --- PLOTTING ---
@@ -151,9 +151,9 @@ def main():
     output_eps = results_dir / "Figure5_Comparison.eps"
     output_jpg = results_dir / "Figure5_Comparison.jpg"
 
-    plt.savefig(output_path, bbox_inches='tight', dpi=300)
-    plt.savefig(output_eps, bbox_inches='tight', dpi=600)
-    plt.savefig(output_jpg, bbox_inches='tight', dpi=600)
+    # plt.savefig(output_path, bbox_inches='tight', dpi=300)
+    # plt.savefig(output_eps, bbox_inches='tight', dpi=600)
+    plt.savefig(output_jpg, bbox_inches='tight', dpi=300)
 
     print(f"Saved PDF to: {output_path}")
     print(f"Saved EPS to: {output_eps}")
