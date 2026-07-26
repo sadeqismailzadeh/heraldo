@@ -41,14 +41,16 @@ def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
     norm = TwoSlopeNorm(vmin=z_min, vcenter=0.0, vmax=z_max)
     z_offset = z_min
     
-    # 3D Surface Plot with surface curvature guide grid
+    # 3D Surface Plot
     surf = ax.plot_surface(X, P, W, cmap=cmap, norm=norm,
-                           rstride=2, cstride=2, linewidth=0.1, edgecolor='k',
-                           antialiased=True, alpha=0.95)
+                           rstride=2, cstride=2, linewidth=0, edgecolor='none',
+                           antialiased=True, alpha=0.9)
                            
     # 2D Projection (Contour lines) on the bottom plane
+    levels = np.linspace(z_min, z_max, 7)
+    linestyles = ['dashed' if lvl < 0 else 'solid' for lvl in levels]
     ax.contour(X, P, W, zdir='z', offset=z_offset, cmap=cmap, norm=norm,
-               levels=30, linewidths=1.2)
+               levels=levels, linewidths=2, linestyles=linestyles)
                 
     # Set Axis Limits
     ax.set_xlim([-x_limit, x_limit])
@@ -56,16 +58,17 @@ def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
     ax.set_zlim([z_offset, z_max])
     
     # Axis Labels
-    ax.set_xlabel(r'$\mathbf{q}$', fontsize=26, labelpad=10)
-    ax.set_ylabel(r'$\mathbf{p}$', fontsize=26, labelpad=10)
+    ax.set_xlabel(r'$\mathbf{q}$', fontsize=32, labelpad=10)
+    ax.set_ylabel(r'$\mathbf{p}$', fontsize=32, labelpad=10)
     
     # Adjust ticks matching reference height and limits
-    ax.set_xticks([-5, 0, 5])
-    ax.set_yticks([-5, 0, 5])
-    ax.set_zticks([-0.20, -0.15, -0.10, -0.05, 0.00, 0.05, 0.10])
+    ax.set_xticks([-4,  0,  4])
+    ax.set_yticks([-4,  0,  4])
+    ax.set_zticks([-0.10,  0.00,  0.10])
     
-    ax.tick_params(axis='both', which='major', labelsize=18)
-    ax.tick_params(axis='z', which='major', labelsize=14, pad=6)
+    ax.tick_params(axis='x', which='major', labelsize=24, pad=0)
+    ax.tick_params(axis='y', which='major', labelsize=24, pad=0)
+    ax.tick_params(axis='z', which='major', labelsize=24, pad=8)
     
     # Grid lines styling
     ax.xaxis._axinfo["grid"].update({"linewidth": 0.6, "color": "gray", "linestyle": "--", "alpha": 0.5})
@@ -110,10 +113,10 @@ def main():
 
     # Calculate Wigner
     print("Calculating Wigner for (1,3)...")
-    (X, P), W_13 = get_wigner_from_dm(rho_13, grid_size=150)
+    (X, P), W_13 = get_wigner_from_dm(rho_13, grid_size=250, x_limit=5, cutoff_dim=30)
     
     print("Calculating Wigner for (3,1)...")
-    _, W_31 = get_wigner_from_dm(rho_31, grid_size=150)
+    _, W_31 = get_wigner_from_dm(rho_31, grid_size=250, x_limit=5, cutoff_dim=30)
 
     # --- TARGET STATE ---
     print("Calculating Wigner for Target...")
@@ -121,22 +124,17 @@ def main():
     target = CoreGKPTarget(csv_path=csv_path, n_max=4, delta_db=10, mu=0)
     ket_target = target.get_target_ket(cutoff_dim=30)
     rho_target = np.outer(ket_target, ket_target.conj())
-    _, W_target = get_wigner_from_dm(rho_target, grid_size=150, cutoff_dim=30)
+    _, W_target = get_wigner_from_dm(rho_target, grid_size=250, x_limit=5, cutoff_dim=30)
 
     # --- PLOTTING ---
     print("Generating Figure...")
-    fontsize = 48
-    plt.rcParams.update({
-        "font.size": fontsize
-    })
-    
     try:
         plt.plot()
     except Exception:
         plt.rcParams.update({"text.usetex": False, "font.family": "sans-serif"})
 
-    fig = plt.figure(figsize=(22, 7), dpi=300)
-    plt.subplots_adjust(left=0.01, right=0.92, bottom=0.05, top=0.95, wspace=0.00)
+    fig = plt.figure(figsize=(22, 7))
+    plt.subplots_adjust(left=0.01, right=0.98, bottom=0.02, top=0.98, wspace=0.00)
     
     ax0 = fig.add_subplot(1, 3, 1, projection='3d')
     ax1 = fig.add_subplot(1, 3, 2, projection='3d')
@@ -149,12 +147,12 @@ def main():
 
     # Save outputs
     output_path = results_dir / "Figure3_Comparison.pdf"
-    output_png = results_dir / "Figure3_Comparison.png"
-    plt.savefig(output_path, bbox_inches='tight', dpi=300)
-    plt.savefig(output_png, bbox_inches='tight', dpi=300)
+    output_jpg = results_dir / "Figure3_Comparison.jpg"
+    # plt.savefig(output_path, bbox_inches='tight', dpi=300)
+    plt.savefig(output_jpg, bbox_inches='tight', dpi=300)
     
     print(f"Saved PDF to: {output_path}")
-    print(f"Saved PNG to: {output_png}")
+    print(f"Saved JPG to: {output_jpg}")
 
 if __name__ == "__main__":
     main()
