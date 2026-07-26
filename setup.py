@@ -5,9 +5,6 @@ setup(
     version="0.1",
     packages=[p for p in find_packages() if p.startswith("quantum_agent")],
     install_requires=[
-        "gymnasium",
-        "stable-baselines3",
         "strawberryfields",
-        "sb3-contrib"
-    ]
+        ]
 )
