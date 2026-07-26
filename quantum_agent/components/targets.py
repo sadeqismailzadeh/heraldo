@@ -20,7 +20,11 @@ import qutip as qt
 from scipy.special import factorial, comb
 import pandas as pd
 
-from quantum_agent.core.interfaces import TargetGenerator
+class TargetGenerator(abc.ABC):
+    """Responsible for generating the target state ket."""
+    @abc.abstractmethod
+    def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
+        pass
 
 
 # --- Target Implementations ---

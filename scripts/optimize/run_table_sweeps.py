@@ -557,7 +557,7 @@ def main():
     sweep_jobs.append({
         "table": "Table 2",
         "family": "Binomial",
-        "strategy": "Harvest",
+        "strategy": "Harvest (2,4), (4,2)",
         "modes": 3,
         "circuit_config": {
             'class_name': 'ThreeModeTimeDomainSqueezeOnly',

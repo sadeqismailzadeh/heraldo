@@ -1836,8 +1836,8 @@ def main():
     visualize_results_path= windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize")
     # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
     # evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
-    # save_density_matrices_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
-    evaluate_loss_influence(loss_results_path, circuit_module)
+    save_density_matrices_for_all_opt_folders(visualize_results_path, circuit_module, cutoff=30)
+    # evaluate_loss_influence(loss_results_path, circuit_module)
 
     # Find results directory
     base = Path(__file__).resolve().parent.parent.parent / "results"

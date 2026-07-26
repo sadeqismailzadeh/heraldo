@@ -299,7 +299,7 @@ def main():
     SUCCESS_THRESHOLD = 1 - 3e-2
     
     # --- Execution ---
-    n_generations = 100       # Number of hops per global search
+    n_generations = 200       # Number of hops per global search
     niter = 1                # Number of global searches
 
     # Setup
@@ -377,7 +377,7 @@ def main():
     # Here we select which group we want to use. 
     # NOTE: Binomial needs filtering, handled below.
     
-    active_target_configs =  target_config_3
+    active_target_configs =  cubic_phase_config
     # active_target_configs = target_configs1
     # active_target_configs = binomial_target_configs_all # Needs filtering below
 
@@ -476,7 +476,7 @@ def main():
     }
 
     # --- Select Active Circuit ---
-    active_circuit_config = circuit_config_2
+    active_circuit_config = circuit_config_gadget_2
     
     # --- Results Directory Setup ---
     # Generate short tags for folder name based on active configs
@@ -530,8 +530,9 @@ def main():
 
     # patterns = [[(2,2)],[(1,3)],]
     # patterns = [[(3,)], [(4,)], [(6,)], [(8,)], [(10,)]] 
-    patterns = [[(1, 3)], [(0, 4)], [(1, 4)], [(0, 5)], [(2, 2)], [(2, 3)], [(3, 2)],]
-    # patterns = [[(0,6)], [(2,6)], [(4,6)], [(8,6)], [(10,6)]]
+    # patterns = [[(1, 3)], [(0, 4)], [(1, 4)], [(0, 5)], [(2, 2)], [(2, 3)], [(3, 2)],]
+    patterns = [[(0,6)], [(2,6)], [(4,6)], [(8,6)], [(10,6)]]
+    # patterns = [[(0,6)]]
     # patterns = [[(2,2)], [(3,3)], [(4,4)],[(5,5)], [(6,6)]]
     # patterns = [[(2,2)], [(4,4)], [(6,6)]]
 

@@ -48,8 +48,10 @@ def plot_3d_wigner(ax, X, P, W, title, x_limit=5, z_min=-0.20, z_max=0.10):
                            antialiased=True, alpha=0.9)
                            
     # 2D Projection (Contour lines) on the bottom plane
+    levels = np.linspace(z_min, z_max, 7)
+    linestyles = ['dashed' if lvl < 0 else 'solid' for lvl in levels]
     ax.contour(X, P, W, zdir='z', offset=z_offset, cmap=cmap, norm=norm,
-               levels=15, linewidths=2.5)
+               levels=levels, linewidths=2, linestyles=linestyles)
                 
     # Set Axis Limits
     ax.set_xlim([-x_limit, x_limit])
