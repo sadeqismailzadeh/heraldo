@@ -189,7 +189,6 @@ def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: n
         cutoff_dim,
         beam_width=beam_width,
         penalty_strength=0.0,
-        success_threshold=0.99, # Used for internal loss calculation
         measurement_patterns=measurement_patterns,
         return_details=True
     )

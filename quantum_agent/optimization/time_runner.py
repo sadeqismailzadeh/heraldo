@@ -21,65 +21,8 @@ from functools import partial
 from tqdm import tqdm
 
 
-def _compute_photon_moments(ket, max_moment= 10):
-    """
-    Compute photon number moments <n^k> for k=1 to max_moment.
-
-    Args:
-        ket: State vector in Fock basis
-        max_moment: Maximum moment to compute, e.g., 10 for <n> to <n^10>
-
-    Returns:
-        Array of length max_moment with moments
-    """
-    cutoff = len(ket)
-    probs = np.abs(ket) ** 2
-    support = np.arange(cutoff)
-
-    # Compute moments <n^k> = Σ_n n^k * P(n)
-    moments = np.array([np.sum((support ** k) * probs) for k in range(1, max_moment + 1)])
-    return moments
-
-def _compute_moment_similarity(moments_target, moments_state):
-    """
-    Compute similarity between two sets of photon number moments.
-    The similarity is based on the inverse of the mean squared error (MSE)
-    of moments normalized by the mean photon number (<n>), to ensure scale-invariance.
-
-    Args:
-        moments_target (np.ndarray): Array of target moments [<n>, <n^2>, ...].
-        moments_state (np.ndarray): Array of state moments [<n>, <n^2>, ...].
-
-    Returns:
-        float: Similarity score, where higher is better. Ranges from (0, 1].
-    """
-    eps = 1e-12
-
-    # Ensure moments are numpy arrays
-    moments_target = np.asarray(moments_target)
-    moments_state = np.asarray(moments_state)
-
-    # Normalize by the first moment (<n>) to make the comparison scale-invariant.
-    # This focuses on the shape of the distribution rather than its mean.
-    if moments_target[0] > eps and moments_state[0] > eps:
-        moments_target_norm = moments_target / moments_target[0]
-        moments_state_norm = moments_state / moments_state[0]
-
-        # Compute similarity as exp(-MSE) of the normalized moments.
-        mse = np.mean((moments_target_norm - moments_state_norm) ** 2)
-        similarity = np.exp(-mse)
-    else:
-        # If either state has close to zero photons, they are not similar
-        # to a target that is expected to have photons (or vice-versa).
-        similarity = 0.0
-
-    return similarity
-
 def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, target_kets, cutoff_dim, beam_width,
-                                  penalty_strength, measurement_patterns=None, success_threshold=0.99,
-                                  success_weight=5.0, ng_weight=0.0, ng_threshold=0.1, prob_power=1,
-                                  photon_dist_weight=0.0, max_photon_dist=10, photon_dist_metric='dot_product',
-                                  target_photon_moments=None, vacuum_excluded_weight=0.0, return_details: bool = False):
+                                  penalty_strength, measurement_patterns=None, return_details: bool = False):
     """
     Evaluates the circuit using either Beam Search or fixed measurement patterns.
     
@@ -98,20 +41,10 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
             - List of lists: Multiple complete measurement sequences to average over
               [[(step1_outcome1, step1_outcome2, ...), (step2_outcome1, ...), ...],  # Sequence 1
                [(step1_outcome1, step1_outcome2, ...), (step2_outcome1, ...), ...]]  # Sequence 2
-        success_threshold: Fidelity threshold for success
-        success_weight: Weight for success reward
-        ng_weight: Weight for non-Gaussianity penalty
-        ng_threshold: Threshold for non-Gaussianity
-        prob_power: Power for probability weighting
-        photon_dist_weight: Weight for photon moment similarity term
-        max_photon_dist: Maximum photon moment to consider for similarity calculation (e.g., 10 for <n> to <n^10>)
-        photon_dist_metric: (Ignored) Type of distance metric. Moment-based similarity is always used.
-        target_photon_moments: Precomputed photon moments for target states.
-                            If None, will compute from target_kets.
-        vacuum_excluded_weight: Weight for Vacuum-Excluded SSD penalty (Sum of Squared Differences ignoring n=0).
+        return_details: If True, returns dictionary with detailed evaluation metrics.
     
     Returns:
-        Loss value
+        Loss value or dict (if return_details=True)
     """
     # 0. Setup
     n_init = circuit.num_initial_parameters
@@ -125,13 +58,6 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
     # Map only the step parameters
     mapped_params = circuit.map_parameters(step_params)
     meas_specs = circuit.get_measurement_specs()
-    
-    # Precompute target photon moments if not provided
-    if photon_dist_weight > 1e-6 and target_photon_moments is None:
-        target_photon_moments = [
-            _compute_photon_moments(ket, max_photon_dist)
-            for ket in target_kets
-        ]
     
     
     # 1. INITIALIZE
@@ -427,10 +353,6 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
     mask_nonzero = active_outcome_sums > 0
     
     expected_fidelity = 0.0
-    soft_success_prob = 0.0
-    ng_loss = 0.0
-    photon_dist_similarity = 0.0
-    vacuum_excluded_ssd_score = 0.0
 
     if np.any(mask_nonzero):
         final_kets = active_kets[mask_nonzero]
@@ -458,24 +380,20 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         # Logarithmic Reward
 
        
-        min_infidel=0
+        min_infidel=2e-2
         infidelities = np.maximum(1.0 - fidelities, min_infidel)
         capped_fidelities = np.minimum(fidelities, 1-min_infidel)
 
 
         n_pat = (patterns_arr.shape[0] if measurement_patterns is not None else 1)
-        expected_fidelity = np.sum(0.1*n_pat * final_probs + capped_fidelities)
+        # expected_fidelity = np.sum(0.1*n_pat * final_probs + capped_fidelities)
 
 
-        # log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
-        # objective2 = np.sum(final_probs * (capped_fidelities**2 *log_vals)**4)
-        # expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
-    # Return loss
-    # loss = -expected_fidelity - (success_weight * soft_success_prob) \
-    #        + (penalty_strength * total_truncation_error) + (ng_weight * ng_loss)
+        log_vals = np.log10(infidelities)  /  np.log10(min_infidel)
+        objective2 = np.sum(final_probs * (capped_fidelities**2 *log_vals)**4)
+        expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
 
     loss = -1*expected_fidelity + (penalty_strength * total_truncation_error)
-    
     
     if not return_details:
         return loss
@@ -498,33 +416,17 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         for i in range(len(final_probs)):
             # Convert to tuple of ints
             outcome = tuple(final_outcomes_arr[i].tolist())
-            
-            # Compute photon moment similarity if needed
-            photon_sim = 0.0
-            if photon_dist_weight > 1e-6:
-                branch_moments = _compute_photon_moments(
-                    final_kets[i], max_photon_dist
-                )
-                target_idx = best_target_indices[i]
-                target_moments = target_photon_moments[target_idx] if target_photon_moments is not None else \
-                    _compute_photon_moments(target_kets[target_idx], max_photon_dist)
-                photon_sim = _compute_moment_similarity(
-                    target_moments, branch_moments
-                )
 
             branch_details.append({
                 "outcome": outcome,
                 "prob": float(final_probs[i]),
                 "fidelity": float(fidelities[i]),
                 "target_idx": int(best_target_indices[i]),
-                "photon_similarity": float(photon_sim) if photon_dist_weight > 1e-6 else None
             })
 
     return {
         "loss": loss,
         "expected_fidelity": float(expected_fidelity),
-        "photon_similarity": float(photon_dist_similarity) if photon_dist_weight > 1e-6 else 0.0,
-        "vacuum_excluded_ssd": float(vacuum_excluded_ssd_score) if vacuum_excluded_weight > 1e-6 else 0.0,
         "branches": branch_details,
         "total_probability": float(np.sum(final_probs)) if np.any(mask_nonzero) else 0.0
     }
@@ -548,19 +450,11 @@ class BasinHoppingRunner:
                  cutoff_dim: int,
                  beam_width: int = 5,
                  penalty_strength: float = 10.0,
-                 success_threshold: float = 0.99,
-                 success_weight: float = 5.0,
-                 ng_weight: float = 0.0,
-                 ng_threshold: float = 0.1,
-                 photon_dist_weight: float = 0.0,
-                 max_photon_dist: int = 10,
-                 photon_dist_metric: str = 'dot_product',
                  measurement_patterns = None,
                  num_parallel_runs: int = 4,
                  num_processes: int = 4,
                  **kwargs):
         
-        self.prob_power = 1.0
         self.circuit = circuit
 
         if not isinstance(target_gens, list):
@@ -570,27 +464,11 @@ class BasinHoppingRunner:
         self.cutoff_dim = cutoff_dim
         self.beam_width = beam_width
         self.penalty_strength = penalty_strength
-        self.success_threshold = success_threshold
-        self.success_weight = success_weight
-        self.ng_weight = ng_weight
-        self.ng_threshold = ng_threshold
-        self.photon_dist_weight = photon_dist_weight
-        self.max_photon_dist = max_photon_dist
-        self.photon_dist_metric = photon_dist_metric
         self.measurement_patterns = measurement_patterns
         self.num_parallel_runs = num_parallel_runs
         self.num_processes = num_processes
         self.eval_count = 0
         self.iteration_count = 0
-        
-        # Precompute target photon moments if needed
-        if photon_dist_weight > 1e-6:
-            self.target_photon_moments = [
-                _compute_photon_moments(ket, max_photon_dist)
-                for ket in self.target_kets
-            ]
-        else:
-            self.target_photon_moments = None
         
     def _loss_function(self, flat_params):
         """
@@ -605,15 +483,6 @@ class BasinHoppingRunner:
             self.beam_width,
             self.penalty_strength,
             self.measurement_patterns,
-            self.success_threshold,
-            self.success_weight,
-            self.ng_weight,
-            self.ng_threshold,
-            prob_power=self.prob_power,
-            photon_dist_weight=self.photon_dist_weight,
-            max_photon_dist=self.max_photon_dist,
-            photon_dist_metric=self.photon_dist_metric,
-            target_photon_moments=self.target_photon_moments
         )
 
     def callback(self, x, f, accept):
@@ -622,12 +491,11 @@ class BasinHoppingRunner:
         print(f"  [Iteration {self.iteration_count}] [{status}] (Evals: {self.eval_count}) Loss: {f} ")
         self.eval_count = 0
 
-    def _execute_single_run(self, seed, run_idx, total_runs, n_iter, method, full_bounds, prob_power):
+    def _execute_single_run(self, seed, run_idx, total_runs, n_iter, method, full_bounds, **kwargs):
         """Helper to execute a single basin hopping run (for parallelization)."""
         if seed is not None:
             np.random.seed(seed)
             
-        self.prob_power = prob_power
         self.eval_count = 0
         self.iteration_count = 0
         
@@ -676,15 +544,6 @@ class BasinHoppingRunner:
                 beam_width=self.beam_width,
                 penalty_strength=self.penalty_strength,
                 measurement_patterns=self.measurement_patterns,
-                success_threshold=self.success_threshold,
-                success_weight=self.success_weight,
-                ng_weight=self.ng_weight,
-                ng_threshold=self.ng_threshold,
-                prob_power=self.prob_power,
-                photon_dist_weight=self.photon_dist_weight,
-                max_photon_dist=self.max_photon_dist,
-                photon_dist_metric=self.photon_dist_metric,
-                target_photon_moments=self.target_photon_moments,
                 return_details=True
             )
             
@@ -692,7 +551,6 @@ class BasinHoppingRunner:
                 "x": result.x,
                 "loss": final_eval["loss"],
                 "expected_fidelity": final_eval.get("expected_fidelity", 0.0),
-                "photon_similarity": final_eval.get("photon_similarity", 0.0),
                 "branches": final_eval.get("branches", []),
                 "total_probability": final_eval.get("total_probability", 0.0),
                 "duration": 0.0, # Calculated in parent
@@ -704,15 +562,14 @@ class BasinHoppingRunner:
             # Catch exceptions to prevent crashing all runs
             return {"success": False, "error": str(e), "seed": seed}
 
-    def run(self, n_iter=20, method="L-BFGS-B", prob_power=1.0, n_generations=None, 
-            num_parallel_runs=None, base_seed=None):
+    def run(self, n_iter=20, method="L-BFGS-B", n_generations=None, 
+            num_parallel_runs=None, base_seed=None, **kwargs):
         """
         Runs the global optimization.
         """
         if n_generations is not None:
             n_iter = n_generations
             
-        self.prob_power = prob_power
         n_parallel = num_parallel_runs if num_parallel_runs is not None else self.num_parallel_runs
 
         # Construct full parameter bounds
@@ -722,21 +579,21 @@ class BasinHoppingRunner:
         else:
             step_bounds = per_step_bounds * self.circuit.steps
             
-        # 2. Init Bounds (NEW)
+        # Init Bounds
         init_bounds = self.circuit.initial_parameter_bounds
         
-        # 3. Concatenate
+        # Concatenate
         full_bounds = init_bounds + step_bounds
         
         start_time = time.time()
         
         if n_parallel <= 1:
-            print(f"Starting Basin-Hopping Beam Search (Width={self.beam_width}, Steps={self.circuit.steps}, NG_Weight={self.ng_weight})...")
+            print(f"Starting Basin-Hopping Beam Search (Width={self.beam_width}, Steps={self.circuit.steps})...")
             
             current_seed = base_seed if base_seed is not None else np.random.randint(0, 2**32 - 1)
             
             # Use local execution flow
-            res = self._execute_single_run(current_seed, 0, 1, n_iter, method, full_bounds, prob_power)
+            res = self._execute_single_run(current_seed, 0, 1, n_iter, method, full_bounds)
             
             if not res.get("success", False):
                 raise RuntimeError(f"Basin-Hopping run failed: {res.get('error')}")
@@ -754,7 +611,7 @@ class BasinHoppingRunner:
 
             n_iter = n_iter // n_parallel
             
-            args_list = [(seeds[i], i, n_parallel, n_iter, method, full_bounds, prob_power) for i in range(n_parallel)]
+            args_list = [(seeds[i], i, n_parallel, n_iter, method, full_bounds) for i in range(n_parallel)]
             
             workers = min(n_parallel, self.num_processes if self.num_processes > 1 else multiprocessing.cpu_count())
             
@@ -772,7 +629,6 @@ class BasinHoppingRunner:
                 "x": best_res["x"],
                 "loss": best_res["loss"],
                 "expected_fidelity": best_res.get("expected_fidelity", 0.0),
-                "photon_similarity": best_res.get("photon_similarity", 0.0),
                 "branches": best_res.get("branches", []),
                 "total_probability": best_res.get("total_probability", 0.0),
                 "duration": total_duration,

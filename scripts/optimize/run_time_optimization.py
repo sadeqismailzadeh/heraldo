@@ -420,14 +420,7 @@ def main():
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
         penalty_strength=1.0,
-        success_threshold=SUCCESS_THRESHOLD,
-        success_weight=0.0,
-        ng_weight=0.0,
-        ng_threshold=0.0,
-        photon_dist_weight=0.0,
-        max_photon_dist=CUTOFF_DIM,
-        measurement_patterns=prepared_patterns,
-        popsize=15
+        measurement_patterns=prepared_patterns
     )
 
     results_list = []
