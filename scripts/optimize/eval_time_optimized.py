@@ -1,55 +1,30 @@
-# Added imports for file loading, plotting and CLI handling; removed duplicate imports
 import argparse
+import copy
 import glob
+import itertools
 import json
-import pickle
-import numpy as np
 import os
 from pathlib import Path
-import matplotlib.pyplot as plt
+import pickle
 import platform
-import itertools
 import re
-import copy
 
-import quantum_agent
+import matplotlib.pyplot as plt
+import numpy as np
 import strawberryfields as sf
-from strawberryfields.ops import Ket, DensityMatrix
+from strawberryfields.ops import DensityMatrix, Ket
 
-# Optimization and Component modules
-import quantum_agent.optimization.time_circuits as circuit_module
 import quantum_agent.components.targets as target_module
-from quantum_agent.optimization.time_circuits import *
+import quantum_agent.optimization.time_circuits as circuit_module
+from quantum_agent.components.targets import (
+    BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, SqueezedCatTarget
+)
+from quantum_agent.factory import create_from_config
 from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
 from quantum_agent.optimization.time_runner import evaluate_time_domain_circuit
-from quantum_agent.components.targets import *
-from quantum_agent.utils import *
-from quantum_agent.factory import create_from_config
-
-
-
-def windows_to_wsl_path(win_path: str) -> str:
-    """
-    Converts an absolute Windows path to an absolute WSL path.
-    Example: 'C:\\Users\\name\\folder' -> '/mnt/c/Users/name/folder'
-    """
-    # 1. Remove any accidental surrounding quotes
-    clean_path = win_path.strip('\'"')
-    
-    # 2. Convert all Windows backslashes to forward slashes
-    clean_path = clean_path.replace('\\', '/')
-    
-    # 3. Match the Windows drive letter pattern (e.g., "C:/..." or "d:/...")
-    match = re.match(r'^([a-zA-Z]):/(.*)$', clean_path)
-    
-    if match:
-        drive_letter = match.group(1).lower()
-        rest_of_path = match.group(2)
-        # 4. Construct the WSL /mnt/ path
-        return f"/mnt/{drive_letter}/{rest_of_path}"
-    
-    # If it doesn't match a drive letter, return the normalized path as-is
-    return clean_path
+from quantum_agent.utils import (
+    compute_ng_scores, db_to_r, fidelity_max_rotation, fidelity_pure_state, windows_to_wsl_path
+)
 
 
 def print_optimized_parameters(circuit, flat_x, mapped_params=None):
@@ -649,55 +624,6 @@ def run_deterministic_path(circuit: TimeMultiplexedCircuit, flat_params: np.ndar
     
     return result
 
-# Replaced the example main() with a full evaluator:
-# - loads latest (or user-specified) results/cma_run_* directory
-# - loads best_x / best_result
-# - allows selecting a branch by index or specifying a measurement tuple
-# - runs deterministic post-selection via run_deterministic_path()
-# - visualizes Wigner + Fock probs (re-using demo_target plotting style)
-def plot_ket_wigner(ket, title="State", cutoff_dim=40, grid_size=200, x_limit=5):
-    """Plot Wigner function and Fock probabilities for a single-mode ket using Strawberry Fields state tools."""
-    # Ensure normalization
-    norm = np.linalg.norm(ket)
-    if abs(norm - 1.0) > 1e-6:
-        ket = ket / norm
-
-    prog = sf.Program(1)
-    with prog.context as q:
-        Ket(ket) | q[0]
-    eng = sf.Engine("fock", backend_options={"cutoff_dim": cutoff_dim})
-    result = eng.run(prog)
-    state = result.state
-
-    xvec = np.linspace(-x_limit, x_limit, grid_size)
-    pvec = np.linspace(-x_limit, x_limit, grid_size)
-    W = state.wigner(mode=0, xvec=xvec, pvec=pvec)
-
-    probs = state.all_fock_probs(cutoff=cutoff_dim)
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-    X, P = np.meshgrid(xvec, pvec)
-    lim = np.max(np.abs(W))
-    c = ax1.pcolormesh(X, P, W, cmap='RdBu', shading='auto', vmin=-lim, vmax=lim)
-    fig.colorbar(c, ax=ax1, label='W(x, p)')
-    ax1.set_title(f"Wigner Function ({title})")
-    ax1.set_xlabel("x (Position)")
-    ax1.set_ylabel("p (Momentum)")
-    ax1.set_aspect('equal')
-    ax1.axhline(0, color='black', linestyle='--', alpha=0.3)
-    ax1.axvline(0, color='black', linestyle='--', alpha=0.3)
-
-    display_cutoff = min(cutoff_dim, 60)
-    ax2.bar(range(display_cutoff), probs[:display_cutoff], color='teal', alpha=0.7, edgecolor='black')
-    ax2.set_title("Fock State Probabilities")
-    ax2.set_xlabel("Fock Number |n>")
-    ax2.set_ylabel("Probability")
-    ax2.set_xticks(range(display_cutoff))
-
-    plt.tight_layout()
-    plt.show()
-
-
 def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cutoff_dim=50, grid_size=400, x_limit=6, ax_wigner=None, ax_fock=None):
     """
     Generates a high-resolution Wigner function and Fock distribution plot suitable for publication/print.
@@ -936,6 +862,12 @@ def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
     return tuple(reshaped)
 
 
+def _outcome_to_str(reshaped_pattern) -> str:
+    """Flattens a reshaped per-step outcome pattern into an underscore-separated string."""
+    flat_outcomes = [x for step_out in reshaped_pattern for x in step_out]
+    return "_".join(map(str, flat_outcomes))
+
+
 def save_all_fixed_pattern_wigners(circuit, flat_x, measurement_patterns, cutoff, results_dir, combine_plots=False):
     """
     Iterates over all saved fixed measurement patterns, evaluates them deterministically,
@@ -986,12 +918,7 @@ def save_all_fixed_pattern_wigners(circuit, flat_x, measurement_patterns, cutoff
             ket = res_dict['ket']
             prob = res_dict['prob']
             
-            # Format filename
-            flat_outcomes = []
-            for step_out in reshaped_pattern:
-                flat_outcomes.extend(step_out)
-            outcome_str = "_".join(map(str, flat_outcomes))
-            
+            outcome_str = _outcome_to_str(reshaped_pattern)
             filename = results_dir / f"wigner_hq_{outcome_str}.png"
             title = f"Outcome {reshaped_pattern} (P={prob:.2e})"
             
@@ -1076,19 +1003,7 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
     print(f"\n=== Evaluating rotations for {len(measurement_patterns)} fixed patterns ===")
     
     target_kets = [t.get_target_ket(cutoff) for t in targets]
-    
-    target_names = []
-    for t in targets:
-        if isinstance(t, CoreGKPTarget):
-            target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
-        elif isinstance(t, SqueezedCatTarget):
-            target_names.append(f"SqCat_a{t.alpha}_r{t.r}_p{t.p}")
-        elif isinstance(t, CatTarget):
-            target_names.append(f"Cat_a{t.alpha}_p{t.p}")
-        elif isinstance(t, BinomialCodeTarget):
-            target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
-        else:
-            target_names.append(t.__class__.__name__)
+    target_names = get_target_display_names(targets)
             
     report_lines = []
     report_lines.append(f"{'Pattern':<20} | {'Prob':<10} | {'Best Target':<15} | {'Fidelity':<10} | {'Angle (rad)':<12} | {'Angle (deg)':<12}")
@@ -1119,11 +1034,7 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
         ket = res['final_state_ket']
         prob = res['final_probability']
         
-        # Format pattern string
-        flat_outcomes = []
-        for step_out in reshaped_pattern:
-            flat_outcomes.extend(step_out)
-        pattern_str = "_".join(map(str, flat_outcomes))
+        pattern_str = _outcome_to_str(reshaped_pattern)
         
         # --- Append to Ket Report ---
         ket_report_lines.append(f"Pattern: {pattern_str} (Prob: {prob:.4e})")
@@ -1272,30 +1183,6 @@ def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module,
             
         except Exception as e:
             print(f"  [Error] Failed to process {results_dir.name}: {e}")
-
-
-def format_infidelity_with_error(F_30, F_50):
-    I_30 = 1.0 - F_30
-    I_50 = 1.0 - F_50
-    error = abs(I_50 - I_30)
-
-    if error < 1e-16: 
-        return f"{I_50:.2e}"
-
-    err_mag = np.floor(np.log10(error))
-    val_mag = np.floor(np.log10(max(I_50, 1e-30))) # Prevent -inf for exact match
-
-    # If error is larger than or equal to the infidelity itself, report an upper bound
-    if I_50 <= error or err_mag >= val_mag:
-        bound_power = int(np.ceil(np.log10(error)))
-        return f"< 10^{{{bound_power}}}"
-
-    # Otherwise, round I_50 to the decimal place matching the error's scale
-    else:
-        sig_figs = int(val_mag - err_mag)
-        if sig_figs <= 0:
-            sig_figs = 1
-        return f"{{:.{sig_figs}e}}".format(I_50)
 
 
 def format_prob(p_val):
@@ -1674,11 +1561,7 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
                 else:
                     rel_deviation = 0.0 if error < 1e-18 else float('inf')
                 
-                flat_outcomes = []
-                for step_out in reshaped_pattern:
-                    flat_outcomes.extend(step_out)
-                pattern_str = "_".join(map(str, flat_outcomes))
-                
+                pattern_str = _outcome_to_str(reshaped_pattern)
                 rel_dev_str = f"{rel_deviation:.2e}" if rel_deviation != float('inf') else "inf"
                 
                 if I_high > 1e-30 and I_low > 1e-30:
@@ -1796,11 +1679,7 @@ def save_density_matrices_for_all_opt_folders(results_base_dir: Path, circuit_mo
                     
                 dm = np.outer(ket, np.conj(ket))
                 
-                flat_outcomes = []
-                for step_out in reshaped_pattern:
-                    flat_outcomes.extend(step_out)
-                outcome_str = "_".join(map(str, flat_outcomes))
-                
+                outcome_str = _outcome_to_str(reshaped_pattern)
                 filename = f"state_dm_{outcome_str}.npy"
                 save_path = results_dir / filename
                 np.save(save_path, dm)
@@ -1844,8 +1723,10 @@ def get_target_display_names(targets: list) -> list[str]:
             target_names.append(f"Cat_a{t.alpha}_p{t.p}")
         elif isinstance(t, BinomialCodeTarget):
             target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
+        elif isinstance(t, CubicPhaseTarget):
+            target_names.append(f"CubicPhase_g{t.gamma}_r{t.r}")
         else:
-            target_names.append("Target")
+            target_names.append(t.__class__.__name__)
     return target_names
 
 
@@ -2046,11 +1927,7 @@ def evaluate_single_branch(
         print("No final state found to save.")
 
     if dm is not None:
-        flat_outcomes = []
-        for step_out in measurement_outcomes:
-            flat_outcomes.extend(step_out)
-        
-        outcome_str = "_".join(map(str, flat_outcomes))
+        outcome_str = _outcome_to_str(measurement_outcomes)
         filename = f"state_dm_{outcome_str}.npy"
         
         save_path = results_dir / filename
