@@ -10,7 +10,7 @@ class TimeMultiplexedCircuit(abc.ABC):
     can either be unique per step (time-variant) or shared (time-invariant).
     """
     
-    def __init__(self, steps: int, time_invariant: bool = False):
+    def __init__(self, steps: int, time_invariant: bool = False, **kwargs):
         self.steps = steps
         self.time_invariant = time_invariant
 

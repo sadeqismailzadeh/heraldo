@@ -19,8 +19,8 @@ class BaseTimeDomainGadget(TimeMultiplexedCircuit):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
-        super().__init__(steps, time_invariant)
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0, **kwargs):
+        super().__init__(steps, time_invariant, **kwargs)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
         self.num_single_photon = num_single_photon
@@ -83,11 +83,12 @@ class TwoModeTimeDomainGadget(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0, **kwargs):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
+            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity,
+            **kwargs
         )
         
         self._param_names = [
@@ -140,11 +141,12 @@ class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0, **kwargs):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
+            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity,
+            **kwargs
         )
         
         self._param_names = [
@@ -194,11 +196,12 @@ class ThreeModeTimeDomainGadget(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0, **kwargs):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
+            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity,
+            **kwargs
         )
         
         self._param_names = [
@@ -268,11 +271,12 @@ class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0, **kwargs):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
+            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity,
+            **kwargs
         )
         
         self._param_names = [
@@ -333,11 +337,12 @@ class FourModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
+                 initial_fock_one: bool = False, loss_transmissivity: float = 1.0, **kwargs):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
+            initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity,
+            **kwargs
         )
         
         self._param_names = [
