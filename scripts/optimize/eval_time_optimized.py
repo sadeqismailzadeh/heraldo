@@ -1812,111 +1812,28 @@ def save_density_matrices_for_all_opt_folders(results_base_dir: Path, circuit_mo
             print(f"  [Error] Failed to process {results_dir.name}: {e}")
 
 
-def main():
-    # Configuration - set these variables directly instead of using command-line arguments
-    results_path = None  # Set to specific path if desired
-    # results_path = Path(__file__).resolve().parent.parent.parent / "results" / "opt_Sq3_GKP_20260205T154126Z"  # Set to specific path if desired
-    results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1\cat\opt_Sq3_SqCat_20260206T190432Z")
-    run_selection = "latest" # "best", "latest", or a run number string like "5"
-    params_json_path = None # Optional: Path to JSON file containing parameter vector (overrides results)
-    # params_json_path =  Path(__file__).resolve().parent.parent.parent / "results" / "manual" / "optimized_params.json"
-    branch_index = 0  # Index of branch to visualize from best_result['branches']
-    measurement = "0,4"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
-    cutoff = 30  # Cutoff dimension for visualization
-    recalc_statistics = True # If True, will print the full branch table and aggregated targets
-    FORCE_BEAM_SEARCH = False # If True, ignores stored fixed patterns and re-runs Beam Search
-    SAVE_ALL_FIXED_PATTERNS = True # If True, generates and saves Wigner plots for all fixed patterns
-    
-    LOSS_TRANSMISSIVITY = 1 # Set < 1.0 to enable Density Matrix simulation with loss
-    USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
-
-    all_results_path = windows_to_wsl_path(r"E:\Quantum\reports\paper\results1")
-    loss_results_path= windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\loss2")
-    visualize_results_path= windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize")
-    # generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=30)
-    # evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=30, high_cutoff=50)
-    save_density_matrices_for_all_opt_folders(visualize_results_path, circuit_module, cutoff=30)
-    # evaluate_loss_influence(loss_results_path, circuit_module)
-
-    # Find results directory
-    base = Path(__file__).resolve().parent.parent.parent / "results"
-    
-    if results_path:
-        results_dir = Path(results_path)
-    else:
-        results_dir = _find_latest_results_dir(base)
-    
-    if results_dir is None or not results_dir.exists():
-        print(f"No results directory found at {base}. Run the optimization first and make sure results exist.")
-        return
-    
-    print(f"Using results dir: {results_dir}")
-    
-    best = load_optimization_run(results_dir, selection=run_selection)
-
-    if not best:
-        return
-
-    # Extract Results
-    best_res = best.get('best_res', {})
-    
-    # Avoid using 'or' with numpy arrays (truth value is ambiguous).
-    flat_x = best.get('x')
-    if flat_x is None:
-        flat_x = best_res.get('x')
-
-    # Optional: Override parameters from JSON file
-    if params_json_path:
-        print(f"Attempting to load parameters from JSON: {params_json_path}")
-        json_x = load_params_from_json(params_json_path)
-        if json_x is not None:
-            print(f"Successfully loaded {len(json_x)} parameters from JSON. Overriding result parameters.")
-            flat_x = json_x
-    
-    if flat_x is None:
-        print("Could not find flat parameter vector (best_x) and no JSON parameters provided.")
-        return
-
-    # -------------------------------------------------------------------------
-    # 0. Reconstruct Experiment from Configs (The "Recipe")
-    # -------------------------------------------------------------------------
-    circuit_config = best_res.get('circuit_config')
-    target_configs = best_res.get('target_configs')
-
-    # === APPLY SANITIZER HERE ===
-    circuit_config = sanitize_config_paths(circuit_config)
-    target_configs = sanitize_config_paths(target_configs)
-    # ============================
-
-    # csv_path_abs = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
-    # target_configs = [
-    #     {'class_name': 'CoreGKPTarget', 'params': {'csv_path': str(csv_path_abs), 'n_max': n, 'delta_db': 10, 'mu': m}}
-    #     # for n in [8, 12] for m in [0]
-    #     for n in [4, 6, 8, 10, 12] for m in [0]
-    # ]
+def parse_measurement_string(measurement_str: str) -> tuple | None:
+    """
+    Parses measurement string into per-step outcome tuples.
+    Example: "0,4" -> ((0, 4),)
+             "3,1;2,0" -> ((3, 1), (2, 0))
+    """
+    if not measurement_str:
+        return None
+    try:
+        steps_raw = measurement_str.split(";")
+        parsed = []
+        for s in steps_raw:
+            parts = [int(x.strip()) for x in s.split(",") if x.strip() != ""]
+            parsed.append(tuple(parts))
+        return tuple(parsed)
+    except Exception as e:
+        print(f"Error parsing measurement string '{measurement_str}': {e}")
+        return None
 
 
-    # Inject Loss Parameter if configured
-    if circuit_config and 'params' in circuit_config:
-        circuit_config['params']['loss_transmissivity'] = LOSS_TRANSMISSIVITY
-
-    print_config_info(circuit_config, target_configs)
-
-    if not circuit_config:
-        print("Error: Result file does not contain 'circuit_config'. Cannot reconstruct circuit.")
-        return
-
-    print(f"Reconstructing Circuit: {circuit_config.get('class_name')}...")
-    circuit = create_from_config(circuit_config, circuit_module)
-    
-    targets = []
-    if target_configs:
-        print(f"Reconstructing {len(target_configs)} Targets...")
-        targets = [create_from_config(cfg, target_module) for cfg in target_configs]
-    else:
-        print("Warning: No 'target_configs' found in result. Target analysis will be limited.")
-
-    # Generate display names for targets
+def get_target_display_names(targets: list) -> list[str]:
+    """Generates display names for target generators."""
     target_names = []
     for t in targets:
         if isinstance(t, CoreGKPTarget):
@@ -1928,104 +1845,168 @@ def main():
         elif isinstance(t, BinomialCodeTarget):
             target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
         else:
-            target_names.append(f"Target")
+            target_names.append("Target")
+    return target_names
 
-    # -------------------------------------------------------------------------
-    # 0. Print Optimized Parameters Schedule
-    # -------------------------------------------------------------------------
-    print_optimized_parameters(circuit, flat_x, best.get('mapped_params'))
 
-    # -------------------------------------------------------------------------
-    # 1. Print Full Statistics (Requested Feature)
-    # -------------------------------------------------------------------------
-    if recalc_statistics:
-        print("\n=== Optimization Statistics ===")
+def resolve_results_dir(results_path: str | Path | None = None) -> Path | None:
+    """Resolves results directory path or finds the latest results folder."""
+    base = Path(__file__).resolve().parent.parent.parent / "results"
+    
+    if results_path:
+        results_dir = Path(results_path)
+    else:
+        results_dir = _find_latest_results_dir(base)
+    
+    if results_dir is None or not results_dir.exists():
+        print(f"No results directory found at {base}. Run the optimization first and make sure results exist.")
+        return None
         
-        # If we have targets defined and want to re-run to ensure we capture all branches 
-        # (e.g. if we want to change beam width), we can use get_all_optimization_results.
-        # Otherwise, we use the stored results.
+    return results_dir
+
+
+def load_experiment_and_params(
+    results_dir: Path, 
+    run_selection: str = "latest", 
+    params_json_path: str | Path | None = None, 
+    loss_transmissivity: float = 1.0
+):
+    """
+    Loads optimization run data, resolves parameter vectors (with optional JSON override),
+    sanitizes configuration paths, and reconstructs the circuit and target instances.
+    """
+    best = load_optimization_run(results_dir, selection=run_selection)
+    if not best:
+        return None
+
+    best_res = best.get('best_res', {})
+    
+    flat_x = best.get('x')
+    if flat_x is None:
+        flat_x = best_res.get('x')
+
+    if params_json_path:
+        print(f"Attempting to load parameters from JSON: {params_json_path}")
+        json_x = load_params_from_json(params_json_path)
+        if json_x is not None:
+            print(f"Successfully loaded {len(json_x)} parameters from JSON. Overriding result parameters.")
+            flat_x = json_x
+    
+    if flat_x is None:
+        print("Could not find flat parameter vector (best_x) and no JSON parameters provided.")
+        return None
+
+    circuit_config = best_res.get('circuit_config')
+    target_configs = best_res.get('target_configs')
+
+    circuit_config = sanitize_config_paths(circuit_config)
+    target_configs = sanitize_config_paths(target_configs)
+
+    if circuit_config and 'params' in circuit_config:
+        circuit_config['params']['loss_transmissivity'] = loss_transmissivity
+
+    print_config_info(circuit_config, target_configs)
+
+    if not circuit_config:
+        print("Error: Result file does not contain 'circuit_config'. Cannot reconstruct circuit.")
+        return None
+
+    print(f"Reconstructing Circuit: {circuit_config.get('class_name')}...")
+    circuit = create_from_config(circuit_config, circuit_module)
+    
+    targets = []
+    if target_configs:
+        print(f"Reconstructing {len(target_configs)} Targets...")
+        targets = [create_from_config(cfg, target_module) for cfg in target_configs]
+    else:
+        print("Warning: No 'target_configs' found in result. Target analysis will be limited.")
+
+    target_names = get_target_display_names(targets)
+
+    return circuit, targets, target_names, flat_x, best_res
+
+
+def evaluate_and_print_run_statistics(
+    best_res: dict,
+    flat_x: np.ndarray,
+    circuit: TimeMultiplexedCircuit,
+    targets: list,
+    target_names: list,
+    cutoff: int = 30,
+    force_beam_search: bool = False,
+    use_dm_eval: bool = False,
+    loss_transmissivity: float = 1.0
+):
+    """Re-evaluates circuit and displays branch statistics and probabilities."""
+    print("\n=== Optimization Statistics ===")
+    
+    result_to_analyze = best_res
+    
+    if targets:
+        print("Re-evaluating circuit to ensure fresh branch data...")
         
-        result_to_analyze = best_res
+        stored_patterns = best_res.get('measurement_patterns')
+        eval_patterns = None
         
-        if targets:
-            print("Re-evaluating circuit to ensure fresh branch data...")
-            
-            # Determine evaluation mode (Fixed Patterns vs Beam Search)
-            stored_patterns = best_res.get('measurement_patterns')
+        if not force_beam_search and stored_patterns is not None:
+            print(" -> Using Original Fixed Patterns for analysis.")
+            eval_patterns = stored_patterns
+        else:
+            print(" -> Using Beam Search (Width=100) for analysis.")
             eval_patterns = None
-            
-            if not FORCE_BEAM_SEARCH and stored_patterns is not None:
-                print(" -> Using Original Fixed Patterns for analysis.")
-                eval_patterns = stored_patterns
-            else:
-                print(f" -> Using Beam Search (Width=100) for analysis.")
-                eval_patterns = None
 
-            if USE_DM_EVAL:
-                print(f"Evaluating with Density Matrices (Loss T={LOSS_TRANSMISSIVITY})...")
-                target_kets = [t.get_target_ket(cutoff) for t in targets]
-                result_to_analyze = evaluate_time_domain_circuit_dm(
-                    np.asarray(flat_x),
-                    circuit,
-                    target_kets,
-                    cutoff,
-                    beam_width=100,
-                    penalty_strength=0.0,
-                    prob_power=1.0,
-                    measurement_patterns=eval_patterns
-                )
-            else:
-                # Example: re-run with potentially higher beam width
-                result_to_analyze = get_all_optimization_results(
-                    circuit, np.asarray(flat_x), targets, cutoff, beam_width=100, measurement_patterns=eval_patterns
-                )
-        
-        if result_to_analyze:
-            print_optimization_statistics(
-                result_to_analyze, 
-                success_threshold=1 - 2e-2, 
-                target_names=target_names if target_names else None
+        if use_dm_eval:
+            print(f"Evaluating with Density Matrices (Loss T={loss_transmissivity})...")
+            target_kets = [t.get_target_ket(cutoff) for t in targets]
+            result_to_analyze = evaluate_time_domain_circuit_dm(
+                np.asarray(flat_x),
+                circuit,
+                target_kets,
+                cutoff,
+                beam_width=100,
+                penalty_strength=0.0,
+                prob_power=1.0,
+                measurement_patterns=eval_patterns
             )
         else:
-            print("No result dictionary available to analyze.")
-            
-    # -------------------------------------------------------------------------
-    # 2. Save all fixed patterns Wigners and Rotation Reports (If enabled)
-    # -------------------------------------------------------------------------
-    if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
-        stored_patterns = best_res.get('measurement_patterns')
-        if stored_patterns is not None:
-            save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
-            if targets:
-                evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
-        else:
-            print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
+            result_to_analyze = get_all_optimization_results(
+                circuit, np.asarray(flat_x), targets, cutoff, beam_width=100, measurement_patterns=eval_patterns
+            )
+    
+    if result_to_analyze:
+        print_optimization_statistics(
+            result_to_analyze, 
+            success_threshold=1 - 2e-2, 
+            target_names=target_names if target_names else None
+        )
+    else:
+        print("No result dictionary available to analyze.")
 
-    # -------------------------------------------------------------------------
-    # 3. Visualize Specific Outcome
-    # -------------------------------------------------------------------------
-    if USE_DM_EVAL:
+
+def evaluate_single_branch(
+    circuit: TimeMultiplexedCircuit,
+    flat_x: np.ndarray,
+    best_res: dict,
+    results_dir: Path,
+    measurement: str | None = None,
+    branch_index: int = 0,
+    cutoff: int = 30,
+    use_dm_eval: bool = False
+):
+    """Evaluates a single measurement branch path and saves its density matrix state."""
+    if use_dm_eval:
         print("\n=== Single Branch Visualization ===")
         print("Skipping visualization: Wigner plotting for Mixed States (Density Matrices) is not yet implemented in this script.")
         return
 
     print("\n=== Single Branch Visualization ===")
 
-    # Determine measurement outcomes to evaluate
     measurement_outcomes = None
     if measurement:
-        # parse formats like "3,1" or "3,1;2,0" (semicolon between steps)
-        steps_raw = measurement.split(";")
-        parsed = []
-        for s in steps_raw:
-            parts = [int(x.strip()) for x in s.split(",") if x.strip() != ""]
-            parsed.append(tuple(parts))
-        measurement_outcomes = tuple(parsed)
+        measurement_outcomes = parse_measurement_string(measurement)
     else:
-        # try to pick a branch outcome from best_result
         if best_res and 'branches' in best_res and len(best_res['branches']) > 0:
             branches = best_res['branches']
-            # Sort so branch_index 0 is the highest prob one
             branches.sort(key=lambda x: x['prob'], reverse=True)
             
             idx = min(branch_index, len(branches) - 1)
@@ -2047,35 +2028,24 @@ def main():
         return
 
     print(f"Evaluating measurement outcomes (per step): {measurement_outcomes}")
-    # Run deterministic path
     res = run_deterministic_path(circuit, np.asarray(flat_x), measurement_outcomes, cutoff)
     if res is None:
         print("The specified measurement path is not physically possible (zero probability).")
         return
 
     print(f"Final probability: {res['final_probability']:.6e}")
-    ket = res['final_state_ket']
-    # print("Final ket (truncated):")
-    # print(ket[:min(len(ket), 20)])
-
-    # --- SAVE DENSITY MATRIX FOR PLOTTING ---
-    print("\nSaving density matrix...")
     
-    # Convert ket to DM if necessary
+    print("\nSaving density matrix...")
+    dm = None
     if 'final_state_ket' in res:
         ket = res['final_state_ket']
-        # Outer product |psi><psi|
         dm = np.outer(ket, np.conj(ket))
     elif 'final_state_dm' in res:
         dm = res['final_state_dm']
     else:
-        # Fallback if manual DM evaluation was run
-        dm = None
         print("No final state found to save.")
 
     if dm is not None:
-        # Create a filename based on the measurement outcomes
-        # flattens ((1,), (3,)) -> "1_3" or ((1,3),) -> "1_3"
         flat_outcomes = []
         for step_out in measurement_outcomes:
             flat_outcomes.extend(step_out)
@@ -2086,13 +2056,102 @@ def main():
         save_path = results_dir / filename
         np.save(save_path, dm)
         print(f"Density matrix saved to: {save_path}")
-        print(f"Run this script again with different measurements to generate comparison files.")
+        print("Run this script again with different measurements to generate comparison files.")
 
-    # Visualize
-    # plot_ket_wigner(ket, title=f"postselect {measurement_outcomes}", cutoff_dim=cutoff)
+
+def run_batch_operations(batch_config: dict, cutoff: int = 30):
+    """Runs optional batch evaluation tasks across multiple result directories."""
+    if batch_config.get("all_results_path"):
+        generate_wigners_for_all_opt_folders(batch_config["all_results_path"], circuit_module, cutoff=cutoff)
+        evaluate_cutoff_fidelity(batch_config["all_results_path"], circuit_module, low_cutoff=cutoff, high_cutoff=50)
+
+    if batch_config.get("visualize_results_path"):
+        save_density_matrices_for_all_opt_folders(batch_config["visualize_results_path"], circuit_module, cutoff=cutoff)
+
+    if batch_config.get("loss_results_path"):
+        evaluate_loss_influence(batch_config["loss_results_path"], circuit_module)
+
+
+def main():
+    # Configuration - set these variables directly instead of using command-line arguments
+    results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1\cat\opt_Sq3_SqCat_20260206T190432Z")
+    run_selection = "latest"  # "best", "latest", or a run number string like "5"
+    params_json_path = None  # Optional: Path to JSON file containing parameter vector
+    branch_index = 0  # Index of branch to visualize from best_result['branches']
+    measurement = "0,4"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
+    cutoff = 30  # Cutoff dimension for visualization
+    recalc_statistics = True  # If True, will print the full branch table and aggregated targets
+    FORCE_BEAM_SEARCH = False  # If True, ignores stored fixed patterns and re-runs Beam Search
+    SAVE_ALL_FIXED_PATTERNS = True  # If True, generates and saves Wigner plots for all fixed patterns
     
-    # Save High Quality Plot
-    # plot_wigner_print_quality(ket, filename="optimized_state_hq.png", title=f"Outcome {measurement_outcomes}", cutoff_dim=cutoff)
+    LOSS_TRANSMISSIVITY = 1.0  # Set < 1.0 to enable Density Matrix simulation with loss
+    USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
+
+    # Batch Operations Configuration (Optional)
+    batch_config = {
+        "visualize_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize"),
+        # "all_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1"),
+        # "loss_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\loss2"),
+    }
+    run_batch_operations(batch_config, cutoff=cutoff)
+
+    # 1. Resolve results directory
+    results_dir = resolve_results_dir(results_path)
+    if not results_dir:
+        return
+
+    print(f"Using results dir: {results_dir}")
+
+    # 2. Load experiment configuration, parameters, circuit, and targets
+    exp_data = load_experiment_and_params(
+        results_dir, 
+        run_selection=run_selection, 
+        params_json_path=params_json_path, 
+        loss_transmissivity=LOSS_TRANSMISSIVITY
+    )
+    if not exp_data:
+        return
+
+    circuit, targets, target_names, flat_x, best_res = exp_data
+
+    # 3. Print Optimized Parameters Schedule
+    print_optimized_parameters(circuit, flat_x, best_res.get('mapped_params'))
+
+    # 4. Analyze & Print Optimization Statistics
+    if recalc_statistics:
+        evaluate_and_print_run_statistics(
+            best_res=best_res,
+            flat_x=flat_x,
+            circuit=circuit,
+            targets=targets,
+            target_names=target_names,
+            cutoff=cutoff,
+            force_beam_search=FORCE_BEAM_SEARCH,
+            use_dm_eval=USE_DM_EVAL,
+            loss_transmissivity=LOSS_TRANSMISSIVITY
+        )
+
+    # 5. Save All Fixed Patterns Wigners and Rotation Reports
+    if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
+        stored_patterns = best_res.get('measurement_patterns')
+        if stored_patterns is not None:
+            save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
+            if targets:
+                evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
+        else:
+            print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
+
+    # 6. Evaluate and Visualize Specific Single Branch Outcome
+    evaluate_single_branch(
+        circuit=circuit,
+        flat_x=flat_x,
+        best_res=best_res,
+        results_dir=results_dir,
+        measurement=measurement,
+        branch_index=branch_index,
+        cutoff=cutoff,
+        use_dm_eval=USE_DM_EVAL
+    )
 
 if __name__ == "__main__":
     main()
