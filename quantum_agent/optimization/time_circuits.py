@@ -19,14 +19,11 @@ class BaseTimeDomainGadget(TimeMultiplexedCircuit):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 train_initial_state: bool = False, initial_r: float = 0.0,
                  initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(steps, time_invariant)
         self.clip_size = clip_size
         self.measure_fock_cutoff = measure_fock_cutoff
         self.num_single_photon = num_single_photon
-        self.train_initial_state = train_initial_state
-        self.initial_r = initial_r
         self.initial_fock_one = initial_fock_one
         self.loss_transmissivity = loss_transmissivity
         
@@ -46,20 +43,15 @@ class BaseTimeDomainGadget(TimeMultiplexedCircuit):
 
     @property
     def num_initial_parameters(self) -> int:
-        return 2 if self.train_initial_state else 0
+        return 2
 
     @property
     def initial_parameter_bounds(self) -> list[tuple[float, float]]:
-        if self.train_initial_state:
-            return [(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)]
-        return []
+        return [(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)]
 
     def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
         """Generates the starting state for the loop mode (Mode 0)."""
-        if self.train_initial_state:
-            r, phi = init_params[0], init_params[1]
-        else:
-            r, phi = self.initial_r, 0.0
+        r, phi = init_params[0], init_params[1]
 
         if abs(r) < 1e-6 and not self.initial_fock_one:
             ket = np.zeros(cutoff_dim, dtype=np.complex128)
@@ -91,12 +83,10 @@ class TwoModeTimeDomainGadget(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 train_initial_state: bool = False, initial_r: float = 0.0,
                  initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            train_initial_state=train_initial_state, initial_r=initial_r,
             initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
         )
         
@@ -106,8 +96,7 @@ class TwoModeTimeDomainGadget(BaseTimeDomainGadget):
             'bs_theta', 'bs_phi'
         ]
 
-        if self.train_initial_state:
-            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
+        self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = [
             (-self.clip_size, self.clip_size),  # sq_r
@@ -151,12 +140,10 @@ class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 train_initial_state: bool = False, initial_r: float = 0.0,
                  initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            train_initial_state=train_initial_state, initial_r=initial_r,
             initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
         )
         
@@ -165,8 +152,7 @@ class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
             'bs_theta', 'bs_phi'
         ]
 
-        if self.train_initial_state:
-            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
+        self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = [
             (-self.clip_size, self.clip_size),  # sq_r
@@ -208,12 +194,10 @@ class ThreeModeTimeDomainGadget(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 train_initial_state: bool = False, initial_r: float = 0.0,
                  initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            train_initial_state=train_initial_state, initial_r=initial_r,
             initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
         )
         
@@ -227,8 +211,7 @@ class ThreeModeTimeDomainGadget(BaseTimeDomainGadget):
             'bs_theta3', 'bs_phi3'
         ]
 
-        if self.train_initial_state:
-            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
+        self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = []
         self._bounds.extend([(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)] * 2)
@@ -285,12 +268,10 @@ class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 train_initial_state: bool = False, initial_r: float = 0.0,
                  initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            train_initial_state=train_initial_state, initial_r=initial_r,
             initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
         )
         
@@ -301,8 +282,7 @@ class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
             'bs_phi1', 'bs_phi2', 'bs_phi3'
         ]
 
-        if self.train_initial_state:
-            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
+        self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = []
         self._bounds.extend([(-self.clip_size, self.clip_size)] * 2)
@@ -353,12 +333,10 @@ class FourModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
 
     def __init__(self, steps: int, time_invariant: bool = False, clip_size: float = 2.0, 
                  measure_fock_cutoff: int = 5, num_single_photon: int = 0,
-                 train_initial_state: bool = False, initial_r: float = 0.0,
                  initial_fock_one: bool = False, loss_transmissivity: float = 1.0):
         super().__init__(
             steps=steps, time_invariant=time_invariant, clip_size=clip_size,
             measure_fock_cutoff=measure_fock_cutoff, num_single_photon=num_single_photon,
-            train_initial_state=train_initial_state, initial_r=initial_r,
             initial_fock_one=initial_fock_one, loss_transmissivity=loss_transmissivity
         )
         
@@ -371,8 +349,7 @@ class FourModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
             'bs_phi4', 'bs_phi5', 'bs_phi6'
         ]
 
-        if self.train_initial_state:
-            self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
+        self._param_names = ['init_sq_r', 'init_sq_phi'] + self._param_names
         
         self._bounds = []
         self._bounds.extend([(-self.clip_size, self.clip_size)] * 3)

@@ -322,12 +322,8 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         Loss value or dict (if return_details=True)
     """
     n_init = circuit.num_initial_parameters
-    if n_init > 0:
-        init_params = flat_params[:n_init]
-        step_params = flat_params[n_init:]
-    else:
-        init_params = np.array([])
-        step_params = flat_params
+    init_params = flat_params[:n_init]
+    step_params = flat_params[n_init:]
 
     mapped_params = circuit.map_parameters(step_params)
     meas_specs = circuit.get_measurement_specs()
