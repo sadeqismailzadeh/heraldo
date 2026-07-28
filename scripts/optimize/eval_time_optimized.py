@@ -16,13 +16,13 @@ import strawberryfields as sf
 from strawberryfields.ops import DensityMatrix, Ket
 
 import heraldo.components.targets as target_module
-import heraldo.optimization.circuits as circuit_module
+import heraldo.components.circuits as circuit_module
 from heraldo.components.targets import (
     BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, SqueezedCatTarget
 )
 from heraldo.factory import create_from_config
-from heraldo.optimization.interfaces import TimeMultiplexedCircuit
-from heraldo.optimization.runner import evaluate_time_domain_circuit
+from heraldo.components.interfaces import TimeMultiplexedCircuit
+from heraldo.components.runner import evaluate_time_domain_circuit
 from heraldo.utils import (
     compute_ng_scores, db_to_r, fidelity_max_rotation, fidelity_pure_state, windows_to_wsl_path
 )

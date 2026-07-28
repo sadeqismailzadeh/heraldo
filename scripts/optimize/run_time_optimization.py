@@ -24,10 +24,10 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
 
-import heraldo.optimization.circuits as circuit_module
+import heraldo.components.circuits as circuit_module
 import heraldo.components.targets as target_module
-from heraldo.optimization.interfaces import TimeMultiplexedCircuit
-from heraldo.optimization.runner import BasinHoppingRunner
+from heraldo.components.interfaces import TimeMultiplexedCircuit
+from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.targets import (
     TargetGenerator, CoreGKPTarget, SqueezedCatTarget, CatTarget,
     BinomialCodeTarget, CubicPhaseTarget, TrisqueezedTarget, QuadsqueezedTarget
