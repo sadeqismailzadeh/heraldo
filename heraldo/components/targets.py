@@ -16,7 +16,6 @@ import abc
 import numpy as np
 import strawberryfields as sf
 from strawberryfields.ops import Sgate, Dgate, Vgate, Catstate, Ket
-import qutip as qt
 from scipy.special import factorial, comb
 import pandas as pd
 
@@ -289,88 +288,3 @@ class BinomialCodeTarget(TargetGenerator):
         return target_ket
 
 
-
-class TrisqueezedTarget(TargetGenerator):
-    """
-    Generates Trisqueezed state (n=3 generalized squeezing).
-    Based on Eq. 2 of 'Squeezing, trisqueezing, and quadsqueezing in a spin-oscillator system'.
-    
-    H_NL ~ (a^3 e^{-i\theta} + a^{\dagger 3} e^{i\theta})
-    U = exp(-i * (r/2) * H_NL)
-    
-    Parameters:
-    - r: Squeezing parameter (strength) (Default 0.19 from paper)
-    - theta: Phase of the interaction
-    """
-    def __init__(self, r=0.19, theta=0.0):
-        self.r = r
-        self.theta = theta
-
-    def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
-        print(f"Generating Trisqueezed Target (r={self.r}, theta={self.theta}, N={cutoff_dim})...")
-        
-        # Construct operators using QuTiP
-        a = qt.destroy(cutoff_dim)
-        a_dag = a.dag()
-        
-        # Hamiltonian term from Eq 2: (a^n e^{-i\theta} + a^{\dagger n} e^{i\theta})
-        # The paper defines r = Omega_n * t. The Hamiltonian has Omega_n / 2.
-        # So effective exponent is -i * (r/2) * (...)
-        op = a**3 * np.exp(-1j * self.theta) + a_dag**3 * np.exp(1j * self.theta)
-        
-        # Unitary evolution U = exp(-i H t)
-        U = (-1j * (self.r / 2.0) * op).expm()
-        
-        # Initial state |0>
-        vac = qt.basis(cutoff_dim, 0)
-        
-        # Apply U
-        target_qobj = U * vac
-        
-        # Convert to numpy and normalize
-        target_np = target_qobj.full().flatten()
-        target_np /= np.linalg.norm(target_np)
-        
-        return target_np
-
-
-class QuadsqueezedTarget(TargetGenerator):
-    """
-    Generates Quadsqueezed state (n=4 generalized squeezing).
-    Based on Eq. 2 of 'Squeezing, trisqueezing, and quadsqueezing in a spin-oscillator system'.
-    
-    H_NL ~ (a^4 e^{-i\theta} + a^{\dagger 4} e^{i\theta})
-    U = exp(-i * (r/2) * H_NL)
-    
-    Parameters:
-    - r: Squeezing parameter (strength) (Default 0.054 from paper)
-    - theta: Phase of the interaction
-    """
-    def __init__(self, r=0.054, theta=0.0):
-        self.r = r
-        self.theta = theta
-
-    def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
-        print(f"Generating Quadsqueezed Target (r={self.r}, theta={self.theta}, N={cutoff_dim})...")
-        
-        # Construct operators using QuTiP
-        a = qt.destroy(cutoff_dim)
-        a_dag = a.dag()
-        
-        # Hamiltonian term
-        op = a**4 * np.exp(-1j * self.theta) + a_dag**4 * np.exp(1j * self.theta)
-        
-        # Unitary evolution
-        U = (-1j * (self.r / 2.0) * op).expm()
-        
-        # Initial state |0>
-        vac = qt.basis(cutoff_dim, 0)
-        
-        # Apply U
-        target_qobj = U * vac
-        
-        # Convert to numpy and normalize
-        target_np = target_qobj.full().flatten()
-        target_np /= np.linalg.norm(target_np)
-        
-        return target_np
