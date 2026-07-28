@@ -9,6 +9,7 @@ import pickle
 import platform
 import re
 
+import quantum_agent
 import matplotlib.pyplot as plt
 import numpy as np
 import strawberryfields as sf
@@ -991,6 +992,58 @@ def compute_angular_range(angles_deg):
     return 360.0 - max_gap
 
 
+def _compute_ket_target_fidelities(ket, target_kets, n_fft=256):
+    """Computes max fidelity over phase and targets using FFT."""
+    prod = np.conj(ket) * np.array(target_kets)
+    fft_vals = np.fft.fft(prod, n=n_fft, axis=-1)
+    fidelities = np.abs(fft_vals)**2
+    max_fid_per_target = np.max(fidelities, axis=-1)
+    best_t_idx = int(np.argmax(max_fid_per_target))
+    best_fid = float(max_fid_per_target[best_t_idx])
+    best_k = int(np.argmax(fidelities[best_t_idx]))
+    return best_fid, best_t_idx, best_k, fidelities
+
+
+def _iter_opt_folders(results_base_dir: Path, circuit_module, require_targets: bool = False):
+    """
+    Generator yielding (results_dir, circuit, targets, flat_x, stored_patterns, best_res)
+    for all valid opt_* and job_* directories under results_base_dir.
+    """
+    base_dir = Path(results_base_dir)
+    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
+    if not opt_folders:
+        print(f"No 'opt_' or 'job_' folders found in {base_dir}")
+        return
+
+    for results_dir in opt_folders:
+        try:
+            best = load_optimization_run(results_dir, selection="best")
+            if not best:
+                continue
+            best_res = best.get('best_res', {})
+            stored_patterns = best_res.get('measurement_patterns')
+            flat_x = best.get('x', best_res.get('x'))
+            if flat_x is None:
+                continue
+
+            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
+            if not circuit_config:
+                continue
+            circuit = create_from_config(circuit_config, circuit_module)
+
+            target_configs = sanitize_config_paths(best_res.get('target_configs'))
+            targets = []
+            if target_configs:
+                targets = [create_from_config(cfg, target_module) for cfg in target_configs]
+
+            if require_targets and not targets:
+                continue
+
+            yield results_dir, circuit, targets, flat_x, stored_patterns, best_res
+        except Exception as e:
+            print(f"  [Error] Failed to process {results_dir.name}: {e}")
+
+
 def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets, cutoff, results_dir):
     """
     Evaluates the optimal rotation angle for fixed measurement patterns with respect to the best target.
@@ -1005,26 +1058,27 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
     target_kets = [t.get_target_ket(cutoff) for t in targets]
     target_names = get_target_display_names(targets)
             
-    report_lines = []
-    report_lines.append(f"{'Pattern':<20} | {'Prob':<10} | {'Best Target':<15} | {'Fidelity':<10} | {'Angle (rad)':<12} | {'Angle (deg)':<12}")
-    report_lines.append("-" * 92)
+    report_lines = [
+        f"{'Pattern':<20} | {'Prob':<10} | {'Best Target':<15} | {'Fidelity':<10} | {'Angle (rad)':<12} | {'Angle (deg)':<12}",
+        "-" * 92
+    ]
 
-    ket_report_lines = []
-    ket_report_lines.append("==================================================")
-    ket_report_lines.append(" RAW STATE KET REPORT")
-    ket_report_lines.append("==================================================")
-    ket_report_lines.append("")
+    ket_report_lines = [
+        "==================================================",
+        " RAW STATE KET REPORT",
+        "==================================================",
+        ""
+    ]
 
     n_fft = 256
     valid_count = 0
-
     all_angles = []
     target_angles = {}
 
     for i, pattern in enumerate(measurement_patterns):
         try:
             reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
-        except Exception as e:
+        except Exception:
             continue
             
         res = run_deterministic_path(circuit, flat_x, reshaped_pattern, cutoff)
@@ -1033,32 +1087,15 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
             
         ket = res['final_state_ket']
         prob = res['final_probability']
-        
         pattern_str = _outcome_to_str(reshaped_pattern)
         
-        # --- Append to Ket Report ---
         ket_report_lines.append(f"Pattern: {pattern_str} (Prob: {prob:.4e})")
         ket_report_lines.append("-" * 50)
         for n, amp in enumerate(ket):
-            # Pretty print with 3 decimal accuracy: e.g. "  | 0> :  0.400 +0.000j"
             ket_report_lines.append(f"  |{n:>2}> : {amp.real:>6.3f} {amp.imag:>+6.3f}j")
         ket_report_lines.append("\n")
         
-        # Compute FFT fidelity
-        # prod shape: (N_targets, D)
-        prod = np.conj(ket) * np.array(target_kets)
-        fft_vals = np.fft.fft(prod, n=n_fft, axis=-1)
-        fidelities = np.abs(fft_vals)**2
-        
-        # Max fidelity over phase for each target
-        max_fid_per_target = np.max(fidelities, axis=-1)
-        
-        # Best target
-        best_t_idx = int(np.argmax(max_fid_per_target))
-        best_fid = float(max_fid_per_target[best_t_idx])
-        
-        # Optimal angle index
-        best_k = int(np.argmax(fidelities[best_t_idx]))
+        best_fid, best_t_idx, best_k, _ = _compute_ket_target_fidelities(ket, target_kets, n_fft=n_fft)
         
         angle_rad = 2 * np.pi * best_k / n_fft
         if angle_rad > np.pi:
@@ -1069,20 +1106,19 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
         
         report_lines.append(f"{pattern_str:<20} | {prob:<10.2e} | {t_name:<15} | {best_fid:<10.4f} | {angle_rad:<12.4f} | {angle_deg:<12.1f}")
         all_angles.append(angle_deg)
-        if best_t_idx not in target_angles:
-            target_angles[best_t_idx] = []
-        target_angles[best_t_idx].append(angle_deg)
+        target_angles.setdefault(best_t_idx, []).append(angle_deg)
         valid_count += 1
 
     if valid_count > 0:
         overall_range = compute_angular_range(all_angles)
 
-        summary_lines = []
-        summary_lines.append("")
-        summary_lines.append("=" * 92)
-        summary_lines.append(" ROTATION RANGE SUMMARY")
-        summary_lines.append("=" * 92)
-        summary_lines.append(f"Overall Rotation Range (All Patterns): {overall_range:.2f}° ({np.radians(overall_range):.4f} rad)")
+        summary_lines = [
+            "",
+            "=" * 92,
+            " ROTATION RANGE SUMMARY",
+            "=" * 92,
+            f"Overall Rotation Range (All Patterns): {overall_range:.2f}° ({np.radians(overall_range):.4f} rad)"
+        ]
 
         for idx in sorted(target_angles.keys()):
             t_angs = target_angles[idx]
@@ -1112,77 +1148,13 @@ def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module,
     Iterates through all 'opt_*' and 'job_*' folders in a given base directory and saves
     fixed pattern Wigner figures for each valid optimization result.
     """
-    base_dir = Path(results_base_dir)
-    
-    # Find all folders starting with "opt_" or "job_"
-    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
-    
-    if not opt_folders:
-        print(f"No 'opt_' or 'job_' folders found in {base_dir}")
-        return
-
-    for results_dir in opt_folders:
-        if not results_dir.is_dir():
+    for results_dir, circuit, targets, flat_x, stored_patterns, _ in _iter_opt_folders(results_base_dir, circuit_module):
+        if stored_patterns is None or len(stored_patterns) == 0:
+            print(f"  [Skip] No measurement_patterns found in {results_dir.name}.")
             continue
-            
-        print(f"Processing folder: {results_dir.name}...")
-        
-        try:
-            # 1. Load the best optimization run from the folder (based on lines 770-830)
-            best = load_optimization_run(results_dir, selection="best")
-            best_res = best.get('best_res', {})
-            
-            # 2. Extract the measurement patterns (based on line 1186)
-            stored_patterns = best_res.get('measurement_patterns')
-            if stored_patterns is None:
-                print(f"  [Skip] No measurement_patterns found in {results_dir.name}.")
-                continue
-                
-            # 3. Extract parameters 'x' and ensure it's a numpy array (based on lines 1053-1056, 1188)
-            flat_x = best.get('x')
-            if flat_x is None:
-                flat_x = best_res.get('x')
-                
-            if flat_x is None:
-                print(f"  [Skip] No parameter vector 'x' found in {results_dir.name}.")
-                continue
-                
-            # 4. Reconstruct the circuit and targets from the saved config
-            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
-            target_configs = sanitize_config_paths(best_res.get('target_configs'))
-            
-            # NOTE: make sure `create_from_config` is imported in your script
-            circuit = create_from_config(circuit_config, circuit_module)
-            
-            targets = []
-            if target_configs:
-                targets = [create_from_config(cfg, target_module) for cfg in target_configs]
-            
-            # 5. Save the fixed pattern Wigner figures
-            # save_all_fixed_pattern_wigners(
-            #     circuit=circuit, 
-            #     flat_x=np.asarray(flat_x), 
-            #     measurement_patterns=stored_patterns, 
-            #     cutoff=cutoff, 
-            #     results_dir=results_dir,
-            #     combine_plots=False 
-            # )
-            
-            # 6. Evaluate and report rotations
-            if targets:
-                evaluate_and_report_rotations(
-                    circuit=circuit,
-                    flat_x=np.asarray(flat_x),
-                    measurement_patterns=stored_patterns,
-                    targets=targets,
-                    cutoff=cutoff,
-                    results_dir=results_dir
-                )
-                
-            print(f"  [Success] Processed figures and rotations for {results_dir.name}.")
-            
-        except Exception as e:
-            print(f"  [Error] Failed to process {results_dir.name}: {e}")
+        if targets:
+            evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
+        print(f"  [Success] Processed figures and rotations for {results_dir.name}.")
 
 
 def format_prob(p_val):
@@ -1216,230 +1188,135 @@ def evaluate_loss_influence(results_base_dir: Path, circuit_module):
     for all configurations in the given base directory.
     Outputs a LaTeX table showing the success probability (P) and state fidelity (F).
     """
-    base_dir = Path(results_base_dir)
-    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
-    
-    if not opt_folders:
-        print(f"No 'opt_' or 'job_' folders found in {base_dir} for loss evaluation.")
-        return
-
     print(f"\n=== Starting Loss Influence Evaluation ===")
-    
     collected_data = []
-    
-    for results_dir in opt_folders:
-        if not results_dir.is_dir():
+
+    for results_dir, circuit, targets, flat_x, stored_patterns, best_res in _iter_opt_folders(results_base_dir, circuit_module, require_targets=True):
+        if stored_patterns is None or len(stored_patterns) == 0:
             continue
             
-        try:
-            best = load_optimization_run(results_dir, selection="best")
-            if not best: 
+        circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
+        meas_specs = circuit.get_measurement_specs()
+        meas_modes = [m for m, c in meas_specs]
+        n_modes = max(meas_modes) + 1 if meas_modes else 1
+        
+        cutoff = 15 if n_modes == 3 else 30
+        target_kets = [t.get_target_ket(cutoff) for t in targets]
+        
+        target_names = []
+        for t in targets:
+            if isinstance(t, CoreGKPTarget):
+                target_names.append(f"{{GKP core}} $\\ket{{{t.mu}_{{A{t.n_max}}}}}$" if n_modes == 3 else f"{{GKP core}} $\\mu={t.mu}$")
+            elif isinstance(t, SqueezedCatTarget):
+                target_names.append(f"{{SqCat}} $\\alpha={t.alpha}$")
+            elif isinstance(t, CatTarget):
+                target_names.append(f"{{Cat}} $\\alpha={t.alpha}$")
+            else:
+                target_names.append(f"{{{t.__class__.__name__.replace('Target', '')}}}")
+        
+        strategy = "Multiplex"
+        folder_lower = results_dir.name.lower()
+        if "harvest" in folder_lower:
+            strategy = "Harvest"
+        elif "single" in folder_lower:
+            strategy = "Single"
+
+        runs_results = {}
+        for loss_val in [1.0, 0.99, 0.90]:
+            current_config = copy.deepcopy(circuit_config)
+            current_config.setdefault('params', {})['loss_transmissivity'] = loss_val
+            eval_circuit = create_from_config(current_config, circuit_module)
+            
+            runs_results[loss_val] = evaluate_time_domain_circuit_dm(
+                np.asarray(flat_x), eval_circuit, target_kets, cutoff,
+                beam_width=100, penalty_strength=0.0, prob_power=1.0,
+                measurement_patterns=stored_patterns
+            )
+        
+        branches_ideal = {b['outcome']: b for b in runs_results[1.0]['branches']}
+        branches_1 = {b['outcome']: b for b in runs_results[0.99]['branches']}
+        branches_10 = {b['outcome']: b for b in runs_results[0.90]['branches']}
+        
+        for pattern in stored_patterns:
+            try:
+                reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
+            except Exception:
                 continue
-            best_res = best.get('best_res', {})
             
-            stored_patterns = best_res.get('measurement_patterns')
-            if stored_patterns is None or len(stored_patterns) == 0:
+            b_ideal = branches_ideal.get(reshaped_pattern)
+            if not b_ideal:
                 continue
-                
-            flat_x = best.get('x')
-            if flat_x is None:
-                flat_x = best_res.get('x')
-            if flat_x is None:
-                continue
-                
-            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
-            if not circuit_config:
-                continue
+            b_1 = branches_1.get(reshaped_pattern)
+            b_10 = branches_10.get(reshaped_pattern)
             
-            # Determine number of modes to set appropriate cutoff
-            temp_circuit = create_from_config(circuit_config, circuit_module)
-            meas_specs = temp_circuit.get_measurement_specs()
-            meas_modes = [m for m, c in meas_specs]
-            n_modes = max(meas_modes) + 1 if meas_modes else 1
+            t_idx = b_ideal.get('target_idx', 0)
+            t_name = target_names[t_idx] if t_idx < len(target_names) else target_names[0]
+            t_obj = targets[t_idx] if t_idx < len(targets) else targets[0]
             
-            # 3-mode circuits run with cutoff 15, 2-mode with 30
-            cutoff = 15 if n_modes == 3 else 30
-            
-            target_configs = sanitize_config_paths(best_res.get('target_configs'))
-            targets = []
-            if target_configs:
-                targets = [create_from_config(cfg, target_module) for cfg in target_configs]
-                
-            if not targets:
-                continue
-            
-            target_kets = [t.get_target_ket(cutoff) for t in targets]
-            
-            # Setup target LaTeX name representation
-            target_names = []
-            for t in targets:
-                if isinstance(t, CoreGKPTarget):
-                    if n_modes == 3:
-                        target_names.append(f"{{GKP core}} $\\ket{{{t.mu}_{{A{t.n_max}}}}}$")
-                    else:
-                        target_names.append(f"{{GKP core}} $\\mu={t.mu}$")
-                elif isinstance(t, SqueezedCatTarget):
-                    target_names.append(f"{{SqCat}} $\\alpha={t.alpha}$")
-                elif isinstance(t, CatTarget):
-                    target_names.append(f"{{Cat}} $\\alpha={t.alpha}$")
-                else:
-                    target_names.append(f"{{{t.__class__.__name__.replace('Target', '')}}}")
-            
-            # Deduce Strategy
-            strategy = "Multiplex"
-            folder_lower = results_dir.name.lower()
-            if "harvest" in folder_lower:
-                strategy = "Harvest"
-            elif "single" in folder_lower:
-                strategy = "Single"
-            elif "multiplex" in folder_lower:
-                strategy = "Multiplex"
-            
-            # Run evaluations across three loss cases
-            loss_cases = [1.0, 0.99, 0.90]
-            runs_results = {}
-            
-            for loss_val in loss_cases:
-                current_config = copy.deepcopy(circuit_config)
-                if 'params' not in current_config:
-                    current_config['params'] = {}
-                current_config['params']['loss_transmissivity'] = loss_val
-                
-                eval_circuit = create_from_config(current_config, circuit_module)
-                
-                res_dm = evaluate_time_domain_circuit_dm(
-                    np.asarray(flat_x),
-                    eval_circuit,
-                    target_kets,
-                    cutoff,
-                    beam_width=100,
-                    penalty_strength=0.0,
-                    prob_power=1.0,
-                    measurement_patterns=stored_patterns
-                )
-                runs_results[loss_val] = res_dm
-            
-            branches_ideal = {b['outcome']: b for b in runs_results[1.0]['branches']}
-            branches_1 = {b['outcome']: b for b in runs_results[0.99]['branches']}
-            branches_10 = {b['outcome']: b for b in runs_results[0.90]['branches']}
-            
-            for pattern in stored_patterns:
-                try:
-                    reshaped_pattern = _reshape_outcome_flat(pattern, temp_circuit)
-                except Exception:
-                    continue
-                
-                b_ideal = branches_ideal.get(reshaped_pattern)
-                b_1 = branches_1.get(reshaped_pattern)
-                b_10 = branches_10.get(reshaped_pattern)
-                
-                if b_ideal is None:
-                    continue
-                    
-                p_ideal = b_ideal['prob']
-                f_ideal = b_ideal['fidelity']
-                
-                p_1 = b_1['prob'] if b_1 else 0.0
-                f_1 = b_1['fidelity'] if b_1 else 0.0
-                
-                p_10 = b_10['prob'] if b_10 else 0.0
-                f_10 = b_10['fidelity'] if b_10 else 0.0
-                
-                t_idx = b_ideal.get('target_idx', 0)
-                t_name = target_names[t_idx] if t_idx < len(target_names) else target_names[0]
-                t_obj = targets[t_idx] if t_idx < len(targets) else targets[0]
-                
-                outcome_latex = format_outcome_latex(reshaped_pattern, t_obj)
-                
-                collected_data.append({
-                    'folder': results_dir.name,
-                    'target': t_name,
-                    'modes': n_modes,
-                    'strategy': strategy,
-                    'outcome_latex': outcome_latex,
-                    'p_ideal': p_ideal,
-                    'f_ideal': f_ideal,
-                    'p_1': p_1,
-                    'f_1': f_1,
-                    'p_10': p_10,
-                    'f_10': f_10
-                })
-                
-        except Exception as e:
-            print(f"  [Error] Failed to process {results_dir.name} for loss evaluation: {e}")
+            collected_data.append({
+                'folder': results_dir.name,
+                'target': t_name,
+                'modes': n_modes,
+                'strategy': strategy,
+                'outcome_latex': format_outcome_latex(reshaped_pattern, t_obj),
+                'p_ideal': b_ideal['prob'],
+                'f_ideal': b_ideal['fidelity'],
+                'p_1': b_1['prob'] if b_1 else 0.0,
+                'f_1': b_1['fidelity'] if b_1 else 0.0,
+                'p_10': b_10['prob'] if b_10 else 0.0,
+                'f_10': b_10['fidelity'] if b_10 else 0.0
+            })
 
     if not collected_data:
         print("No valid data collected to print a loss report.")
         return
         
-    # Group & Sort matching table layout
     def get_sort_key(row):
         target_val = 0 if "GKP" in row['target'] else 1
-        try:
-            nums = [int(s) for s in re.findall(r'\d+', row['outcome_latex'])]
-            out_val = nums[0] if nums else 0
-        except Exception:
-            out_val = 0
+        nums = [int(s) for s in re.findall(r'\d+', row['outcome_latex'])]
+        out_val = nums[0] if nums else 0
         return (row['modes'], target_val, row['target'], row['strategy'], out_val)
         
     collected_data.sort(key=get_sort_key)
     
-    latex_lines = []
-    latex_lines.append("\\begin{table*}[t]")
-    latex_lines.append("\\centering")
-    latex_lines.append("\\caption{Impact of photon loss on the performance of optimized multi-outcome circuits. We compare the success probability ($P$) and state fidelity $\\mathcal{F}$ across three loss conditions: ideal, 1\\% loss, and 10\\% loss. Photon loss is simulated by placing fictitious beam splitters on both the ancillary modes and the heralded output mode prior to detection.}")
-    latex_lines.append("\\label{tab:loss_analysis}")
-    latex_lines.append("\\begin{tabular}{l c l p{2.5cm} c @{\\hspace{1.5em}} c @{\\hspace{3em}} c @{\\hspace{1.5em}} c @{\\hspace{3em}} c @{\\hspace{1.5em}} c}")
-    latex_lines.append("    \\toprule")
-    latex_lines.append("    & & & & \\multicolumn{2}{c}{\\hspace{-1.5em}ideal} & \\multicolumn{2}{c}{\\hspace{-1.5em}1\\% Loss} & \\multicolumn{2}{c}{10\\% Loss} \\\\")
-    latex_lines.append("    \\cmidrule(l{0em}r{2em}){5-6} \\cmidrule(l{0em}r{2em}){7-8} \\cmidrule(l{0em}r{0em}){9-10}")
-    latex_lines.append("    {Target} & {Modes} & {Strategy} & {Outcome} $\\mathbf{n}$ & $P$ & $\\mathcal{F}$ & $P$ & $\\mathcal{F}$ & $P$ & $\\mathcal{F}$ \\\\ ")
-    latex_lines.append("    \\midrule")
+    latex_lines = [
+        "\\begin{table*}[t]",
+        "\\centering",
+        "\\caption{Impact of photon loss on the performance of optimized multi-outcome circuits. We compare the success probability ($P$) and state fidelity $\\mathcal{F}$ across three loss conditions: ideal, 1\\% loss, and 10\\% loss. Photon loss is simulated by placing fictitious beam splitters on both the ancillary modes and the heralded output mode prior to detection.}",
+        "\\label{tab:loss_analysis}",
+        "\\begin{tabular}{l c l p{2.5cm} c @{\\hspace{1.5em}} c @{\\hspace{3em}} c @{\\hspace{1.5em}} c @{\\hspace{3em}} c @{\\hspace{1.5em}} c}",
+        "    \\toprule",
+        "    & & & & \\multicolumn{2}{c}{\\hspace{-1.5em}ideal} & \\multicolumn{2}{c}{\\hspace{-1.5em}1\\% Loss} & \\multicolumn{2}{c}{10\\% Loss} \\\\",
+        "    \\cmidrule(l{0em}r{2em}){5-6} \\cmidrule(l{0em}r{2em}){7-8} \\cmidrule(l{0em}r{0em}){9-10}",
+        "    {Target} & {Modes} & {Strategy} & {Outcome} $\\mathbf{n}$ & $P$ & $\\mathcal{F}$ & $P$ & $\\mathcal{F}$ & $P$ & $\\mathcal{F}$ \\\\ ",
+        "    \\midrule"
+    ]
     
-    prev_target = None
-    prev_modes = None
-    prev_strategy = None
-    
+    prev_target, prev_modes, prev_strategy = None, None, None
     for idx, row in enumerate(collected_data):
-        is_same_target = (row['target'] == prev_target)
-        is_same_modes = (row['modes'] == prev_modes)
-        is_same_strategy = (row['strategy'] == prev_strategy)
-        
-        t_col = row['target'] if (not is_same_target or not is_same_modes or not is_same_strategy) else ""
-        m_col = str(row['modes']) if (not is_same_target or not is_same_modes or not is_same_strategy) else ""
-        s_col = row['strategy'] if (not is_same_target or not is_same_modes or not is_same_strategy) else ""
+        is_same = (row['target'] == prev_target and row['modes'] == prev_modes and row['strategy'] == prev_strategy)
+        t_col = row['target'] if not is_same else ""
+        m_col = str(row['modes']) if not is_same else ""
+        s_col = row['strategy'] if not is_same else ""
         
         if idx > 0:
-            if not is_same_target or not is_same_modes:
+            if row['target'] != prev_target or row['modes'] != prev_modes:
                 latex_lines.append("    \\midrule")
-            elif not is_same_strategy:
+            elif row['strategy'] != prev_strategy:
                 latex_lines.append("    \\addlinespace")
                 
-        p_id_str = format_prob(row['p_ideal'])
-        p_1_str = format_prob(row['p_1'])
-        p_10_str = format_prob(row['p_10'])
-        
-        f_id_str = f"{row['f_ideal']:.2f}"
-        f_1_str = f"{row['f_1']:.2f}"
-        f_10_str = f"{row['f_10']:.2f}"
-        
         latex_lines.append(
             f" {t_col} & {m_col} & {s_col} & {row['outcome_latex']} & "
-            f"{p_id_str} & {f_id_str} & {p_1_str} & {f_1_str} & {p_10_str} & {f_10_str} \\\\"
+            f"{format_prob(row['p_ideal'])} & {row['f_ideal']:.2f} & "
+            f"{format_prob(row['p_1'])} & {row['f_1']:.2f} & "
+            f"{format_prob(row['p_10'])} & {row['f_10']:.2f} \\\\"
         )
+        prev_target, prev_modes, prev_strategy = row['target'], row['modes'], row['strategy']
         
-        prev_target = row['target']
-        prev_modes = row['modes']
-        prev_strategy = row['strategy']
-        
-    latex_lines.append("    \\bottomrule")
-    latex_lines.append("\\end{tabular}")
-    latex_lines.append("\\end{table*}")
-    
+    latex_lines.extend(["    \\bottomrule", "\\end{tabular}", "\\end{table*}"])
     latex_output = "\n".join(latex_lines)
     
-    # Save to file
-    report_path = base_dir / "loss_influence_report.tex"
+    report_path = Path(results_base_dir) / "loss_influence_report.tex"
     with open(report_path, "w") as f:
         f.write(latex_output)
         
@@ -1455,164 +1332,83 @@ def evaluate_cutoff_fidelity(results_base_dir: Path, circuit_module, low_cutoff:
     """
     Evaluates the target fidelity for states generated with low_cutoff and high_cutoff 
     for all fixed measurement patterns across all opt_* and job_* folders.
-    Reports 1-F_30, 1-F_50, absolute/relative truncation deviations, and formatting.
     """
-    base_dir = Path(results_base_dir)
-    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
-    
-    if not opt_folders:
-        print(f"No 'opt_' or 'job_' folders found in {base_dir} for fidelity evaluation.")
-        return
-
     print(f"\n=== Starting Cutoff Fidelity Evaluation ({low_cutoff} vs {high_cutoff}) ===")
     
-    report_lines = []
-    report_lines.append(f"Cutoff Fidelity Report: {low_cutoff} vs {high_cutoff}")
-    report_lines.append("=" * 125)
-    report_lines.append(
+    report_lines = [
+        f"Cutoff Fidelity Report: {low_cutoff} vs {high_cutoff}",
+        "=" * 125,
         f"{'Folder':<40} | {'Pattern':<15} | {'1-F_'+str(low_cutoff):<10} | {'1-F_'+str(high_cutoff):<10} | "
-        f"{'Abs. Error':<10} | {'error / ( 1-F_' + str(low_cutoff) + ')':<18} | {'Log Disc.':<10}"
-    )
-    report_lines.append("-" * 125)
+        f"{'Abs. Error':<10} | {'error / ( 1-F_' + str(low_cutoff) + ')':<18} | {'Log Disc.':<10}",
+        "-" * 125
+    ]
 
-    max_error = -1.0
-    worst_pattern = None
-    worst_folder = None
-    
-    max_rel_dev = -1.0
-    worst_rel_pattern = None
-    worst_rel_folder = None
+    max_error, worst_pattern, worst_folder = -1.0, None, None
+    max_rel_dev, worst_rel_pattern, worst_rel_folder = -1.0, None, None
+    max_log_disc, worst_log_pattern, worst_log_folder = -float('inf'), None, None
 
-    max_log_disc = -float('inf')
-    worst_log_pattern = None
-    worst_log_folder = None
-
-    for results_dir in opt_folders:
-        if not results_dir.is_dir():
+    for results_dir, circuit, targets, flat_x, stored_patterns, _ in _iter_opt_folders(results_base_dir, circuit_module, require_targets=True):
+        if stored_patterns is None or len(stored_patterns) == 0:
             continue
             
-        try:
-            best = load_optimization_run(results_dir, selection="best")
-            if not best: continue
-            best_res = best.get('best_res', {})
+        target_kets_low = np.array([t.get_target_ket(low_cutoff) for t in targets])
+        target_kets_high = np.array([t.get_target_ket(high_cutoff) for t in targets])
+        
+        for pattern in stored_patterns:
+            try:
+                reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
+            except Exception:
+                continue
+                
+            res_low = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, low_cutoff)
+            res_high = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, high_cutoff)
             
-            stored_patterns = best_res.get('measurement_patterns')
-            if stored_patterns is None or len(stored_patterns)==0:
+            if res_low is None or res_high is None:
                 continue
                 
-            flat_x = best.get('x')
-            if flat_x is None:
-                flat_x = best_res.get('x')
-            if flat_x is None:
-                continue
-                
-            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
-            if not circuit_config:
-                continue
-            circuit = create_from_config(circuit_config, circuit_module)
+            F_low, _, _, _ = _compute_ket_target_fidelities(res_low['final_state_ket'], target_kets_low)
+            F_high, _, _, _ = _compute_ket_target_fidelities(res_high['final_state_ket'], target_kets_high)
             
-            target_configs = sanitize_config_paths(best_res.get('target_configs'))
-            targets = []
-            if target_configs:
-                targets = [create_from_config(cfg, target_module) for cfg in target_configs]
-                
-            if not targets:
-                print(f"  [Skip] No targets found in {results_dir.name} for fidelity evaluation.")
-                continue
-                
-            target_kets_low = np.array([t.get_target_ket(low_cutoff) for t in targets])
-            target_kets_high = np.array([t.get_target_ket(high_cutoff) for t in targets])
-            n_fft = 256
+            I_low = 1.0 - F_low
+            I_high = 1.0 - F_high
+            error = abs(I_high - I_low)
+            rel_deviation = (error / I_low) if I_low > 1e-18 else (0.0 if error < 1e-18 else float('inf'))
             
-            for pattern in stored_patterns:
-                try:
-                    reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
-                except Exception:
-                    continue
-                    
-                res_low = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, low_cutoff)
-                res_high = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, high_cutoff)
-                
-                if res_low is None or res_high is None:
-                    continue
-                    
-                ket_low = res_low['final_state_ket']
-                ket_high = res_high['final_state_ket']
-                
-                # Max fidelity over targets and phase for low_cutoff
-                prod_low = np.conj(ket_low) * target_kets_low
-                fft_vals_low = np.fft.fft(prod_low, n=n_fft, axis=-1)
-                fidelities_low = np.abs(fft_vals_low)**2
-                F_low = float(np.max(fidelities_low))
-                
-                # Max fidelity over targets and phase for high_cutoff
-                prod_high = np.conj(ket_high) * target_kets_high
-                fft_vals_high = np.fft.fft(prod_high, n=n_fft, axis=-1)
-                fidelities_high = np.abs(fft_vals_high)**2
-                F_high = float(np.max(fidelities_high))
-                
-                I_low = 1.0 - F_low
-                I_high = 1.0 - F_high
-                error = abs(I_high - I_low)
-                
-                # Find relative magnitude differences to check if significant digits are ruined
-                if I_low > 1e-18:
-                    rel_deviation = error / I_low
-                else:
-                    rel_deviation = 0.0 if error < 1e-18 else float('inf')
-                
-                pattern_str = _outcome_to_str(reshaped_pattern)
-                rel_dev_str = f"{rel_deviation:.2e}" if rel_deviation != float('inf') else "inf"
-                
-                if I_high > 1e-30 and I_low > 1e-30:
-                    log_discrepancy = np.log10(I_high) - np.log10(I_low)
-                    log_disc_str = f"{log_discrepancy:+.2f}"
-                else:
-                    log_disc_str = "N/A"
-                    log_discrepancy = -float('inf')
+            pattern_str = _outcome_to_str(reshaped_pattern)
+            rel_dev_str = f"{rel_deviation:.2e}" if rel_deviation != float('inf') else "inf"
+            
+            if I_high > 1e-30 and I_low > 1e-30:
+                log_discrepancy = np.log10(I_high) - np.log10(I_low)
+                log_disc_str = f"{log_discrepancy:+.2f}"
+            else:
+                log_disc_str, log_discrepancy = "N/A", -float('inf')
 
-                report_lines.append(
-                    f"{results_dir.name:<40} | {pattern_str:<15} | {I_low:<10.2e} | {I_high:<10.2e} | "
-                    f"{error:<10.2e} | {rel_dev_str:<18} | {log_disc_str:<10}"
-                )
-                
-                if error > max_error:
-                    max_error = error
-                    worst_pattern = pattern_str
-                    worst_folder = results_dir.name
-
-                if rel_deviation != float('inf') and rel_deviation > max_rel_dev:
-                    max_rel_dev = rel_deviation
-                    worst_rel_pattern = pattern_str
-                    worst_rel_folder = results_dir.name
-
-                if log_discrepancy > max_log_disc:
-                    max_log_disc = log_discrepancy
-                    worst_log_pattern = pattern_str
-                    worst_log_folder = results_dir.name
-                    
-        except Exception as e:
-            print(f"  [Error] Failed to process {results_dir.name} for fidelity: {e}")
+            report_lines.append(
+                f"{results_dir.name:<40} | {pattern_str:<15} | {I_low:<10.2e} | {I_high:<10.2e} | "
+                f"{error:<10.2e} | {rel_dev_str:<18} | {log_disc_str:<10}"
+            )
+            
+            if error > max_error:
+                max_error, worst_pattern, worst_folder = error, pattern_str, results_dir.name
+            if rel_deviation != float('inf') and rel_deviation > max_rel_dev:
+                max_rel_dev, worst_rel_pattern, worst_rel_folder = rel_deviation, pattern_str, results_dir.name
+            if log_discrepancy > max_log_disc:
+                max_log_disc, worst_log_pattern, worst_log_folder = log_discrepancy, pattern_str, results_dir.name
 
     report_lines.append("=" * 125)
     report_lines.append(f"MAXIMUM TRUNCATION ERROR: {max_error:.6e}")
     if worst_folder:
-        report_lines.append(f"Found in Folder: {worst_folder}")
-        report_lines.append(f"With Pattern: {worst_pattern}")
-    
+        report_lines.append(f"Found in Folder: {worst_folder}\nWith Pattern: {worst_pattern}")
     report_lines.append("-" * 125)
     report_lines.append(f"MAXIMUM RELATIVE ERROR (error / ( 1-F_{low_cutoff})): {max_rel_dev:.6e}")
     if worst_rel_folder:
-        report_lines.append(f"Found in Folder: {worst_rel_folder}")
-        report_lines.append(f"With Pattern: {worst_rel_pattern}")
-
+        report_lines.append(f"Found in Folder: {worst_rel_folder}\nWith Pattern: {worst_rel_pattern}")
     report_lines.append("-" * 125)
     report_lines.append(f"MAXIMUM LOG DISCREPANCY: {max_log_disc:.6f}")
     if worst_log_folder:
-        report_lines.append(f"Found in Folder: {worst_log_folder}")
-        report_lines.append(f"With Pattern: {worst_log_pattern}")
+        report_lines.append(f"Found in Folder: {worst_log_folder}\nWith Pattern: {worst_log_pattern}")
 
-    report_path = base_dir / "cutoff_infidelity_report.txt"
+    report_path = Path(results_base_dir) / "cutoff_infidelity_report.txt"
     with open(report_path, "w") as f:
         f.write("\n".join(report_lines))
     
@@ -1627,68 +1423,25 @@ def save_density_matrices_for_all_opt_folders(results_base_dir: Path, circuit_mo
     Iterates through all 'opt_*' and 'job_*' folders in a given base directory,
     evaluates all fixed measurement patterns, and saves their density matrices as .npy files.
     """
-    base_dir = Path(results_base_dir)
-    opt_folders = [p for p in base_dir.rglob("*") if p.is_dir() and (p.name.startswith("opt_") or p.name.startswith("job_"))]
-    
-    if not opt_folders:
-        print(f"No 'opt_' or 'job_' folders found in {base_dir}")
-        return
-
-    for results_dir in opt_folders:
-        if not results_dir.is_dir():
+    for results_dir, circuit, _, flat_x, stored_patterns, _ in _iter_opt_folders(results_base_dir, circuit_module):
+        if stored_patterns is None or len(stored_patterns) == 0:
+            print(f"  [Skip] No measurement_patterns found in {results_dir.name}.")
             continue
-            
-        print(f"Processing folder: {results_dir.name} for density matrix saving...")
-        
-        try:
-            best = load_optimization_run(results_dir, selection="best")
-            if not best:
+        for pattern in stored_patterns:
+            try:
+                reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
+            except Exception as e:
+                print(f"  Failed to reshape pattern {pattern}: {e}")
                 continue
-            best_res = best.get('best_res', {})
-            
-            stored_patterns = best_res.get('measurement_patterns')
-            if stored_patterns is None:
-                print(f"  [Skip] No measurement_patterns found in {results_dir.name}.")
+            res = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, cutoff)
+            if res is None or res.get('final_state_ket') is None:
                 continue
-                
-            flat_x = best.get('x')
-            if flat_x is None:
-                flat_x = best_res.get('x')
-                
-            if flat_x is None:
-                print(f"  [Skip] No parameter vector 'x' found in {results_dir.name}.")
-                continue
-                
-            circuit_config = sanitize_config_paths(best_res.get('circuit_config'))
-            circuit = create_from_config(circuit_config, circuit_module)
-            
-            for pattern in stored_patterns:
-                try:
-                    reshaped_pattern = _reshape_outcome_flat(pattern, circuit)
-                except Exception as e:
-                    print(f"  Failed to reshape pattern {pattern}: {e}")
-                    continue
-                    
-                res = run_deterministic_path(circuit, np.asarray(flat_x), reshaped_pattern, cutoff)
-                if res is None:
-                    continue
-                    
-                ket = res.get('final_state_ket')
-                if ket is None:
-                    continue
-                    
-                dm = np.outer(ket, np.conj(ket))
-                
-                outcome_str = _outcome_to_str(reshaped_pattern)
-                filename = f"state_dm_{outcome_str}.npy"
-                save_path = results_dir / filename
-                np.save(save_path, dm)
-                print(f"  Saved DM for pattern {reshaped_pattern} to: {save_path.name}")
-                
-            print(f"  [Success] Processed density matrices for {results_dir.name}.")
-            
-        except Exception as e:
-            print(f"  [Error] Failed to process {results_dir.name}: {e}")
+            dm = np.outer(res['final_state_ket'], np.conj(res['final_state_ket']))
+            outcome_str = _outcome_to_str(reshaped_pattern)
+            save_path = results_dir / f"state_dm_{outcome_str}.npy"
+            np.save(save_path, dm)
+            print(f"  Saved DM for pattern {reshaped_pattern} to: {save_path.name}")
+        print(f"  [Success] Processed density matrices for {results_dir.name}.")
 
 
 def parse_measurement_string(measurement_str: str) -> tuple | None:
@@ -1951,7 +1704,7 @@ def run_batch_operations(batch_config: dict, cutoff: int = 30):
 
 def main():
     # Configuration - set these variables directly instead of using command-line arguments
-    results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1\cat\opt_Sq3_SqCat_20260206T190432Z")
+    results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1-Copy\cat\opt_Sq3_SqCat_20260206T190432Z")
     run_selection = "latest"  # "best", "latest", or a run number string like "5"
     params_json_path = None  # Optional: Path to JSON file containing parameter vector
     branch_index = 0  # Index of branch to visualize from best_result['branches']
@@ -1966,9 +1719,9 @@ def main():
 
     # Batch Operations Configuration (Optional)
     batch_config = {
-        "visualize_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\visualize"),
-        # "all_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1"),
-        # "loss_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1\loss2"),
+        "visualize_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1-Copy\visualize"),
+        "all_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1-Copy"),
+        "loss_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1-Copy\loss2"),
     }
     run_batch_operations(batch_config, cutoff=cutoff)
 
@@ -2011,7 +1764,7 @@ def main():
     # 5. Save All Fixed Patterns Wigners and Rotation Reports
     if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
         stored_patterns = best_res.get('measurement_patterns')
-        if stored_patterns is not None:
+        if stored_patterns is not None and len(stored_patterns) > 0:
             save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
             if targets:
                 evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
