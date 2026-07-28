@@ -28,81 +28,7 @@ from heraldo.utils import (
 )
 
 
-def print_optimized_parameters(circuit, flat_x, mapped_params=None):
-    """
-    Pretty prints the optimized parameter schedule.
-    
-    Args:
-        circuit: The TimeMultiplexedCircuit instance
-        flat_x: Flat parameter vector
-        mapped_params: Pre-mapped parameters (optional, will compute if None)
-    """
-    # Map parameters if not provided
-    if mapped_params is None:
-        mapped_params = circuit.map_parameters(np.asarray(flat_x))
-    
-    param_names = circuit.per_step_parameter_names
-    
-    print("\n" + "="*70)
-    print(" OPTIMIZED PARAMETERS SCHEDULE ")
-    print("="*70)
-    
-    # Calculate column widths
-    step_width = 6
-    param_width = 14
-    
-    # Header
-    header_parts = [f"{'Step':>{step_width}}"]
-    for name in param_names:
-        display_name = name[:param_width].center(param_width)
-        header_parts.append(display_name)
-    
-    separator = "-" * (step_width + 2) + "-" * ((param_width + 2) * len(param_names))
-    
-    print(" | ".join(header_parts))
-    print(separator)
-    
-    # Handle both 2D arrays (steps x params) and edge cases
-    if hasattr(mapped_params, 'shape') and len(mapped_params.shape) >= 2:
-        for step_idx in range(mapped_params.shape[0]):
-            row_parts = [f"{step_idx:>{step_width}}"]
-            for param_idx, val in enumerate(mapped_params[step_idx]):
-                row_parts.append(f"{val:>{param_width}.6f}")
-            print(" | ".join(row_parts))
-    else:
-        # Fallback for 1D or irregular structures
-        print(f"Parameters: {mapped_params}")
-    
-    print("="*70)
 
-
-def print_config_info(circuit_config, target_configs):
-    """Pretty prints loaded configuration for inspection."""
-    print("\n" + "="*50)
-    print(" EXPERIMENT CONFIGURATION ")
-    print("="*50)
-    
-    # Circuit
-    if circuit_config:
-        print(f"\nCircuit: {circuit_config.get('class_name', 'Unknown')}")
-        if 'params' in circuit_config:
-            for k, v in circuit_config['params'].items():
-                print(f"  • {k:<15} : {v}")
-    else:
-        print("\nCircuit: None")
-            
-    # Targets
-    if not target_configs:
-        print("\nTargets: None")
-    else:
-        print(f"\nTargets ({len(target_configs)}):")
-        for i, t_cfg in enumerate(target_configs):
-            name = t_cfg.get('class_name', 'Unknown')
-            print(f"  [{i}] {name}")
-            if 'params' in t_cfg:
-                for k, v in t_cfg['params'].items():
-                    print(f"      - {k:<13} : {v}")
-    print("="*50 + "\n")
 
 
 def sanitize_config_paths(config):
@@ -139,35 +65,7 @@ def sanitize_config_paths(config):
     
     return config
 
-def get_all_optimization_results(circuit: TimeMultiplexedCircuit, flat_params: np.ndarray, targets: list, cutoff_dim: int, beam_width: int = 100, measurement_patterns=None):
-    """
-    Runs the circuit evaluation with the provided parameters to generate full branch details.
-    
-    Args:
-        circuit: The circuit instance.
-        flat_params: The optimized parameters.
-        targets: List of TargetGenerator instances.
-        cutoff_dim: Simulation cutoff.
-        beam_width: Beam width for search (higher = more branches captured).
-        measurement_patterns: Optional list/array of fixed measurement patterns to evaluate.
-        
-    Returns:
-        dict: The result dictionary containing 'loss', 'branches', 'expected_fidelity', etc.
-    """
-    target_kets = [t.get_target_ket(cutoff_dim) for t in targets]
-    
-    # Run evaluation with details enabled
-    # We set penalty/weights to 0/defaults as we are analyzing physical outcomes
-    return evaluate_time_domain_circuit(
-        flat_params,
-        circuit,
-        target_kets,
-        cutoff_dim,
-        beam_width=beam_width,
-        penalty_strength=0.0,
-        measurement_patterns=measurement_patterns,
-        return_details=True
-    )
+
 
 
 
@@ -423,105 +321,7 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
     }
 
 
-def print_optimization_statistics(result: dict, success_threshold: float = 0.99, target_names: list = None):
-    """
-    Calculates and prints probabilities, fidelities, and aggregated success statistics.
-    
-    Args:
-        result: The dictionary returned by evaluate_time_domain_circuit or loaded from pickle.
-                Must contain a 'branches' key.
-        success_threshold: Fidelity threshold to consider a branch "successful".
-        target_names: Optional list of names corresponding to target indices.
-    """
-    branches = result.get('branches', [])
-    if not branches:
-        print("No branch details found in the provided results.")
-        return
 
-    # Generate generic target names if not provided
-    if target_names is None:
-        max_idx = max((b.get('target_idx', 0) for b in branches), default=0)
-        target_names = [f"Target_{i}" for i in range(max_idx + 1)]
-
-    # 1. Print Schedule of Parameters (if x is present, this is usually handled elsewhere, 
-    # but we focus on outcomes here).
-
-    print("-" * 80)
-    print("Dominant Outcome Branches (Sorted by Prob):")
-    print(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
-    print("-" * 80)
-    
-    sorted_branches = sorted(branches, key=lambda x: x['prob'], reverse=True)
-    
-    total_prob = 0.0
-    for b in sorted_branches:
-        total_prob += b['prob']
-        # Filter very small probabilities for display cleanliness if list is huge
-        if b['prob'] > 1e-4:
-            outcome_str = str(b['outcome'])
-            t_idx = b.get('target_idx', 0)
-            tgt_name = target_names[t_idx] if t_idx < len(target_names) else f"Target_{t_idx}"
-            print(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {(1-b['fidelity']):<10.1e} {tgt_name:<15}")
-
-    print(f"\nTotal Probability captured: {total_prob:.5f}")
-
-    # 2. Target Distribution Analysis
-    print("-" * 60)
-    print(f"Target Distribution Analysis (Success Threshold > {success_threshold}):")
-    print(f"{'Rank':<5} {'Target Name':<20} {'Tot. Prob':<10} {'Outcomes (Top 3)'}")
-    print("-" * 60)
-
-    target_stats = {} 
-    
-    # Calculate global success probability
-    global_success_prob = 0.0
-
-    for b in branches:
-        if b['fidelity'] > success_threshold:
-            global_success_prob += b['prob']
-            idx = b.get('target_idx', 0)
-            if idx not in target_stats:
-                target_stats[idx] = {'prob': 0.0, 'outcomes': []}
-            target_stats[idx]['prob'] += b['prob']
-            target_stats[idx]['outcomes'].append((b['outcome'], b['prob']))
-
-    sorted_targets = sorted(target_stats.items(), key=lambda x: x[1]['prob'], reverse=True)
-
-    if not sorted_targets:
-        print("No branches met the success threshold.")
-    
-    for rank, (idx, stats) in enumerate(sorted_targets):
-        stats['outcomes'].sort(key=lambda x: x[1], reverse=True)
-        top_outcomes = [str(o[0]) for o in stats['outcomes'][:3]]
-        outcome_str = ", ".join(top_outcomes)
-        if len(stats['outcomes']) > 3:
-            outcome_str += ", ..."
-        
-        t_name = target_names[idx] if idx < len(target_names) else f"Target_{idx}"
-        print(f"{rank+1:<5} {t_name:<20} {stats['prob']:<10.4f} {outcome_str}")
-
-    print("-" * 60)
-    print(f"Global Success Probability: {global_success_prob:.5f}")
-
-    # 3. Successful Branches Detail
-    print("-" * 80)
-    print(f"All Branches with Fidelity > {success_threshold} (Sorted by Prob):")
-    print(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
-    print("-" * 80)
-
-    successful_branches = [b for b in branches if b['fidelity'] > success_threshold]
-    successful_branches.sort(key=lambda x: x['prob'], reverse=True)
-
-    if not successful_branches:
-        print("No branches met the success threshold.")
-    else:
-        for b in successful_branches:
-            outcome_str = str(b['outcome'])
-            t_idx = b.get('target_idx', 0)
-            tgt_name = target_names[t_idx] if t_idx < len(target_names) else f"Target_{t_idx}"
-            print(f"{outcome_str:<20} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {(1-b['fidelity']):<10.1e} {tgt_name:<15}")
-
-    print("=" * 60)
 
 
 def run_deterministic_path(circuit: TimeMultiplexedCircuit, flat_params: np.ndarray, measurement_outcomes: tuple, cutoff_dim):
@@ -705,16 +505,7 @@ def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cut
 
 
 
-def _find_latest_results_dir(base_dir: Path):
-    # Modified to match "opt_*" and "job_*" to support new naming tags
-    # and sort by modification time to ensure we get the actual latest run.
-    matches = [p for p in base_dir.glob("opt_*") if p.is_dir()] + [p for p in base_dir.glob("job_*") if p.is_dir()]
-    
-    if not matches:
-        return None
-        
-    # Return the directory with the most recent modification time
-    return max(matches, key=lambda p: p.stat().st_mtime)
+
 
 
 def load_optimization_run(results_dir: Path, selection: str = "best"):
@@ -782,35 +573,7 @@ def load_optimization_run(results_dir: Path, selection: str = "best"):
     }
 
 
-def load_params_from_json(json_path: str) -> np.ndarray:
-    """
-    Loads flat parameter vector from a JSON file.
-    Can handle a raw list or a dict with keys 'flat_params', 'x', or 'params'.
-    """
-    path = Path(json_path)
-    if not path.exists():
-        print(f"Error: JSON parameter file not found at {path}")
-        return None
-    
-    try:
-        with open(path, 'r') as f:
-            data = json.load(f)
-            
-        if isinstance(data, list):
-            return np.array(data)
-        elif isinstance(data, dict):
-            for key in ['flat_params', 'x', 'params']:
-                if key in data:
-                    return np.array(data[key])
-            print(f"Error: JSON dict does not contain expected keys (flat_params, x, params). Found: {list(data.keys())}")
-            return None
-        else:
-            print("Error: JSON root must be a list or dict.")
-            return None
-            
-    except Exception as e:
-        print(f"Error loading JSON parameters: {e}")
-        return None
+
 
 
 def _reshape_outcome_flat(outcome_flat, circuit: TimeMultiplexedCircuit):
@@ -1456,26 +1219,6 @@ def save_density_matrices_for_all_opt_folders(results_base_dir: Path, circuit_mo
         print(f"  [Success] Processed density matrices for {results_dir.name}.")
 
 
-def parse_measurement_string(measurement_str: str) -> tuple | None:
-    """
-    Parses measurement string into per-step outcome tuples.
-    Example: "0,4" -> ((0, 4),)
-             "3,1;2,0" -> ((3, 1), (2, 0))
-    """
-    if not measurement_str:
-        return None
-    try:
-        steps_raw = measurement_str.split(";")
-        parsed = []
-        for s in steps_raw:
-            parts = [int(x.strip()) for x in s.split(",") if x.strip() != ""]
-            parsed.append(tuple(parts))
-        return tuple(parsed)
-    except Exception as e:
-        print(f"Error parsing measurement string '{measurement_str}': {e}")
-        return None
-
-
 def get_target_display_names(targets: list) -> list[str]:
     """Generates display names for target generators."""
     target_names = []
@@ -1495,212 +1238,6 @@ def get_target_display_names(targets: list) -> list[str]:
     return target_names
 
 
-def resolve_results_dir(results_path: str | Path | None = None) -> Path | None:
-    """Resolves results directory path or finds the latest results folder."""
-    base = Path(__file__).resolve().parent.parent.parent / "results"
-    
-    if results_path:
-        results_dir = Path(results_path)
-    else:
-        results_dir = _find_latest_results_dir(base)
-    
-    if results_dir is None or not results_dir.exists():
-        print(f"No results directory found at {base}. Run the optimization first and make sure results exist.")
-        return None
-        
-    return results_dir
-
-
-def load_experiment_and_params(
-    results_dir: Path, 
-    run_selection: str = "latest", 
-    params_json_path: str | Path | None = None, 
-    loss_transmissivity: float = 1.0
-):
-    """
-    Loads optimization run data, resolves parameter vectors (with optional JSON override),
-    sanitizes configuration paths, and reconstructs the circuit and target instances.
-    """
-    best = load_optimization_run(results_dir, selection=run_selection)
-    if not best:
-        return None
-
-    best_res = best.get('best_res', {})
-    
-    flat_x = best.get('x')
-    if flat_x is None:
-        flat_x = best_res.get('x')
-
-    if params_json_path:
-        print(f"Attempting to load parameters from JSON: {params_json_path}")
-        json_x = load_params_from_json(params_json_path)
-        if json_x is not None:
-            print(f"Successfully loaded {len(json_x)} parameters from JSON. Overriding result parameters.")
-            flat_x = json_x
-    
-    if flat_x is None:
-        print("Could not find flat parameter vector (best_x) and no JSON parameters provided.")
-        return None
-
-    circuit_config = best_res.get('circuit_config')
-    target_configs = best_res.get('target_configs')
-
-    circuit_config = sanitize_config_paths(circuit_config)
-    target_configs = sanitize_config_paths(target_configs)
-
-    if circuit_config and 'params' in circuit_config:
-        circuit_config['params']['loss_transmissivity'] = loss_transmissivity
-
-    print_config_info(circuit_config, target_configs)
-
-    if not circuit_config:
-        print("Error: Result file does not contain 'circuit_config'. Cannot reconstruct circuit.")
-        return None
-
-    print(f"Reconstructing Circuit: {circuit_config.get('class_name')}...")
-    circuit = create_from_config(circuit_config, circuit_module)
-    
-    targets = []
-    if target_configs:
-        print(f"Reconstructing {len(target_configs)} Targets...")
-        targets = [create_from_config(cfg, target_module) for cfg in target_configs]
-    else:
-        print("Warning: No 'target_configs' found in result. Target analysis will be limited.")
-
-    target_names = get_target_display_names(targets)
-
-    return circuit, targets, target_names, flat_x, best_res
-
-
-def evaluate_and_print_run_statistics(
-    best_res: dict,
-    flat_x: np.ndarray,
-    circuit: TimeMultiplexedCircuit,
-    targets: list,
-    target_names: list,
-    cutoff: int = 30,
-    force_beam_search: bool = False,
-    use_dm_eval: bool = False,
-    loss_transmissivity: float = 1.0
-):
-    """Re-evaluates circuit and displays branch statistics and probabilities."""
-    print("\n=== Optimization Statistics ===")
-    
-    result_to_analyze = best_res
-    
-    if targets:
-        print("Re-evaluating circuit to ensure fresh branch data...")
-        
-        stored_patterns = best_res.get('measurement_patterns')
-        eval_patterns = None
-        
-        if not force_beam_search and stored_patterns is not None:
-            print(" -> Using Original Fixed Patterns for analysis.")
-            eval_patterns = stored_patterns
-        else:
-            print(" -> Using Beam Search (Width=100) for analysis.")
-            eval_patterns = None
-
-        if use_dm_eval:
-            print(f"Evaluating with Density Matrices (Loss T={loss_transmissivity})...")
-            target_kets = [t.get_target_ket(cutoff) for t in targets]
-            result_to_analyze = evaluate_time_domain_circuit_dm(
-                np.asarray(flat_x),
-                circuit,
-                target_kets,
-                cutoff,
-                beam_width=100,
-                penalty_strength=0.0,
-                prob_power=1.0,
-                measurement_patterns=eval_patterns
-            )
-        else:
-            result_to_analyze = get_all_optimization_results(
-                circuit, np.asarray(flat_x), targets, cutoff, beam_width=100, measurement_patterns=eval_patterns
-            )
-    
-    if result_to_analyze:
-        print_optimization_statistics(
-            result_to_analyze, 
-            success_threshold=1 - 2e-2, 
-            target_names=target_names if target_names else None
-        )
-    else:
-        print("No result dictionary available to analyze.")
-
-
-def evaluate_single_branch(
-    circuit: TimeMultiplexedCircuit,
-    flat_x: np.ndarray,
-    best_res: dict,
-    results_dir: Path,
-    measurement: str | None = None,
-    branch_index: int = 0,
-    cutoff: int = 30,
-    use_dm_eval: bool = False
-):
-    """Evaluates a single measurement branch path and saves its density matrix state."""
-    if use_dm_eval:
-        print("\n=== Single Branch Visualization ===")
-        print("Skipping visualization: Wigner plotting for Mixed States (Density Matrices) is not yet implemented in this script.")
-        return
-
-    print("\n=== Single Branch Visualization ===")
-
-    measurement_outcomes = None
-    if measurement:
-        measurement_outcomes = parse_measurement_string(measurement)
-    else:
-        if best_res and 'branches' in best_res and len(best_res['branches']) > 0:
-            branches = best_res['branches']
-            branches.sort(key=lambda x: x['prob'], reverse=True)
-            
-            idx = min(branch_index, len(branches) - 1)
-            branch = branches[idx]
-            outcome_raw = branch.get('outcome')
-            print(f"Auto-selected branch rank {idx}: Outcome {outcome_raw} (Prob: {branch['prob']:.4f})")
-            
-            if outcome_raw is None:
-                print("Selected branch has no explicit 'outcome' stored. Try specifying a measurement.")
-            else:
-                try:
-                    measurement_outcomes = _reshape_outcome_flat(outcome_raw, circuit)
-                except Exception as e:
-                    print(f"Failed to reshape branch outcome: {e}")
-                    measurement_outcomes = None
-
-    if measurement_outcomes is None:
-        print("No measurement outcomes selected. Specify a measurement or check stored best_result['branches'].")
-        return
-
-    print(f"Evaluating measurement outcomes (per step): {measurement_outcomes}")
-    res = run_deterministic_path(circuit, np.asarray(flat_x), measurement_outcomes, cutoff)
-    if res is None:
-        print("The specified measurement path is not physically possible (zero probability).")
-        return
-
-    print(f"Final probability: {res['final_probability']:.6e}")
-    
-    print("\nSaving density matrix...")
-    dm = None
-    if 'final_state_ket' in res:
-        ket = res['final_state_ket']
-        dm = np.outer(ket, np.conj(ket))
-    elif 'final_state_dm' in res:
-        dm = res['final_state_dm']
-    else:
-        print("No final state found to save.")
-
-    if dm is not None:
-        outcome_str = _outcome_to_str(measurement_outcomes)
-        filename = f"state_dm_{outcome_str}.npy"
-        
-        save_path = results_dir / filename
-        np.save(save_path, dm)
-        print(f"Density matrix saved to: {save_path}")
-        print("Run this script again with different measurements to generate comparison files.")
-
-
 def run_batch_operations(batch_config: dict, cutoff: int = 30):
     """Runs optional batch evaluation tasks across multiple result directories."""
     if batch_config.get("all_results_path"):
@@ -1716,21 +1253,7 @@ def run_batch_operations(batch_config: dict, cutoff: int = 30):
 
 
 def main():
-    # Configuration - set these variables directly instead of using command-line arguments
-    results_path = windows_to_wsl_path(r"E:\Quantum\paper\results1-Copy\cat\opt_Sq3_SqCat_20260206T190432Z")
-    run_selection = "latest"  # "best", "latest", or a run number string like "5"
-    params_json_path = None  # Optional: Path to JSON file containing parameter vector
-    branch_index = 0  # Index of branch to visualize from best_result['branches']
-    measurement = "0,4"  # Explicit measurement tuple, e.g., "3,1" or "3,1;2,0" (semicolon separated)
-    cutoff = 30  # Cutoff dimension for visualization
-    recalc_statistics = True  # If True, will print the full branch table and aggregated targets
-    FORCE_BEAM_SEARCH = False  # If True, ignores stored fixed patterns and re-runs Beam Search
-    SAVE_ALL_FIXED_PATTERNS = True  # If True, generates and saves Wigner plots for all fixed patterns
-    
-    LOSS_TRANSMISSIVITY = 1.0  # Set < 1.0 to enable Density Matrix simulation with loss
-    USE_DM_EVAL = LOSS_TRANSMISSIVITY < 1.0
-
-    # Batch Operations Configuration (Optional)
+    cutoff = 30
     batch_config = {
         "visualize_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1-Copy\visualize"),
         "all_results_path": windows_to_wsl_path(r"E:\Quantum\reports\paper\results1-Copy"),
@@ -1738,63 +1261,6 @@ def main():
     }
     run_batch_operations(batch_config, cutoff=cutoff)
 
-    # 1. Resolve results directory
-    results_dir = resolve_results_dir(results_path)
-    if not results_dir:
-        return
-
-    print(f"Using results dir: {results_dir}")
-
-    # 2. Load experiment configuration, parameters, circuit, and targets
-    exp_data = load_experiment_and_params(
-        results_dir, 
-        run_selection=run_selection, 
-        params_json_path=params_json_path, 
-        loss_transmissivity=LOSS_TRANSMISSIVITY
-    )
-    if not exp_data:
-        return
-
-    circuit, targets, target_names, flat_x, best_res = exp_data
-
-    # 3. Print Optimized Parameters Schedule
-    print_optimized_parameters(circuit, flat_x, best_res.get('mapped_params'))
-
-    # 4. Analyze & Print Optimization Statistics
-    if recalc_statistics:
-        evaluate_and_print_run_statistics(
-            best_res=best_res,
-            flat_x=flat_x,
-            circuit=circuit,
-            targets=targets,
-            target_names=target_names,
-            cutoff=cutoff,
-            force_beam_search=FORCE_BEAM_SEARCH,
-            use_dm_eval=USE_DM_EVAL,
-            loss_transmissivity=LOSS_TRANSMISSIVITY
-        )
-
-    # 5. Save All Fixed Patterns Wigners and Rotation Reports
-    if SAVE_ALL_FIXED_PATTERNS and not USE_DM_EVAL:
-        stored_patterns = best_res.get('measurement_patterns')
-        if stored_patterns is not None and len(stored_patterns) > 0:
-            save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir)
-            if targets:
-                evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
-        else:
-            print("\nSAVE_ALL_FIXED_PATTERNS is True, but no fixed measurement patterns were found in the results.")
-
-    # 6. Evaluate and Visualize Specific Single Branch Outcome
-    evaluate_single_branch(
-        circuit=circuit,
-        flat_x=flat_x,
-        best_res=best_res,
-        results_dir=results_dir,
-        measurement=measurement,
-        branch_index=branch_index,
-        cutoff=cutoff,
-        use_dm_eval=USE_DM_EVAL
-    )
 
 if __name__ == "__main__":
     main()
