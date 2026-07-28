@@ -29,6 +29,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
     "sphinx.ext.autosummary",
+    "sphinx.ext.mathjax",
 ]
 
 autosummary_generate = True
@@ -45,4 +46,4 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 # HTML Output theme settings
 html_theme = "sphinx_rtd_theme"
-html_static_path = ["_static"]
+html_static_path = ["_static"]
