@@ -1143,18 +1143,30 @@ def evaluate_and_report_rotations(circuit, flat_x, measurement_patterns, targets
         print("No valid patterns found to evaluate rotations.")
 
 
-def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module, cutoff: int = 30):
+def generate_wigners_for_all_opt_folders(results_base_dir: Path, circuit_module, cutoff: int = 30, combine_plots: bool = False):
     """
     Iterates through all 'opt_*' and 'job_*' folders in a given base directory and saves
     fixed pattern Wigner figures for each valid optimization result.
     """
-    for results_dir, circuit, targets, flat_x, stored_patterns, _ in _iter_opt_folders(results_base_dir, circuit_module):
+    for results_dir, circuit, _, flat_x, stored_patterns, _ in _iter_opt_folders(results_base_dir, circuit_module):
         if stored_patterns is None or len(stored_patterns) == 0:
             print(f"  [Skip] No measurement_patterns found in {results_dir.name}.")
             continue
-        if targets:
-            evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
-        print(f"  [Success] Processed figures and rotations for {results_dir.name}.")
+        save_all_fixed_pattern_wigners(circuit, np.asarray(flat_x), stored_patterns, cutoff, results_dir, combine_plots=combine_plots)
+        print(f"  [Success] Processed Wigner figures for {results_dir.name}.")
+
+
+def report_rotations_for_all_opt_folders(results_base_dir: Path, circuit_module, cutoff: int = 30):
+    """
+    Iterates through all 'opt_*' and 'job_*' folders in a given base directory and generates
+    rotation reports for each valid optimization result.
+    """
+    for results_dir, circuit, targets, flat_x, stored_patterns, _ in _iter_opt_folders(results_base_dir, circuit_module, require_targets=True):
+        if stored_patterns is None or len(stored_patterns) == 0:
+            print(f"  [Skip] No measurement_patterns found in {results_dir.name}.")
+            continue
+        evaluate_and_report_rotations(circuit, np.asarray(flat_x), stored_patterns, targets, cutoff, results_dir)
+        print(f"  [Success] Processed rotation reports for {results_dir.name}.")
 
 
 def format_prob(p_val):
@@ -1693,6 +1705,7 @@ def run_batch_operations(batch_config: dict, cutoff: int = 30):
     """Runs optional batch evaluation tasks across multiple result directories."""
     if batch_config.get("all_results_path"):
         generate_wigners_for_all_opt_folders(batch_config["all_results_path"], circuit_module, cutoff=cutoff)
+        report_rotations_for_all_opt_folders(batch_config["all_results_path"], circuit_module, cutoff=cutoff)
         evaluate_cutoff_fidelity(batch_config["all_results_path"], circuit_module, low_cutoff=cutoff, high_cutoff=50)
 
     if batch_config.get("visualize_results_path"):
