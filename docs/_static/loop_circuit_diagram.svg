@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" width="100%" height="100%">
+  <defs>
+    <style>
+      .label-title { font-family: system-ui, -apple-system, sans-serif; font-size: 15px; font-weight: bold; fill: #0f172a; }
+      .label-sub { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; fill: #475569; }
+      .box-green { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2.2; rx: 12; }
+      .box-red { fill: #fef2f2; stroke: #dc2626; stroke-width: 2.2; rx: 12; }
+      .box-blue { fill: #f0f9ff; stroke: #0284c7; stroke-width: 2.2; rx: 12; }
+      .text-green { font-family: 'Times New Roman', Georgia, serif; font-size: 22px; font-weight: bold; fill: #15803d; text-anchor: middle; dominant-baseline: central; }
+      .text-green-sub { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; font-weight: 600; fill: #15803d; text-anchor: middle; }
+      .text-red { font-family: system-ui, -apple-system, sans-serif; font-size: 20px; font-weight: bold; fill: #dc2626; text-anchor: middle; dominant-baseline: central; }
+      .text-red-out { font-family: 'Times New Roman', Georgia, serif; font-size: 22px; font-style: italic; font-weight: bold; fill: #dc2626; dominant-baseline: central; }
+      .text-blue { font-family: 'Times New Roman', Georgia, serif; font-size: 22px; font-style: italic; font-weight: bold; fill: #0284c7; text-anchor: middle; dominant-baseline: central; }
+      .loop-path { stroke: #0f172a; stroke-width: 2.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .dotted-path { stroke: #0f172a; stroke-width: 2.8; stroke-dasharray: 4,5; fill: none; }
+      .bs-coupler { fill: #86efac; stroke: #16a34a; stroke-width: 1.5; }
+    </style>
+
+    <!-- Arrowhead markers -->
+    <marker id="arrow-black" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#0f172a"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <!-- Outer Canvas Panel -->
+  <rect x="5" y="5" width="750" height="410" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5" rx="10" />
+
+  <!-- Diagram Title -->
+  <text x="25" y="32" class="label-title">Time-Domain Multiplexed Physical Loop Realization</text>
+  <text x="25" y="50" class="label-sub">Recirculating memory loop with step-dependent ancilla injection and PNR detection (Step j = 1 … T)</text>
+
+  <!-- ==================================================================== -->
+  <!-- RECIRCULATING DELAY LOOP PATHWAY                                     -->
+  <!-- ==================================================================== -->
+  <!-- Top Horizontal Loop Line (Right to Left) -->
+  <path d="M 480,100 L 300,100" class="loop-path" marker-end="url(#arrow-black)" />
+
+  <!-- Left Vertical Loop Line (Top to Bottom) -->
+  <path d="M 300,100 L 300,220" class="loop-path" marker-end="url(#arrow-black)" />
+
+  <!-- Bottom Horizontal Loop Line (Left to Right) -->
+  <path d="M 300,220 L 480,220" class="loop-path" stroke-dasharray="none" />
+  <!-- Arrow in middle of bottom path -->
+  <line x1="300" y1="220" x2="400" y2="220" class="loop-path" marker-end="url(#arrow-black)" />
+
+  <!-- Right Vertical Loop Line (Bottom to Top) -->
+  <path d="M 480,220 L 480,100" class="loop-path" marker-end="url(#arrow-black)" />
+
+  <!-- Corner Arcs for Smooth Closed Loop -->
+  <!-- Top Left Corner -->
+  <path d="M 300,120 Q 300,100 320,100" class="loop-path" />
+  <!-- Top Right Corner -->
+  <path d="M 460,100 Q 480,100 480,120" class="loop-path" />
+  <!-- Bottom Right Corner -->
+  <path d="M 480,200 Q 480,220 460,220" class="loop-path" />
+  <!-- Bottom Left Corner -->
+  <path d="M 320,220 Q 300,220 300,200" class="loop-path" />
+
+  <!-- ==================================================================== -->
+  <!-- INPUT, DETECTION, AND OUTPUT ARMS                                   -->
+  <!-- ==================================================================== -->
+  <!-- Left Input Arm (Ancilla Injection |ϕⱼ⟩) -->
+  <line x1="150" y1="220" x2="300" y2="220" class="loop-path" marker-end="url(#arrow-black)" />
+
+  <!-- Bottom PNR Detection Arm -->
+  <line x1="300" y1="220" x2="300" y2="310" class="loop-path" marker-end="url(#arrow-black)" />
+
+  <!-- Right Final Output Arm (Dotted Switch-out after Step T) -->
+  <line x1="480" y1="220" x2="620" y2="220" class="dotted-path" marker-end="url(#arrow-black)" />
+
+  <!-- PNR Output Arrow to nⱼ -->
+  <line x1="350" y1="335" x2="410" y2="335" stroke="#dc2626" stroke-width="2.5" fill="none" marker-end="url(#arrow-red)" />
+
+  <!-- ==================================================================== -->
+  <!-- BEAM SPLITTER COUPLERS (GREEN SLANTED BARS)                           -->
+  <!-- ==================================================================== -->
+  <!-- BS 1 (Left Coupler at Loop Intersection (300, 220)) -->
+  <rect x="286" y="214" width="28" height="12" class="bs-coupler" transform="rotate(-45 300 220)" />
+
+  <!-- BS 2 (Right Switch/Coupler at Loop Intersection (480, 220)) -->
+  <rect x="466" y="214" width="28" height="12" class="bs-coupler" transform="rotate(-45 480 220)" />
+
+  <!-- ==================================================================== -->
+  <!-- GATE AND STATE BOXES                                                 -->
+  <!-- ==================================================================== -->
+  <!-- 1. Input Ancilla State Box |ϕⱼ⟩ -->
+  <rect x="50" y="195" width="100" height="50" class="box-green" />
+  <text x="100" y="220" class="text-green">|ϕⱼ⟩</text>
+
+  <!-- 2. Variable Beam Splitter 1 Box (VBS1) -->
+  <rect x="205" y="65" width="115" height="60" class="box-green" />
+  <text x="262" y="87" class="text-green" style="font-size:18px;">VBS1</text>
+  <text x="262" y="108" class="text-green-sub">[τ₁ⱼ]</text>
+
+  <!-- 3. Variable Beam Splitter 2 Box (VBS2) -->
+  <rect x="460" y="65" width="115" height="60" class="box-green" />
+  <text x="517" y="87" class="text-green" style="font-size:18px;">VBS2</text>
+  <text x="517" y="108" class="text-green-sub">[τ₂ⱼ]</text>
+
+  <!-- 4. PNR Detector Box -->
+  <rect x="250" y="310" width="100" height="50" class="box-red" />
+  <text x="300" y="335" class="text-red">PNR</text>
+
+  <!-- PNR Outcome Text nⱼ -->
+  <text x="420" y="335" class="text-red-out">nⱼ</text>
+
+  <!-- 5. Final Heralded Target State Box |ψ⟩ -->
+  <rect x="620" y="195" width="100" height="50" class="box-blue" />
+  <text x="670" y="220" class="text-blue">|ψ⟩</text>
+
+  <!-- ==================================================================== -->
+  <!-- LABELS & ANNOTATIONS                                                 -->
+  <!-- ==================================================================== -->
+  <!-- Step Label -->
+  <text x="390" y="180" font-family="system-ui, -apple-system, sans-serif" font-size="12px" font-weight="bold" fill="#0284c7" text-anchor="middle">
+    Loop Memory (Mode 0)
+  </text>
+  <text x="390" y="196" font-family="system-ui, -apple-system, sans-serif" font-size="11px" fill="#64748b" text-anchor="middle">
+    State |ψⱼ₋₁⟩ → |ψⱼ⟩
+  </text>
+</svg>

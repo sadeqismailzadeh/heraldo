@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 520" width="100%" height="100%">
+  <defs>
+    <style>
+      .title-text { font-family: system-ui, -apple-system, sans-serif; font-size: 15px; font-weight: bold; fill: #1e293b; }
+      .subtitle-text { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; fill: #64748b; }
+      .label-text { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; font-weight: 600; fill: #0f172a; }
+      .sub-label { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; fill: #334155; }
+      .box-text { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; font-weight: bold; fill: #1e293b; text-anchor: middle; dominant-baseline: central; }
+      .mode-line { stroke: #334155; stroke-width: 2.2; fill: none; }
+      .loop-line { stroke: #0284c7; stroke-width: 2.8; fill: none; }
+      .panel-bg { fill: #f8fafc; stroke: #e2e8f0; stroke-width: 1.5; rx: 8; }
+      .sq-box { fill: #ffe4e6; stroke: #e11d48; stroke-width: 1.5; rx: 4; }
+      .disp-box { fill: #ffedd5; stroke: #ea580c; stroke-width: 1.5; rx: 4; }
+      .bs-box { fill: #dcfce7; stroke: #16a34a; stroke-width: 1.5; rx: 4; }
+      .unitary-box { fill: #dcfce7; stroke: #16a34a; stroke-width: 1.8; rx: 6; }
+      .pnrd-shape { fill: #dbeafe; stroke: #2563eb; stroke-width: 1.5; }
+    </style>
+
+    <!-- Arrowhead markers -->
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#0284c7"/>
+    </marker>
+  </defs>
+
+  <!-- ==================================================================== -->
+  <!-- PANEL A: STATIC SPATIAL CIRCUIT (PAPER MODEL)                        -->
+  <!-- ==================================================================== -->
+  <g transform="translate(10, 10)">
+    <!-- Panel Container -->
+    <rect x="0" y="0" width="900" height="225" class="panel-bg" />
+    <text x="18" y="28" class="title-text">(a) Static Spatial Architecture (Paper Model: N Modes, Single Spatial Stage T = 1)</text>
+
+    <!-- Mode 1 -->
+    <text x="30" y="60" class="sub-label">|0⟩₁</text>
+    <line x1="55" y1="60" x2="110" y2="60" class="mode-line" />
+    <rect x="110" y="45" width="38" height="30" class="sq-box" />
+    <text x="129" y="60" class="box-text">S₁</text>
+    <line x1="148" y1="60" x2="170" y2="60" class="mode-line" />
+    <rect x="170" y="45" width="38" height="30" class="disp-box" />
+    <text x="189" y="60" class="box-text">D₁</text>
+    <line x1="208" y1="60" x2="290" y2="60" class="mode-line" />
+
+    <!-- Mode 2 -->
+    <text x="30" y="105" class="sub-label">|0⟩₂</text>
+    <line x1="55" y1="105" x2="110" y2="105" class="mode-line" />
+    <rect x="110" y="90" width="38" height="30" class="sq-box" />
+    <text x="129" y="105" class="box-text">S₂</text>
+    <line x1="148" y1="105" x2="170" y2="105" class="mode-line" />
+    <rect x="170" y="90" width="38" height="30" class="disp-box" />
+    <text x="189" y="105" class="box-text">D₂</text>
+    <line x1="208" y1="105" x2="290" y2="105" class="mode-line" />
+
+    <!-- Dots between modes -->
+    <text x="129" y="140" class="box-text" style="fill:#64748b;">⋮</text>
+    <text x="189" y="140" class="box-text" style="fill:#64748b;">⋮</text>
+
+    <!-- Mode N-1 -->
+    <text x="20" y="170" class="sub-label">|0⟩N-1</text>
+    <line x1="55" y1="170" x2="110" y2="170" class="mode-line" />
+    <rect x="110" y="155" width="38" height="30" class="sq-box" />
+    <text x="129" y="170" class="box-text">SN-1</text>
+    <line x1="148" y1="170" x2="170" y2="170" class="mode-line" />
+    <rect x="170" y="155" width="38" height="30" class="disp-box" />
+    <text x="189" y="170" class="box-text">DN-1</text>
+    <line x1="208" y1="170" x2="290" y2="170" class="mode-line" />
+
+    <!-- Mode N (Unmeasured Output) -->
+    <text x="25" y="205" class="sub-label">|0⟩N</text>
+    <line x1="55" y1="205" x2="110" y2="205" class="mode-line" />
+    <rect x="110" y="190" width="38" height="30" class="sq-box" />
+    <text x="129" y="205" class="box-text">SN</text>
+    <line x1="148" y1="205" x2="170" y2="205" class="mode-line" />
+    <rect x="170" y="190" width="38" height="30" class="disp-box" />
+    <text x="189" y="205" class="box-text">DN</text>
+    <line x1="208" y1="205" x2="290" y2="205" class="mode-line" />
+
+    <!-- Unitary Box U -->
+    <rect x="290" y="45" width="100" height="175" class="unitary-box" />
+    <text x="340" y="132" class="box-text" style="font-size: 24px;">U</text>
+
+    <!-- Output lines from U to Detectors -->
+    <line x1="390" y1="60" x2="460" y2="60" class="mode-line" />
+    <line x1="390" y1="105" x2="460" y2="105" class="mode-line" />
+    <text x="425" y="140" class="box-text" style="fill:#64748b;">⋮</text>
+    <line x1="390" y1="170" x2="460" y2="170" class="mode-line" />
+    
+    <!-- Heralded Output Mode N -->
+    <line x1="390" y1="205" x2="620" y2="205" class="mode-line" marker-end="url(#arrow)" />
+    <text x="635" y="205" class="label-text" style="fill:#16a34a; font-size:14px;">|ψ⟩ (Heralded Output)</text>
+
+    <!-- PNRD Detectors -->
+    <!-- Det 1 -->
+    <path d="M 460,45 L 460,75 L 495,75 A 15,15 0 0,0 495,45 Z" class="pnrd-shape" />
+    <text x="475" y="60" class="box-text" style="font-size:11px;">n₁</text>
+
+    <!-- Det 2 -->
+    <path d="M 460,90 L 460,120 L 495,120 A 15,15 0 0,0 495,90 Z" class="pnrd-shape" />
+    <text x="475" y="105" class="box-text" style="font-size:11px;">n₂</text>
+
+    <!-- Det N-1 -->
+    <path d="M 460,155 L 460,185 L 495,185 A 15,15 0 0,0 495,155 Z" class="pnrd-shape" />
+    <text x="475" y="170" class="box-text" style="font-size:10px;">nN-1</text>
+  </g>
+
+  <!-- ==================================================================== -->
+  <!-- PANEL B: TIME-DOMAIN MULTIPLEXED CIRCUIT (HERALDO PACKAGE)            -->
+  <!-- ==================================================================== -->
+  <g transform="translate(10, 240)">
+    <!-- Panel Container -->
+    <rect x="0" y="0" width="900" height="270" class="panel-bg" />
+    <text x="18" y="28" class="title-text">(b) Time-Domain Multiplexed Architecture (heraldo Package: Loop Mode 0 + Multiple Ancillae across T Steps)</text>
+
+    <!-- Step 1 Group -->
+    <g transform="translate(20, 45)">
+      <!-- Step 1 Boundary Box -->
+      <rect x="40" y="10" width="320" height="200" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="5,5" rx="6" />
+      <text x="52" y="28" class="subtitle-text" style="font-weight:bold;">Step 1 (t = 1)</text>
+
+      <!-- Persistent Loop Mode 0 (Top line) -->
+      <text x="-10" y="52" class="label-text" style="fill:#0284c7;">Mode 0 (Loop)</text>
+      <text x="-10" y="67" class="sub-label">|0⟩ or S(r₀)</text>
+      <line x1="80" y1="57" x2="200" y2="57" class="loop-line" />
+
+      <!-- Step 1 Ancilla 1 -->
+      <text x="28" y="112" class="sub-label">Ancilla 1</text>
+      <line x1="80" y1="112" x2="90" y2="112" class="mode-line" />
+      <rect x="90" y="97" width="36" height="28" class="sq-box" />
+      <text x="108" y="111" class="box-text">S₁(1)</text>
+      <line x1="126" y1="112" x2="136" y2="112" class="mode-line" />
+      <rect x="136" y="97" width="36" height="28" class="disp-box" />
+      <text x="154" y="111" class="box-text">D₁(1)</text>
+      <line x1="172" y1="112" x2="200" y2="112" class="mode-line" />
+
+      <!-- Dots between ancillae -->
+      <text x="108" y="147" class="box-text" style="fill:#64748b;">⋮</text>
+      <text x="154" y="147" class="box-text" style="fill:#64748b;">⋮</text>
+      <text x="325" y="147" class="box-text" style="fill:#64748b;">⋮</text>
+
+      <!-- Step 1 Ancilla N-1 -->
+      <text x="20" y="182" class="sub-label">Ancilla N-1</text>
+      <line x1="80" y1="182" x2="90" y2="182" class="mode-line" />
+      <rect x="90" y="167" width="36" height="28" class="sq-box" />
+      <text x="108" y="181" class="box-text">SN-1(1)</text>
+      <line x1="126" y1="182" x2="136" y2="182" class="mode-line" />
+      <rect x="136" y="167" width="36" height="28" class="disp-box" />
+      <text x="154" y="181" class="box-text">DN-1(1)</text>
+      <line x1="172" y1="182" x2="200" y2="182" class="mode-line" />
+
+      <!-- BS Block Step 1 (Spans Loop Mode 0 + All Ancillae) -->
+      <rect x="200" y="45" width="50" height="150" class="bs-box" />
+      <text x="225" y="120" class="box-text" style="font-size:12px;">BS(1)</text>
+
+      <!-- Step 1 Outputs -->
+      <!-- Loop Mode 0 continues out -->
+      <line x1="250" y1="57" x2="385" y2="57" class="loop-line" marker-end="url(#arrow-blue)" />
+      <text x="260" y="47" class="sub-label" style="fill:#0284c7; font-weight:bold;">|ψ₁(1)⟩</text>
+
+      <!-- Ancilla 1 goes to PNRD -->
+      <line x1="250" y1="112" x2="310" y2="112" class="mode-line" />
+      <path d="M 310,97 L 310,127 L 340,127 A 15,15 0 0,0 340,97 Z" class="pnrd-shape" />
+      <text x="322" y="112" class="box-text" style="font-size:10px;">n₁(1)</text>
+
+      <!-- Ancilla N-1 goes to PNRD -->
+      <line x1="250" y1="182" x2="310" y2="182" class="mode-line" />
+      <path d="M 310,167 L 310,197 L 340,197 A 15,15 0 0,0 340,167 Z" class="pnrd-shape" />
+      <text x="322" y="182" class="box-text" style="font-size:10px;">nN-1(1)</text>
+    </g>
+
+    <!-- Loop Transition Arrow between Step 1 and Step T -->
+    <path d="M 385,102 C 425,102 425,102 465,102" class="loop-line" marker-end="url(#arrow-blue)" />
+    <text x="425" y="92" class="sub-label" style="fill:#0284c7; text-anchor:middle; font-weight:bold;">Loop</text>
+
+    <!-- Step T Group -->
+    <g transform="translate(425, 45)">
+      <!-- Step T Boundary Box -->
+      <rect x="40" y="10" width="320" height="200" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="5,5" rx="6" />
+      <text x="52" y="28" class="subtitle-text" style="font-weight:bold;">Step T (t = T)</text>
+
+      <!-- Loop Mode 0 enters Step T -->
+      <line x1="40" y1="57" x2="220" y2="57" class="loop-line" />
+
+      <!-- Step T Ancilla 1 -->
+      <text x="48" y="112" class="sub-label">Ancilla 1</text>
+      <line x1="100" y1="112" x2="110" y2="112" class="mode-line" />
+      <rect x="110" y="97" width="36" height="28" class="sq-box" />
+      <text x="128" y="111" class="box-text">S₁(T)</text>
+      <line x1="146" y1="112" x2="156" y2="112" class="mode-line" />
+      <rect x="156" y="97" width="36" height="28" class="disp-box" />
+      <text x="174" y="111" class="box-text">D₁(T)</text>
+      <line x1="192" y1="112" x2="220" y2="112" class="mode-line" />
+
+      <!-- Dots between ancillae -->
+      <text x="128" y="147" class="box-text" style="fill:#64748b;">⋮</text>
+      <text x="174" y="147" class="box-text" style="fill:#64748b;">⋮</text>
+      <text x="345" y="147" class="box-text" style="fill:#64748b;">⋮</text>
+
+      <!-- Step T Ancilla N-1 -->
+      <text x="40" y="182" class="sub-label">Ancilla N-1</text>
+      <line x1="100" y1="182" x2="110" y2="182" class="mode-line" />
+      <rect x="110" y="167" width="36" height="28" class="sq-box" />
+      <text x="128" y="181" class="box-text">SN-1(T)</text>
+      <line x1="146" y1="182" x2="156" y2="182" class="mode-line" />
+      <rect x="156" y="167" width="36" height="28" class="disp-box" />
+      <text x="174" y="181" class="box-text">DN-1(T)</text>
+      <line x1="192" y1="182" x2="220" y2="182" class="mode-line" />
+
+      <!-- BS Block Step T -->
+      <rect x="220" y="45" width="50" height="150" class="bs-box" />
+      <text x="245" y="120" class="box-text" style="font-size:12px;">BS(T)</text>
+
+      <!-- Final Loop Output Mode 0 -->
+      <line x1="270" y1="57" x2="400" y2="57" class="loop-line" marker-end="url(#arrow-blue)" />
+
+      <!-- Ancilla 1 goes to PNRD -->
+      <line x1="270" y1="112" x2="330" y2="112" class="mode-line" />
+      <path d="M 330,97 L 330,127 L 360,127 A 15,15 0 0,0 360,97 Z" class="pnrd-shape" />
+      <text x="342" y="112" class="box-text" style="font-size:10px;">n₁(T)</text>
+
+      <!-- Ancilla N-1 goes to PNRD -->
+      <line x1="270" y1="182" x2="330" y2="182" class="mode-line" />
+      <path d="M 330,167 L 330,197 L 360,197 A 15,15 0 0,0 360,167 Z" class="pnrd-shape" />
+      <text x="342" y="182" class="box-text" style="font-size:10px;">nN-1(T)</text>
+    </g>
+
+    <!-- Final Output Label -->
+    <text x="835" y="102" class="label-text" style="fill:#0284c7; font-size:13px;">|ψ_T⟩ (Final Output)</text>
+  </g>
+</svg>
