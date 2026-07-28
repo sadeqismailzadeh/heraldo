@@ -11,7 +11,7 @@ from strawberryfields.ops import Ket
 import scipy.sparse as sp
 from functools import lru_cache
 
-from heraldo.optimization.time_interfaces import TimeMultiplexedCircuit
+from heraldo.optimization.interfaces import TimeMultiplexedCircuit
 from heraldo.components.targets import TargetGenerator
 from heraldo.utils import *
 

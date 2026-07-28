@@ -25,10 +25,10 @@ import numpy as np
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
 
-import heraldo.optimization.time_circuits as circuit_module
+import heraldo.optimization.circuits as circuit_module
 import heraldo.components.targets as target_module
-from heraldo.optimization.time_circuits import *
-from heraldo.optimization.time_runner import BasinHoppingRunner
+from heraldo.optimization.circuits import *
+from heraldo.optimization.runner import BasinHoppingRunner
 from heraldo.components.targets import *
 from heraldo.utils import *
 from heraldo.factory import create_from_config
