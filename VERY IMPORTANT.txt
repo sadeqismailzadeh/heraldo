@@ -1,2 +1,0 @@
-the packages required for this project are not installed in the default python interpreter.
-they are installed in the venv in `~/vnev/`
