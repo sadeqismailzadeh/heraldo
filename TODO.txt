@@ -1,0 +1,1 @@
+generate_wigners_for_all_opt_folders is for rotations. make another for rotations and this one print wigners
