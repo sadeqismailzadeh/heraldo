@@ -15,3 +15,4 @@ data/
 **/outcmaes/**
 **/results/
 quantum.code-workspace
+**/heraldo.egg-info/
