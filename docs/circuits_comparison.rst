@@ -1,198 +1,202 @@
 ========================================================================
-Circuit Architecture Comparison: Static (Paper) vs. Time-Multiplexed (Package)
+Circuit Architecture Guide: Static Spatial vs. Time-Domain Multiplexed
 ========================================================================
 
-Overview
---------
+.. note::
+   **Crucial Clarification — Paper vs. Package Scope**:
+   
+   The research paper (*Multi-Outcome Circuit Optimization for Enhanced Non-Gaussian State Generation*) strictly evaluates **static spatial photonic circuits** ($T = 1$). Time-domain multiplexing ($T > 1$) was **not** used in the paper.
+   
+   The ``heraldo`` Python library was built with a flexible engine capable of simulating both **static spatial circuits** (by setting ``steps = 1``) and **time-domain multiplexed circuits** (by setting ``steps > 1``). Setting ``steps = 1`` in ``heraldo`` reproduces the paper's physical model and numerical results exactly.
 
-This document clarifies the architectural connection and differences between the photonic circuit model presented in the theoretical paper (``paper.tex``) and the software implementation provided in the ``heraldo`` Python package.
+---
 
-In summary:
-- **Paper Model**: Uses a **static spatial multi-mode circuit** (Gaussian Boson Sampling-like layout) where all mode preparations, unitary operations, and photon-number-resolving detections (PNRDs) occur in a single spatial stage across $N$ physical modes.
-- **Package Implementation**: Uses a **Time-Domain Multiplexed (TDM) circuit** model where a single loop mode (Mode 0) interacts sequentially over $T$ time steps with ancillary modes (Modes $1, \dots, N-1$).
-- **Equivalence**: The static spatial circuit described in the paper is a **special case** of the package's time-multiplexed architecture corresponding to setting ``steps = 1``.
-
-------------------------------------------------------------------------
-
-Architecture Diagram
---------------------
-
-The following diagram illustrates the architectural comparison between the static spatial setup in the paper and the time-domain multiplexed layout in ``heraldo``:
-
-.. image:: _static/circuit_comparison.svg
-   :align: center
-   :alt: Comparison between Static Spatial and Time-Domain Multiplexed Circuits
-   :width: 100%
-
-------------------------------------------------------------------------
-
-Time-Domain Unravelling to Spatial Networks
+Introduction: Spatial vs. Temporal Encoding
 -------------------------------------------
 
-A time-domain multiplexed fiber loop fed by a pulse train can be mathematically 'unraveled' into an equivalent spatial network of beam splitters:
+To understand how ``heraldo`` models quantum optical circuits, it helps to contrast two different ways of building a photonic quantum computer: **Spatial Encoding** and **Time-Bin Encoding**.
+
+Spatial Encoding (The Paper Setup)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In a conventional spatial photonic circuit:
+
+1. **Multiple Channels**: Physical waveguides or optical fibers run parallel to each other on an optical table or chip.
+2. **Simultaneous Action**: Photons enter all channels at the exact same instant ($T = 1$).
+3. **Physical Components**: Photons interfere through physical beam splitters and phase shifters scattered across the chip, and detectors measure ancillary modes simultaneously.
+
+While intuitive, spatial setups require more physical hardware (more beam splitters, more waveguides, and larger chips) as the number of modes increases.
+
+Time-Bin Encoding & Delay Loops (The TDM Concept)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Time-Domain Multiplexing (TDM)** replaces spatial channels with **temporal slots**:
+
+1. **Pulse Trains**: Instead of placing $N$ photons in $N$ separate waveguides, photons are generated as a sequence of light pulses (a *pulse train*) travelling down a **single** optical line, separated by a short time delay $\tau$.
+2. **Recirculating Delay Loop**: The pulse train enters a loop of optical fiber (or free-space delay) whose round-trip travel time is exactly $\tau$.
+3. **Temporal Interference**: The first pulse enters the loop and completes one round trip just as the second pulse arrives at the coupling beam splitter. The two pulses interfere at this **single physical beam splitter**!
+
+By repeating this process over multiple time steps $t = 1, 2, \dots, T$, a single fiber loop and a single beam splitter can simulate a large, multi-mode quantum circuit!
 
 .. image:: _static/tdm_loop_unravelling.svg
    :align: center
    :alt: Time-Domain Loop Unravelling into Equivalent Spatial Beam Splitter Network
    :width: 100%
 
-------------------------------------------------------------------------
+*Figure 1: (a) A pulse train entering a fiber loop with a dynamic beam splitter. (b) How the temporal loop interactions "unravel" into an equivalent multi-mode spatial beam splitter network (based on Motes et al., 2014).*
 
-Static Spatial Circuits (Paper Architecture)
---------------------------------------------
+---
 
-The circuit described in Section II.A of the paper represents a static spatial setup:
+How Motes et al. (2014) Proved Loop Equivalence
+-----------------------------------------------
 
-1. **Input State**: An $N$-mode vacuum state $|0\rangle^{\otimes N}$.
-2. **Gaussian State Preparation**: Single-mode squeezing $S_i(r_i, \phi_i)$ and displacement $D_i(\alpha_i, \theta_i)$ operators are applied independently to each spatial mode $i \in \{1, \dots, N\}$.
-3. **Linear Optical Interferometer**: Modes pass through a passive, multi-mode linear unitary transformation $U$ constructed from a spatial network of beam splitters ($BS$) and phase shifters.
-4. **Heralded Measurement**: Photon-Number-Resolving Detectors (PNRDs) are applied to $N-1$ ancillary spatial modes. Detecting photon outcome $\mathbf{n} = (n_1, n_2, \dots, n_{N-1})$ heralds a non-Gaussian target state $|\psi\rangle$ in the single unmeasured output mode.
+The physical foundation of time-domain multiplexing in quantum optics was established by **Motes et al. (2014)** (*Scalable boson-sampling with time-bin encoding using a loop-based architecture*, arXiv:1403.4007).
 
-Key characteristics:
-- All operations occur simultaneously across physical spatial channels.
-- Hardcoded spatial mode count $N$ (e.g., $N=2$ or $N=3$).
-- Single-shot execution without temporal loopback.
+Motes et al. proved that the temporal dynamics of a pulse train passing through a recirculating delay loop can be mathematically **"unraveled"** into an equivalent multi-stage network of spatial beam splitters:
 
-------------------------------------------------------------------------
+- **Step 1**: Pulse 1 enters the loop and interacts with Pulse 2 at time $t = \tau$.
+- **Step 2**: The combined state circulates and interacts with Pulse 3 at time $t = 2\tau$.
+- **Step $T$**: The recirculating state interacts with Pulse $T+1$ at time $t = T\tau$.
 
-Time-Domain Multiplexed Circuits (Package Architecture)
--------------------------------------------------------
+This means you do **not** need to build hundreds of physical beam splitters on a giant chip. A single, well-controlled fiber loop reused over $T$ temporal steps can synthesize complex multi-mode quantum states with $O(1)$ physical hardware complexity!
 
-The ``heraldo`` package generalizes circuit simulation through the ``TimeMultiplexedCircuit`` abstract interface (located in ``heraldo.components.interfaces`` and ``heraldo.components.circuits``).
+---
 
-Mode Roles and Step Transitions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+How ``heraldo`` Models Time-Domain Multiplexing
+-----------------------------------------------
 
-In ``heraldo``, modes are categorized as follows:
+In ``heraldo``, time-domain circuits are defined via the ``TimeMultiplexedCircuit`` interface. Modes are divided into two distinct operational roles:
 
-- **Mode 0 (Loop Mode)**: The persistent storage/signal mode that holds the evolving quantum state across all time steps.
-- **Modes $1, \dots, N-1$ (Ancilla Modes)**: Temporal pulse modes that interact with Mode 0 during step $t$, are measured at the end of step $t$, and are discarded.
+1. **Mode 0 (Loop Memory Mode)**:
+   This is the persistent quantum state circulating in the delay loop. It carries the evolving state vector $|\psi_t\rangle$ sequentially from step $t-1$ to step $t$. **Mode 0 is never discarded or reset.**
 
-.. note::
-   **Does Mode 0 get swapped with Ancilla Modes at each step?**
-   No. Mode 0 is **never swapped or discarded**. Mode 0 acts as the continuous quantum memory line across all $T$ steps. At each step $t$:
-   
-   1. Mode 0 is loaded with the state carried over from Step $t-1$ (``parent_ket``).
-   2. Ancilla modes (Modes $1, \dots, N-1$) are freshly prepared.
-   3. Beam splitters mix Mode 0 with the ancilla modes.
-   4. Ancilla modes are measured via PNRDs and discarded.
-   5. The post-measurement conditional state in Mode 0 is normalized and becomes the input for Step $t+1$.
+2. **Modes $1, \dots, N-1$ (Ancilla Pulse Modes)**:
+   These represent fresh incoming temporal pulses prepared at each step $t$. They enter the loop coupling stage, interfere with Mode 0, and are then measured using Photon-Number-Resolving (PNR) detectors.
 
-   Any physical swapping or routing in optical delay hardware is mathematically absorbed into the parameterization of the beam splitter gates $\text{BS}(\theta, \phi)$ acting between Mode 0 and the ancillae.
+Step-by-Step Evolution
+~~~~~~~~~~~~~~~~~~~~~~
 
-Step Control & Parameters
-~~~~~~~~~~~~~~~~~~~~~~~~~
+At each time step $t = 1, \dots, T$:
 
-- **Sequential Steps ($T \ge 1$)**: Specified by the ``steps`` parameter.
-- **Time-Invariant** (``time_invariant=True``): The same gate parameters are applied at every step $t$.
-- **Time-Variant** (``time_invariant=False``): Independent parameters $\boldsymbol{\theta}(t)$ are tuned for each step $t$.
+1. **Input**: Mode 0 arrives carrying the conditional state from the previous step, $|\psi_{t-1}\rangle$.
+2. **Preparation**: Ancilla modes $1, \dots, N-1$ are initialized in vacuum and prepared with step-dependent squeezing $S_i(t)$ and displacement $D_i(t)$.
+3. **Interference**: Step unitary $U_t$ (beam splitter network) mixes Mode 0 with the ancillae.
+4. **Measurement**: Ancilla modes are measured with PNR detectors, yielding photon counts $\mathbf{n}_t = (n_1(t), \dots, n_{N-1}(t))$.
+5. **State Update**: Conditioned on detecting pattern $\mathbf{n}_t$, the new state projected onto Mode 0 is normalized:
 
-------------------------------------------------------------------------
+   .. math::
+      |\psi_t\rangle = \frac{\bra{\mathbf{n}_t} U_t \left( |\psi_{t-1}\rangle \otimes |\phi_{\text{ancilla}}(t)\rangle \right)}{\| \bra{\mathbf{n}_t} U_t \left( |\psi_{t-1}\rangle \otimes |\phi_{\text{ancilla}}(t)\rangle \right) \|}
 
-The Paper as a Special Case (``steps = 1``)
--------------------------------------------
+6. **Recirculation**: Mode 0 circulates through the loop to become the input state for step $t+1$.
 
-When setting ``steps = 1`` in ``heraldo``, the time-domain multiplexed loop architecture reduces exactly to the static spatial circuit described in the paper:
+---
 
-- A 1-step, 2-mode TDM circuit (``TwoModeTimeDomainGeneral(steps=1)``) simulates a 2-mode spatial GBS setup (1 signal mode + 1 ancillary mode).
-- A 1-step, 3-mode TDM circuit (``ThreeModeTimeDomainGeneral(steps=1)``) simulates a 3-mode spatial GBS setup (1 signal mode + 2 ancillary modes).
+Connecting the Paper Setup to the Package (Setting ``steps = 1``)
+-----------------------------------------------------------------
 
-Mathematical Mapping
-~~~~~~~~~~~~~~~~~~~~
+Because the research paper focused on **static spatial circuits**, we evaluated single-stage interactions ($T = 1$).
 
-.. list-table::
-   :widths: 30 35 35
-   :header-rows: 1
+To reproduce the paper's results in ``heraldo``, simply set ``steps = 1``:
 
-   * - Feature
-     - Paper (Static Spatial)
-     - Package (TDM, ``steps = 1``)
-   * - Signal / Target Mode
-     - Unmeasured mode $N$
-     - Loop Mode 0
-   * - Ancillary Modes
-     - Spatial modes $1, \dots, N-1$
-     - Ancilla Modes $1, \dots, N-1$
-   * - Initial Squeezing
-     - $S_i$ applied to all $N$ modes
-     - Initial squeezing on Mode 0 + step squeezing on Ancillas
-   * - Interferometer $U$
-     - Multi-mode unitary $U$
-     - Beam splitter sequence (e.g., $BS_{0,1} \rightarrow BS_{1,2} \rightarrow BS_{0,1}$)
-   * - Measurements
-     - PNRDs on $N-1$ spatial modes
-     - PNRDs on Modes $1, \dots, N-1$ after Step 1
+- ``TwoModeTimeDomainGeneral(steps=1)`` $\longrightarrow$ 2-mode static spatial circuit (1 signal mode + 1 ancilla mode).
+- ``ThreeModeTimeDomainGeneral(steps=1)`` $\longrightarrow$ 3-mode static spatial circuit (1 signal mode + 2 ancilla modes).
 
-------------------------------------------------------------------------
+When ``steps = 1``, Mode 0 represents the paper's single unmeasured signal mode, and Modes $1, \dots, N-1$ represent the measured ancillary spatial modes.
 
-Comparison Summary Table
+.. image:: _static/circuit_comparison.svg
+   :align: center
+   :alt: Diagram comparing Static Spatial (Paper) and Time-Domain Multiplexed (Package) Architectures
+   :width: 100%
+
+*Figure 2: Architectural comparison between (a) the static spatial circuit used in the paper ($T=1$) and (b) the multi-step time-domain multiplexed circuit framework supported by heraldo ($T \ge 1$).*
+
+---
+
+Summary Comparison Table
 ------------------------
 
 .. list-table::
-   :widths: 25 35 40
+   :widths: 22 38 40
    :header-rows: 1
 
-   * - Property
-     - Paper Circuit Model
-     - Package Circuit Framework
-   * - **Physical Domain**
-     - Spatial channels
-     - Time-domain pulse trains / delay loops
-   * - **Temporal Steps**
-     - Fixed at 1
-     - Arbitrary $T \ge 1$ (configurable)
+   * - Feature
+     - Research Paper Model
+     - ``heraldo`` Package Framework
+   * - **Scope Evaluated**
+     - Static spatial circuits ($T = 1$)
+     - Both static ($T = 1$) and multi-step TDM ($T \ge 1$)
+   * - **Physical Encoding**
+     - Parallel spatial channels (waveguides/fibers)
+     - Time-bin pulse trains in optical delay loops
+   * - **Hardware Scaling**
+     - Requires $O(N^2)$ spatial beam splitters
+     - Reuses $1$ delay loop over time ($O(1)$ spatial footprint)
    * - **Mode Persistence**
      - $N$ parallel spatial modes
-     - Mode 0 persists; Modes $1 \dots N-1$ reset each step
-   * - **Scalability**
-     - Requires physical optical components per mode
-     - Reuses same loop hardware across $T$ steps
-   * - **Parameterization**
-     - Single static parameter set $\boldsymbol{\theta}$
-     - Static or step-dependent $\boldsymbol{\theta}(t)$
-   * - **Python Class**
-     - N/A (Analytical/Numerical equations)
-     - ``TwoModeTimeDomainGeneral``, ``ThreeModeTimeDomainGeneral``, etc.
+     - Mode 0 persists across steps; Ancilla modes reset each step
+   * - **How to Run**
+     - Set ``steps = 1`` in ``heraldo``
+     - Set ``steps = 1`` for static, or ``steps > 1`` for TDM
 
-------------------------------------------------------------------------
+---
 
-Code Example: Reproducing Paper Results in Package
---------------------------------------------------
+Code Examples
+-------------
 
-To run optimizations corresponding to the static circuits in the paper, instantiate the target circuit with ``steps=1``:
+1. Reproducing the Paper's Static Setup (``steps = 1``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To run a static 3-mode circuit matching the paper:
 
 .. code-block:: python
 
-   from heraldo.components.circuits import TwoModeTimeDomainGeneral, ThreeModeTimeDomainGeneral
+   from heraldo.components.circuits import ThreeModeTimeDomainGeneral
    from heraldo.components.runner import BasinHoppingRunner
    from heraldo.components.targets import CoreGKPTarget
 
-   # 1. Recreate the 2-mode static paper circuit using TDM with steps=1
-   circuit_2mode = TwoModeTimeDomainGeneral(
-       steps=1,                # steps=1 reproduces the paper's static model
+   # 1. Initialize static 3-mode circuit (steps=1 matches the paper)
+   circuit = ThreeModeTimeDomainGeneral(
+       steps=1,                 # steps=1 isolates a single static interaction stage
        time_invariant=True,
        clip_size=2.0,
        measure_fock_cutoff=10
    )
 
-   # 2. Recreate the 3-mode static paper circuit using TDM with steps=1
-   circuit_3mode = ThreeModeTimeDomainGeneral(
-       steps=1,                # steps=1 reproduces the paper's static model
-       time_invariant=True,
-       clip_size=2.0,
-       measure_fock_cutoff=10
-   )
-
-   # 3. Define target state (e.g., GKP core logical 1)
+   # 2. Define target (e.g. GKP core logical 1 state)
    target = CoreGKPTarget(n_max=4, delta_db=10.0, mu=1)
 
-   # 4. Initialize runner
+   # 3. Optimize parameters using Basin-Hopping with Beam Search
    runner = BasinHoppingRunner(
-       circuit=circuit_2mode,
+       circuit=circuit,
        target_gens=[target],
        cutoff_dim=30,
        beam_width=100
    )
 
-   # Running optimization with steps=1 evaluates the static spatial layout
-   # Increasing steps > 1 enables full time-domain multiplexing multi-step evolution.
+   result = runner.run(n_iter=20, method="L-BFGS-B")
+   print(f"Paper static circuit loss: {result['loss']}")
+
+2. Extending to Multi-Step Time-Domain Multiplexing (``steps > 1``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To explore multi-step temporal state engineering beyond the scope of the paper:
+
+.. code-block:: python
+
+   # 4-step time-domain multiplexed loop circuit
+   tdm_circuit = ThreeModeTimeDomainGeneral(
+       steps=4,                 # 4 recirculating steps in time
+       time_invariant=False,    # Dynamic, step-dependent control parameters
+       clip_size=2.0,
+       measure_fock_cutoff=10
+   )
+
+   runner_tdm = BasinHoppingRunner(
+       circuit=tdm_circuit,
+       target_gens=[target],
+       cutoff_dim=30,
+       beam_width=100
+   )
+
+   result_tdm = runner_tdm.run(n_iter=20, method="L-BFGS-B")
+   print(f"Multi-step TDM circuit loss: {result_tdm['loss']}")
