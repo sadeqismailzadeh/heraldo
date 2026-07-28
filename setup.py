@@ -6,5 +6,13 @@ setup(
     packages=[p for p in find_packages() if p.startswith("heraldo")],
     install_requires=[
         "strawberryfields",
-        ]
+        "numpy",
+        "scipy",
+        "numba",
+        "thewalrus",
+        "sympy",
+        "pandas",
+        "tqdm",
+        "matplotlib",
+    ]
 )
