@@ -1,8 +1,0 @@
-Metadata-Version: 2.4
-Name: quantum_agent
-Version: 0.1
-Requires-Dist: gymnasium
-Requires-Dist: stable-baselines3
-Requires-Dist: strawberryfields
-Requires-Dist: sb3-contrib
-Dynamic: requires-dist
