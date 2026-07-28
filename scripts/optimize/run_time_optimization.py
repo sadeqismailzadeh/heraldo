@@ -329,9 +329,9 @@ def main():
         }
     }
 
-    # Preset 3: 3-Mode Time-Domain Gadget
-    preset_circuit_3m_gadget = {
-        'class_name': 'ThreeModeTimeDomainGadget',
+    # Preset 3: 3-Mode Time-Domain General
+    preset_circuit_3m_General = {
+        'class_name': 'ThreeModeTimeDomainGeneral',
         'params': {
             'steps': STEPS,
             'time_invariant': TIME_INVARIANT,
@@ -364,8 +364,8 @@ def main():
     # 5. OUTPUT DIRECTORY SETUP
     # =========================================================================
     c_name = active_circuit_config.get('class_name', '')
-    if "Gadget" in c_name: 
-        c_tag = "Gadget"
+    if "General" in c_name: 
+        c_tag = "General"
     elif "TwoMode" in c_name and "SqueezeOnly" in c_name: 
         c_tag = "Sq2"
     elif "ThreeMode" in c_name and "SqueezeOnly" in c_name: 

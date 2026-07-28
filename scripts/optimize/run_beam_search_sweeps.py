@@ -302,7 +302,7 @@ def main():
         "family": "Cubic",
         "modes": 3,
         "circuit_config": {
-            'class_name': 'ThreeModeTimeDomainSqueezeOnly',
+            'class_name': 'ThreeModeTimeDomainGeneral',
             'params': {
                 'steps': STEPS,
                 'time_invariant': TIME_INVARIANT,

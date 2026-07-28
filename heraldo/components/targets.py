@@ -166,7 +166,7 @@ class CubicPhaseTarget(TargetGenerator):
 
 
 class CubicResourceTarget(TargetGenerator):
-    """Generates cubic phase resource state targets for gadget circuits.
+    """Generates cubic phase resource state targets for general circuits.
 
     Constructed as a finite superposition in the Fock basis:
     :math:`|\\psi\\rangle \\propto |0\\rangle + i a \\sqrt{1.5} |1\\rangle + i a |3\\rangle`.
@@ -187,7 +187,7 @@ class CubicResourceTarget(TargetGenerator):
         Returns:
             np.ndarray: The normalized target state ket in the Fock basis.
         """
-        print("Initializing Cubic Phase Target State for Gadget...")
+        print("Initializing Cubic Phase Target State for General...")
         base_ket = np.zeros(cutoff_dim, dtype=np.complex128)
         base_ket[0] = 1.0
         base_ket[1] = 1j * self.a * np.sqrt(1.5)

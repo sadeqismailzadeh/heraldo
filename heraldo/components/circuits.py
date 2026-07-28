@@ -8,9 +8,9 @@ from strawberryfields.ops import Sgate, Dgate, BSgate, Fock, LossChannel
 from heraldo.components.interfaces import TimeMultiplexedCircuit
 
 
-class BaseTimeDomainGadget(TimeMultiplexedCircuit):
+class BaseTimeDomainGeneral(TimeMultiplexedCircuit):
     """
-    Base class for time-domain multiplexed gadget circuits.
+    Base class for time-domain multiplexed general circuits.
     
     Encapsulates common configuration, initial state preparation, 
     measurement specification generation, and parameter property accessors.
@@ -69,9 +69,9 @@ class BaseTimeDomainGadget(TimeMultiplexedCircuit):
         return result.state.ket().flatten()
 
 
-class TwoModeTimeDomainGadget(BaseTimeDomainGadget):
+class TwoModeTimeDomainGeneral(BaseTimeDomainGeneral):
     """
-    Time-domain gadget with Loop (Mode 0) and Ancilla (Mode 1).
+    Time-domain general circuit with Loop (Mode 0) and Ancilla (Mode 1).
     
     Architecture per step:
     1. Prepare Ancilla (Mode 1) (Optional Fock(1)).
@@ -128,7 +128,7 @@ class TwoModeTimeDomainGadget(BaseTimeDomainGadget):
         return engine.run(prog)
 
 
-class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
+class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
     """
     Time-domain gadget with Squeezing on Ancilla (1) only, no displacement.
     
@@ -181,9 +181,9 @@ class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
         return engine.run(prog)
 
 
-class ThreeModeTimeDomainGadget(BaseTimeDomainGadget):
+class ThreeModeTimeDomainGeneral(BaseTimeDomainGeneral):
     """
-    Time-domain gadget with 1 Loop (0) and 2 Ancillas (1, 2).
+    Time-domain general circuit with 1 Loop (0) and 2 Ancillas (1, 2).
     Includes Squeezing and Displacement on ancillas.
     
     Architecture per step:
@@ -257,7 +257,7 @@ class ThreeModeTimeDomainGadget(BaseTimeDomainGadget):
         return engine.run(prog)
 
 
-class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
+class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
     """
     Time-domain gadget with 1 Loop (0) and 2 Ancillas (1, 2).
     Squeezing on ancillas 1 & 2 only, 3 BS interactions.
@@ -322,7 +322,7 @@ class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
         return engine.run(prog)
 
 
-class FourModeTimeDomainSqueezeOnly(BaseTimeDomainGadget):
+class FourModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
     """
     Time-domain gadget with 1 Loop (0) and 3 Ancillas (1, 2, 3).
     Squeezing on ancillas 1, 2, 3 only, with 6 BS interactions between adjacent modes.

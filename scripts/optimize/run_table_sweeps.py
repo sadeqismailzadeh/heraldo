@@ -848,10 +848,6 @@ def main():
                     target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
                 elif isinstance(t, CubicPhaseTarget):
                     target_names.append(f"CubicPh_g{t.gamma}_r{t.r}")
-                elif isinstance(t, TrisqueezedTarget):
-                    target_names.append("TriSq")
-                elif isinstance(t, QuadsqueezedTarget):
-                    target_names.append("QuadSq")
                 else:
                     target_names.append("UnknownTarget")
 
