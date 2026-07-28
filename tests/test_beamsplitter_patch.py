@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-import quantum_agent
+import heraldo
 import strawberryfields as sf
 from strawberryfields.ops import Dgate, BSgate
 import sys
@@ -8,7 +8,7 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter, revert_beamsplitter_patch
+from heraldo.patches.beamsplitter_patch import patch_beamsplitter, revert_beamsplitter_patch
 
 
 class TestBeamsplitterPatch(unittest.TestCase):

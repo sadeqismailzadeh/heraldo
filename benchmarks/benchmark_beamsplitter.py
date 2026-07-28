@@ -11,7 +11,7 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from quantum_agent.patches.beamsplitter_patch import patch_beamsplitter, revert_beamsplitter_patch
+from heraldo.patches.beamsplitter_patch import patch_beamsplitter, revert_beamsplitter_patch
 
 
 def run_dynamic_benchmark(truncs=[10, 15, 20, 30, 40, 50, 60], 
@@ -123,4 +123,4 @@ def run_dynamic_benchmark(truncs=[10, 15, 20, 30, 40, 50, 60],
 
 
 if __name__ == "__main__":
-    run_dynamic_benchmark()
+    run_dynamic_benchmark()

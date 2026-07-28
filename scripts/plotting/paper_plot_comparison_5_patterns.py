@@ -1,5 +1,5 @@
-import quantum_agent
-from quantum_agent.components.targets import CoreGKPTarget, CatTarget, SqueezedCatTarget
+import heraldo
+from heraldo.components.targets import CoreGKPTarget, CatTarget, SqueezedCatTarget
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,7 +8,7 @@ import strawberryfields as sf
 from strawberryfields.ops import DensityMatrix
 from pathlib import Path
 import matplotlib.gridspec as gridspec
-from quantum_agent.utils import windows_to_wsl_path
+from heraldo.utils import windows_to_wsl_path
 from matplotlib.colors import TwoSlopeNorm
 
 

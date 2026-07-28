@@ -11,7 +11,7 @@ from pathlib import Path
 import strawberryfields as sf
 from strawberryfields import ops
 
-from quantum_agent.components.targets import CoreGKPTarget
+from heraldo.components.targets import CoreGKPTarget
 
 
 def simulate_with_loss(ket, loss_rate, cutoff_dim):

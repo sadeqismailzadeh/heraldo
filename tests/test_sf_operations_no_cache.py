@@ -2,7 +2,7 @@ import os
 import sys
 import unittest
 import numpy as np
-import quantum_agent
+import heraldo
 import strawberryfields as sf
 from strawberryfields.ops import (
     BSgate,
@@ -16,7 +16,7 @@ from strawberryfields.ops import (
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from quantum_agent.patches.sf_operations_no_cache import disable_fock_caching
+from heraldo.patches.sf_operations_no_cache import disable_fock_caching
 
 
 class TestSfOperationsNoCache(unittest.TestCase):

@@ -5,7 +5,7 @@ import numpy as np
 import strawberryfields as sf
 from strawberryfields.ops import Sgate, Dgate, BSgate, Fock, LossChannel
 
-from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
+from heraldo.optimization.time_interfaces import TimeMultiplexedCircuit
 
 
 class BaseTimeDomainGadget(TimeMultiplexedCircuit):

@@ -9,21 +9,21 @@ import pickle
 import platform
 import re
 
-import quantum_agent
+import heraldo
 import matplotlib.pyplot as plt
 import numpy as np
 import strawberryfields as sf
 from strawberryfields.ops import DensityMatrix, Ket
 
-import quantum_agent.components.targets as target_module
-import quantum_agent.optimization.time_circuits as circuit_module
-from quantum_agent.components.targets import (
+import heraldo.components.targets as target_module
+import heraldo.optimization.time_circuits as circuit_module
+from heraldo.components.targets import (
     BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, SqueezedCatTarget
 )
-from quantum_agent.factory import create_from_config
-from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
-from quantum_agent.optimization.time_runner import evaluate_time_domain_circuit
-from quantum_agent.utils import (
+from heraldo.factory import create_from_config
+from heraldo.optimization.time_interfaces import TimeMultiplexedCircuit
+from heraldo.optimization.time_runner import evaluate_time_domain_circuit
+from heraldo.utils import (
     compute_ng_scores, db_to_r, fidelity_max_rotation, fidelity_pure_state, windows_to_wsl_path
 )
 

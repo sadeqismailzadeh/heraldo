@@ -25,13 +25,13 @@ import numpy as np
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
 
-import quantum_agent.optimization.time_circuits as circuit_module
-import quantum_agent.components.targets as target_module
-from quantum_agent.optimization.time_circuits import *
-from quantum_agent.optimization.time_runner import BasinHoppingRunner
-from quantum_agent.components.targets import *
-from quantum_agent.utils import *
-from quantum_agent.factory import create_from_config
+import heraldo.optimization.time_circuits as circuit_module
+import heraldo.components.targets as target_module
+from heraldo.optimization.time_circuits import *
+from heraldo.optimization.time_runner import BasinHoppingRunner
+from heraldo.components.targets import *
+from heraldo.utils import *
+from heraldo.factory import create_from_config
 
 
 def prepare_measurement_patterns(patterns):

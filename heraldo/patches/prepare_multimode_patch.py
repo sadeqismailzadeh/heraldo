@@ -1,4 +1,4 @@
-import quantum_agent
+import heraldo
 import numpy as np
 import strawberryfields.backends.fockbackend.ops as ops
 from strawberryfields.backends.fockbackend.circuit import Circuit

@@ -1,5 +1,5 @@
-import quantum_agent
-from quantum_agent.components.targets import CoreGKPTarget
+import heraldo
+from heraldo.components.targets import CoreGKPTarget
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,7 +8,7 @@ import strawberryfields as sf
 from strawberryfields.ops import DensityMatrix
 from pathlib import Path
 import matplotlib.gridspec as gridspec
-from quantum_agent.utils import windows_to_wsl_path
+from heraldo.utils import windows_to_wsl_path
 from matplotlib.colors import TwoSlopeNorm
 
 def get_wigner_from_dm(rho, grid_size=150, x_limit=5, cutoff_dim=30):

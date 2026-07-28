@@ -1,4 +1,4 @@
-import quantum_agent
+import heraldo
 import unittest
 import numpy as np
 import strawberryfields as sf
@@ -11,9 +11,9 @@ import math
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 try:
-    from quantum_agent.patches.prepare_multimode_patch import patch_prepare_multimode, revert_prepare_multimode_patch
+    from heraldo.patches.prepare_multimode_patch import patch_prepare_multimode, revert_prepare_multimode_patch
 except ImportError:
-    print("Error: Could not import patch. Ensure 'quantum_agent' package is in the python path.")
+    print("Error: Could not import patch. Ensure 'heraldo' package is in the python path.")
     sys.exit(1)
 
 class TestPrepareMultimodeOptimization(unittest.TestCase):

@@ -24,16 +24,16 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
 
-import quantum_agent.optimization.time_circuits as circuit_module
-import quantum_agent.components.targets as target_module
-from quantum_agent.optimization.time_interfaces import TimeMultiplexedCircuit
-from quantum_agent.optimization.time_runner import BasinHoppingRunner
-from quantum_agent.components.targets import (
+import heraldo.optimization.time_circuits as circuit_module
+import heraldo.components.targets as target_module
+from heraldo.optimization.time_interfaces import TimeMultiplexedCircuit
+from heraldo.optimization.time_runner import BasinHoppingRunner
+from heraldo.components.targets import (
     TargetGenerator, CoreGKPTarget, SqueezedCatTarget, CatTarget,
     BinomialCodeTarget, CubicPhaseTarget, TrisqueezedTarget, QuadsqueezedTarget
 )
-from quantum_agent.utils import db_to_r, compute_ng_scores
-from quantum_agent.factory import create_from_config
+from heraldo.utils import db_to_r, compute_ng_scores
+from heraldo.factory import create_from_config
 
 
 def prepare_measurement_patterns(patterns):
