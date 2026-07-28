@@ -16,3 +16,4 @@ data/
 **/results/
 quantum.code-workspace
 **/heraldo.egg-info/
+/docs/_build
