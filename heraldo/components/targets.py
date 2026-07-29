@@ -19,27 +19,7 @@ from strawberryfields.ops import Sgate, Dgate, Vgate, Catstate, Ket
 from scipy.special import factorial, comb
 import pandas as pd
 
-class TargetGenerator(abc.ABC):
-    """Abstract base class for target state generators in the Fock basis.
-
-    Subclasses implement specific non-Gaussian or Gaussian quantum state
-    preparations used as targets in circuit optimization.
-    """
-
-    @abc.abstractmethod
-    def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
-        """Generates the target state vector (ket) in the Fock basis.
-
-        Args:
-            cutoff_dim (int): The Fock space truncation cutoff dimension.
-
-        Returns:
-            np.ndarray: Complex 1D array representing the state vector in Fock space.
-        """
-        pass
-
-
-# --- Target Implementations ---
+from heraldo.components.interfaces import TargetGenerator
 
 
 class SqueezedCatTarget(TargetGenerator):
