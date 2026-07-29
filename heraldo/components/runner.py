@@ -238,9 +238,23 @@ def _process_beam_search(circuit: TimeMultiplexedCircuit, initial_ket: np.ndarra
     return active_kets, active_probs, active_outcome_sums, total_truncation_error, active_outcomes
 
 
+def default_loss_fn(probs: np.ndarray, fidelities: np.ndarray) -> float:
+    """Default objective calculation based on branch probabilities and fidelities."""
+    min_infidel = 2e-2
+    infidelities = np.maximum(1.0 - fidelities, min_infidel)
+    capped_fidelities = np.minimum(fidelities, 1 - min_infidel)
+
+    log_vals = np.log10(infidelities) / np.log10(min_infidel)
+    objective2 = np.sum(probs * (capped_fidelities**2 * log_vals)**4)
+    return float(np.log(objective2 + 1e-72) + 1e4 * objective2)
+
+
 def _compute_fidelities_and_loss(active_kets, active_probs, active_outcome_sums, target_kets,
-                                 total_truncation_error, penalty_strength):
+                                 total_truncation_error, penalty_strength, loss_fn=None):
     """Computes max phase-rotated fidelities and loss objective."""
+    if loss_fn is None:
+        loss_fn = default_loss_fn
+
     mask_nonzero = active_outcome_sums > 0
 
     expected_fidelity = 0.0
@@ -261,13 +275,7 @@ def _compute_fidelities_and_loss(active_kets, active_probs, active_outcome_sums,
         fidelities = np.max(pairwise_fidelities, axis=1)
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
-        min_infidel = 2e-2
-        infidelities = np.maximum(1.0 - fidelities, min_infidel)
-        capped_fidelities = np.minimum(fidelities, 1 - min_infidel)
-
-        log_vals = np.log10(infidelities) / np.log10(min_infidel)
-        objective2 = np.sum(final_probs * (capped_fidelities**2 * log_vals)**4)
-        expected_fidelity = np.log(objective2 + 1e-72) + 1e4 * objective2
+        expected_fidelity = loss_fn(final_probs, fidelities)
 
     loss = -1 * expected_fidelity + (penalty_strength * total_truncation_error)
 
@@ -304,7 +312,8 @@ def _format_branch_details(mask_nonzero, active_probs, fidelities, best_target_i
 
 
 def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, target_kets, cutoff_dim, beam_width,
-                                  penalty_strength, measurement_patterns=None, return_details: bool = False):
+                                  penalty_strength, measurement_patterns=None, return_details: bool = False,
+                                  loss_fn=None):
     """
     Evaluates the circuit using either Beam Search or fixed measurement patterns.
     
@@ -350,7 +359,8 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         patterns_arr = None
 
     loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero = _compute_fidelities_and_loss(
-        active_kets, active_probs, active_outcome_sums, target_kets, total_truncation_error, penalty_strength
+        active_kets, active_probs, active_outcome_sums, target_kets, total_truncation_error, penalty_strength,
+        loss_fn=loss_fn
     )
 
     if not return_details:
@@ -393,6 +403,7 @@ class BasinHoppingRunner:
                  measurement_patterns = None,
                  num_parallel_runs: int = 4,
                  num_processes: int = 4,
+                 loss_fn = None,
                  **kwargs):
         
         self.circuit = circuit
@@ -407,6 +418,7 @@ class BasinHoppingRunner:
         self.measurement_patterns = measurement_patterns
         self.num_parallel_runs = num_parallel_runs
         self.num_processes = num_processes
+        self.loss_fn = loss_fn
         self.eval_count = 0
         self.iteration_count = 0
         
@@ -423,6 +435,7 @@ class BasinHoppingRunner:
             self.beam_width,
             self.penalty_strength,
             self.measurement_patterns,
+            loss_fn=self.loss_fn,
         )
 
     def callback(self, x, f, accept):
@@ -484,7 +497,8 @@ class BasinHoppingRunner:
                 beam_width=self.beam_width,
                 penalty_strength=self.penalty_strength,
                 measurement_patterns=self.measurement_patterns,
-                return_details=True
+                return_details=True,
+                loss_fn=self.loss_fn,
             )
             
             return {
