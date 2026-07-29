@@ -1,5 +1,7 @@
-"""
-Concrete implementation of TimeMultiplexedCircuit for time-domain optimization.
+"""Concrete implementations of TimeMultiplexedCircuit for time-domain photonic optimization.
+
+Provides multi-mode time-domain multiplexed optical circuit architectures containing
+a persistent memory mode (Mode 0) and one or more ancillary modes (Modes 1..N-1).
 """
 import numpy as np
 import strawberryfields as sf
@@ -9,11 +11,26 @@ from heraldo.components.interfaces import TimeMultiplexedCircuit
 
 
 class BaseTimeDomainGeneral(TimeMultiplexedCircuit):
-    """
-    Base class for time-domain multiplexed general circuits.
-    
-    Encapsulates common configuration, initial state preparation, 
-    measurement specification generation, and parameter property accessors.
+    """Base class for time-domain multiplexed general circuits.
+
+    Encapsulates common configuration, initial state preparation for loop Mode 0,
+    measurement specifications for ancillary modes, and parameter property accessors.
+
+    Args:
+        steps (int): Number of time-domain recirculation steps :math:`T`.
+        time_invariant (bool, optional): If True, parameter values are identical across all steps.
+            Defaults to False.
+        clip_size (float, optional): Maximum absolute bound for squeezing and displacement
+            magnitude parameters. Defaults to 2.0.
+        measure_fock_cutoff (int, optional): Maximum Fock cutoff for photon-number-resolving (PNR)
+            detectors on ancillary modes. Defaults to 5.
+        num_single_photon (int, optional): Number of ancillary modes initialized with single-photon
+            states :math:`|1\\rangle` instead of vacuum :math:`|0\\rangle`. Defaults to 0.
+        initial_fock_one (bool, optional): If True, initializes the memory mode (Mode 0) in
+            the single-photon state :math:`|1\\rangle` before squeezing. Defaults to False.
+        loss_transmissivity (float, optional): Channel transmissivity parameter :math:`\\eta \\in (0, 1]`
+            simulating loss on all modes at each step. Defaults to 1.0 (lossless).
+        **kwargs: Additional keyword arguments passed to :class:`TimeMultiplexedCircuit`.
     """
     num_modes: int = 2
 
@@ -32,25 +49,46 @@ class BaseTimeDomainGeneral(TimeMultiplexedCircuit):
 
     @property
     def per_step_parameter_names(self) -> list[str]:
+        """list[str]: Names of optimization parameters applied per time step."""
         return self._param_names
 
     @property
     def per_step_parameter_bounds(self) -> list[tuple[float, float]]:
+        """list[tuple[float, float]]: Parameter bounds (min, max) per time step."""
         return self._bounds
 
     def get_measurement_specs(self) -> list[tuple[int, int]]:
+        """Generates measurement specifications for ancillary modes.
+
+        Returns:
+            list[tuple[int, int]]: List of tuples ``(mode_index, max_fock_cutoff)``
+            for each measured ancillary mode (Modes 1 to N-1).
+        """
         return [(mode, self.measure_fock_cutoff) for mode in range(1, self.num_modes)]
 
     @property
     def num_initial_parameters(self) -> int:
+        """int: Number of parameters used to prepare the initial loop state on Mode 0."""
         return 2
 
     @property
     def initial_parameter_bounds(self) -> list[tuple[float, float]]:
+        """list[tuple[float, float]]: Bounds for the initial state preparation parameters."""
         return [(-self.clip_size, self.clip_size), (-8*np.pi, 8*np.pi)]
 
     def get_initial_state_ket(self, init_params: np.ndarray, cutoff_dim: int) -> np.ndarray:
-        """Generates the starting state for the loop mode (Mode 0)."""
+        """Generates the initial state vector (ket) for the loop mode (Mode 0).
+
+        Prepares Mode 0 by applying optional single-photon initialization followed by squeezing
+        :math:`\\hat{S}(r, \\phi)` with parameters provided in ``init_params``.
+
+        Args:
+            init_params (np.ndarray): 1D array containing ``[r, phi]`` initial squeezing parameters.
+            cutoff_dim (int): Fock space cutoff dimension for state vector truncation.
+
+        Returns:
+            np.ndarray: Complex 1D array representing the initial state vector in Fock space.
+        """
         r, phi = init_params[0], init_params[1]
 
         if abs(r) < 1e-6 and not self.initial_fock_one:
@@ -70,14 +108,30 @@ class BaseTimeDomainGeneral(TimeMultiplexedCircuit):
 
 
 class TwoModeTimeDomainGeneral(BaseTimeDomainGeneral):
-    """
-    Time-domain general circuit with Loop (Mode 0) and Ancilla (Mode 1).
-    
+    """Two-mode time-domain circuit consisting of a Loop mode (Mode 0) and an Ancilla mode (Mode 1).
+
+    Each time step applies squeezing and displacement gates to the ancillary mode, followed by a 
+    beam splitter interaction mixing the persistent loop mode with the prepared ancilla.
+
     Architecture per step:
-    1. Prepare Ancilla (Mode 1) (Optional Fock(1)).
-    2. Squeeze Ancilla.
-    3. Displace Ancilla.
-    4. BS Interaction between Loop (0) and Ancilla (1).
+        1. Prepare Ancilla (Mode 1) in vacuum :math:`|0\\rangle` or single-photon :math:`|1\\rangle`.
+        2. Apply Squeezing gate :math:`\\hat{S}(r_{\\text{sq}}, \\phi_{\\text{sq}})` to Ancilla.
+        3. Apply Displacement gate :math:`\\hat{D}(r_{\\text{disp}}, \\phi_{\\text{disp}})` to Ancilla.
+        4. Apply Beam Splitter :math:`\\hat{BS}(\\theta, \\phi)` between Loop (Mode 0) and Ancilla (Mode 1).
+        5. Apply optional loss channels with transmissivity :math:`\\eta`.
+
+    Args:
+        steps (int): Number of time-domain recirculation steps :math:`T`.
+        time_invariant (bool, optional): If True, circuit parameters are identical across all steps.
+            Defaults to False.
+        clip_size (float, optional): Maximum absolute bound for squeezing and displacement magnitudes.
+            Defaults to 2.0.
+        measure_fock_cutoff (int, optional): PNR detector cutoff dimension for Mode 1. Defaults to 5.
+        num_single_photon (int, optional): Number of ancillary modes initialized in :math:`|1\\rangle` (0 or 1).
+            Defaults to 0.
+        initial_fock_one (bool, optional): If True, initializes Mode 0 in :math:`|1\\rangle`. Defaults to False.
+        loss_transmissivity (float, optional): Channel transmissivity :math:`\\eta \\in (0, 1]`. Defaults to 1.0.
+        **kwargs: Additional arguments passed to :class:`BaseTimeDomainGeneral`.
     """
     num_modes = 2
 
@@ -109,7 +163,18 @@ class TwoModeTimeDomainGeneral(BaseTimeDomainGeneral):
         ]
 
     def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
-        """Executes one step of the time-domain circuit."""
+        """Executes a single step of the two-mode general time-domain circuit.
+
+        Args:
+            state: Unused legacy state parameter (state preparation is handled via engine context).
+            step_idx (int): Current step index :math:`t`.
+            step_params (np.ndarray): Array of 6 step parameters:
+                ``[sq_r, sq_phi, disp_r, disp_phi, bs_theta, bs_phi]``.
+            engine (sf.Engine): Strawberry Fields engine instance configured with Mode 0 input.
+
+        Returns:
+            sf.engine.Result: Strawberry Fields execution result containing updated state.
+        """
         sq_r, sq_phi, disp_r, disp_phi, bs_theta, bs_phi = step_params
         
         prog = sf.Program(2)
@@ -129,13 +194,25 @@ class TwoModeTimeDomainGeneral(BaseTimeDomainGeneral):
 
 
 class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
-    """
-    Time-domain gadget with Squeezing on Ancilla (1) only, no displacement.
-    
+    """Two-mode time-domain circuit with squeezing-only ancilla preparation (no displacement).
+
     Architecture per step:
-    1. Prepare Ancilla (Mode 1).
-    2. Squeeze Ancilla (Mode 1).
-    3. BS Interaction between Loop (0) and Ancilla (1).
+        1. Prepare Ancilla (Mode 1) in vacuum :math:`|0\\rangle` or single-photon :math:`|1\\rangle`.
+        2. Apply Squeezing gate :math:`\\hat{S}(r_{\\text{sq}}, \\phi_{\\text{sq}})` to Ancilla.
+        3. Apply Beam Splitter :math:`\\hat{BS}(\\theta, \\phi)` between Loop (Mode 0) and Ancilla (Mode 1).
+        4. Apply optional loss channels with transmissivity :math:`\\eta`.
+
+    Args:
+        steps (int): Number of time-domain recirculation steps :math:`T`.
+        time_invariant (bool, optional): If True, circuit parameters are identical across all steps.
+            Defaults to False.
+        clip_size (float, optional): Maximum absolute bound for squeezing magnitudes. Defaults to 2.0.
+        measure_fock_cutoff (int, optional): PNR detector cutoff dimension for Mode 1. Defaults to 5.
+        num_single_photon (int, optional): Number of ancillary modes initialized in :math:`|1\\rangle`.
+            Defaults to 0.
+        initial_fock_one (bool, optional): If True, initializes Mode 0 in :math:`|1\\rangle`. Defaults to False.
+        loss_transmissivity (float, optional): Channel transmissivity :math:`\\eta \\in (0, 1]`. Defaults to 1.0.
+        **kwargs: Additional arguments passed to :class:`BaseTimeDomainGeneral`.
     """
     num_modes = 2
 
@@ -164,6 +241,18 @@ class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
         ]
 
     def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
+        """Executes a single step of the two-mode squeeze-only time-domain circuit.
+
+        Args:
+            state: Unused legacy state parameter.
+            step_idx (int): Current step index :math:`t`.
+            step_params (np.ndarray): Array of 4 step parameters:
+                ``[sq_r, sq_phi, bs_theta, bs_phi]``.
+            engine (sf.Engine): Strawberry Fields engine instance configured with Mode 0 input.
+
+        Returns:
+            sf.engine.Result: Strawberry Fields execution result containing updated state.
+        """
         sq_r, sq_phi, bs_theta, bs_phi = step_params
         
         prog = sf.Program(2)
@@ -182,15 +271,29 @@ class TwoModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
 
 
 class ThreeModeTimeDomainGeneral(BaseTimeDomainGeneral):
-    """
-    Time-domain general circuit with 1 Loop (0) and 2 Ancillas (1, 2).
-    Includes Squeezing and Displacement on ancillas.
-    
+    """Three-mode time-domain circuit consisting of 1 Loop mode (Mode 0) and 2 Ancilla modes (Modes 1, 2).
+
+    Includes independent squeezing and displacement on both ancillae, and three beam splitter interactions.
+
     Architecture per step:
-    1. Reset Ancillas 1, 2.
-    2. Squeeze 1, 2.
-    3. Displace 1, 2.
-    4. BS(0,1), BS(1,2), BS(0,1).
+        1. Prepare Ancillae (Modes 1 & 2) in vacuum or single-photon states.
+        2. Apply Squeezing :math:`\\hat{S}_1`, :math:`\\hat{S}_2` to Modes 1 & 2.
+        3. Apply Displacement :math:`\\hat{D}_1`, :math:`\\hat{D}_2` to Modes 1 & 2.
+        4. Apply Beam Splitter sequence: :math:`\\hat{BS}(0,1)`, :math:`\\hat{BS}(1,2)`, and :math:`\\hat{BS}(0,1)`.
+        5. Apply optional loss channels with transmissivity :math:`\\eta`.
+
+    Args:
+        steps (int): Number of time-domain recirculation steps :math:`T`.
+        time_invariant (bool, optional): If True, circuit parameters are identical across all steps.
+            Defaults to False.
+        clip_size (float, optional): Maximum absolute bound for squeezing and displacement magnitudes.
+            Defaults to 2.0.
+        measure_fock_cutoff (int, optional): PNR detector cutoff dimension for Modes 1 & 2. Defaults to 5.
+        num_single_photon (int, optional): Number of ancillary modes initialized in :math:`|1\\rangle` (0, 1, or 2).
+            Defaults to 0.
+        initial_fock_one (bool, optional): If True, initializes Mode 0 in :math:`|1\\rangle`. Defaults to False.
+        loss_transmissivity (float, optional): Channel transmissivity :math:`\\eta \\in (0, 1]`. Defaults to 1.0.
+        **kwargs: Additional arguments passed to :class:`BaseTimeDomainGeneral`.
     """
     num_modes = 3
 
@@ -222,6 +325,19 @@ class ThreeModeTimeDomainGeneral(BaseTimeDomainGeneral):
         self._bounds.extend([(-8*np.pi, 8*np.pi), (-8*np.pi, 8*np.pi)] * 3)
 
     def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
+        """Executes a single step of the three-mode general time-domain circuit.
+
+        Args:
+            state: Unused legacy state parameter.
+            step_idx (int): Current step index :math:`t`.
+            step_params (np.ndarray): Array of 14 step parameters:
+                ``[sq1_r, sq1_phi, sq2_r, sq2_phi, disp1_r, disp1_phi, disp2_r, disp2_phi,
+                bs_theta1, bs_phi1, bs_theta2, bs_phi2, bs_theta3, bs_phi3]``.
+            engine (sf.Engine): Strawberry Fields engine instance configured with Mode 0 input.
+
+        Returns:
+            sf.engine.Result: Strawberry Fields execution result containing updated state.
+        """
         sq1_r, sq1_phi = step_params[0], step_params[1]
         sq2_r, sq2_phi = step_params[2], step_params[3]
         
@@ -258,14 +374,25 @@ class ThreeModeTimeDomainGeneral(BaseTimeDomainGeneral):
 
 
 class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
-    """
-    Time-domain gadget with 1 Loop (0) and 2 Ancillas (1, 2).
-    Squeezing on ancillas 1 & 2 only, 3 BS interactions.
-    
+    """Three-mode time-domain circuit with squeezing-only ancilla preparation (no displacement).
+
     Architecture per step:
-    1. Reset Ancillas 1, 2.
-    2. Squeeze 1, 2.
-    3. BS(0,1), BS(1,2), BS(0,1).
+        1. Prepare Ancillae (Modes 1 & 2) in vacuum or single-photon states.
+        2. Apply Squeezing :math:`\\hat{S}_1`, :math:`\\hat{S}_2` to Modes 1 & 2.
+        3. Apply Beam Splitter sequence: :math:`\\hat{BS}(0,1)`, :math:`\\hat{BS}(1,2)`, and :math:`\\hat{BS}(0,1)`.
+        4. Apply optional loss channels with transmissivity :math:`\\eta`.
+
+    Args:
+        steps (int): Number of time-domain recirculation steps :math:`T`.
+        time_invariant (bool, optional): If True, circuit parameters are identical across all steps.
+            Defaults to False.
+        clip_size (float, optional): Maximum absolute bound for squeezing magnitudes. Defaults to 2.0.
+        measure_fock_cutoff (int, optional): PNR detector cutoff dimension for Modes 1 & 2. Defaults to 5.
+        num_single_photon (int, optional): Number of ancillary modes initialized in :math:`|1\\rangle` (0, 1, or 2).
+            Defaults to 0.
+        initial_fock_one (bool, optional): If True, initializes Mode 0 in :math:`|1\\rangle`. Defaults to False.
+        loss_transmissivity (float, optional): Channel transmissivity :math:`\\eta \\in (0, 1]`. Defaults to 1.0.
+        **kwargs: Additional arguments passed to :class:`BaseTimeDomainGeneral`.
     """
     num_modes = 3
 
@@ -295,6 +422,18 @@ class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
         self._bounds.extend([(-8*np.pi, 8*np.pi)] * 3)
 
     def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
+        """Executes a single step of the three-mode squeeze-only time-domain circuit.
+
+        Args:
+            state: Unused legacy state parameter.
+            step_idx (int): Current step index :math:`t`.
+            step_params (np.ndarray): Array of 10 step parameters:
+                ``[sq1_r, sq2_r, sq1_phi, sq2_phi, bs_theta1, bs_theta2, bs_theta3, bs_phi1, bs_phi2, bs_phi3]``.
+            engine (sf.Engine): Strawberry Fields engine instance configured with Mode 0 input.
+
+        Returns:
+            sf.engine.Result: Strawberry Fields execution result containing updated state.
+        """
         sq_r = step_params[:2]
         sq_phi = step_params[2:4]
         bs_theta = step_params[4:7]
@@ -323,15 +462,29 @@ class ThreeModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
 
 
 class FourModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
-    """
-    Time-domain gadget with 1 Loop (0) and 3 Ancillas (1, 2, 3).
-    Squeezing on ancillas 1, 2, 3 only, with 6 BS interactions between adjacent modes.
-    
+    """Four-mode time-domain circuit consisting of 1 Loop mode (Mode 0) and 3 Ancilla modes (Modes 1, 2, 3).
+
+    Applies squeezing to ancillae 1, 2, and 3, followed by a 6 beam-splitter nearest-neighbor ladder network.
+
     Architecture per step:
-    1. Reset Ancillas 1, 2, 3.
-    2. Squeeze 1, 2, 3.
-    3. BS interactions in order: (0,1), (1,2), (2,3), (3,2), (2,1), (1,0)
-       (forward then backward through the chain of adjacent modes).
+        1. Prepare Ancillae (Modes 1, 2, 3) in vacuum or single-photon states.
+        2. Apply Squeezing :math:`\\hat{S}_1`, :math:`\\hat{S}_2`, :math:`\\hat{S}_3` to Modes 1, 2, 3.
+        3. Apply Beam Splitter network across adjacent mode pairs:
+           :math:`\\hat{BS}(0,1)`, :math:`\\hat{BS}(2,3)`, :math:`\\hat{BS}(1,2)`,
+           :math:`\\hat{BS}(0,1)`, :math:`\\hat{BS}(2,3)`, :math:`\\hat{BS}(1,2)`.
+        4. Apply optional loss channels with transmissivity :math:`\\eta`.
+
+    Args:
+        steps (int): Number of time-domain recirculation steps :math:`T`.
+        time_invariant (bool, optional): If True, circuit parameters are identical across all steps.
+            Defaults to False.
+        clip_size (float, optional): Maximum absolute bound for squeezing magnitudes. Defaults to 2.0.
+        measure_fock_cutoff (int, optional): PNR detector cutoff dimension for Modes 1, 2 & 3. Defaults to 5.
+        num_single_photon (int, optional): Number of ancillary modes initialized in :math:`|1\\rangle` (0 to 3).
+            Defaults to 0.
+        initial_fock_one (bool, optional): If True, initializes Mode 0 in :math:`|1\\rangle`. Defaults to False.
+        loss_transmissivity (float, optional): Channel transmissivity :math:`\\eta \\in (0, 1]`. Defaults to 1.0.
+        **kwargs: Additional arguments passed to :class:`BaseTimeDomainGeneral`.
     """
     num_modes = 4
 
@@ -363,6 +516,19 @@ class FourModeTimeDomainSqueezeOnly(BaseTimeDomainGeneral):
         self._bounds.extend([(-8*np.pi, 8*np.pi)] * 6)
 
     def run_step(self, state, step_idx: int, step_params: np.ndarray, engine: sf.Engine):
+        """Executes a single step of the four-mode squeeze-only time-domain circuit.
+
+        Args:
+            state: Unused legacy state parameter.
+            step_idx (int): Current step index :math:`t`.
+            step_params (np.ndarray): Array of 18 step parameters:
+                ``[sq1_r, sq2_r, sq3_r, sq1_phi, sq2_phi, sq3_phi,
+                bs_theta1, ..., bs_theta6, bs_phi1, ..., bs_phi6]``.
+            engine (sf.Engine): Strawberry Fields engine instance configured with Mode 0 input.
+
+        Returns:
+            sf.engine.Result: Strawberry Fields execution result containing updated state.
+        """
         sq_r = step_params[:3]
         sq_phi = step_params[3:6]
         bs_theta = step_params[6:12]
