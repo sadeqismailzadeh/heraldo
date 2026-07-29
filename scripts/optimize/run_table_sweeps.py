@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimiz
 import heraldo.components.circuits as circuit_module
 import heraldo.components.targets as target_module
 from heraldo.components.circuits import *
-from heraldo.components.runner import BasinHoppingRunner
+from heraldo.components.runner import BasinHoppingRunner, fixed_pattern_capped_loss_fn
 from heraldo.components.targets import *
 from heraldo.utils import *
 from heraldo.factory import create_from_config
@@ -757,7 +757,8 @@ def main():
                 cutoff_dim=CUTOFF_DIM,
                 beam_width=BEAM_WIDTH,
                 penalty_strength=1,
-                measurement_patterns=patterns
+                measurement_patterns=patterns,
+                loss_fn=fixed_pattern_capped_loss_fn
             )
 
             start_time = time.time()

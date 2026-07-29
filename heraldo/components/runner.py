@@ -238,22 +238,61 @@ def _process_beam_search(circuit: TimeMultiplexedCircuit, initial_ket: np.ndarra
     return active_kets, active_probs, active_outcome_sums, total_truncation_error, active_outcomes
 
 
-def default_loss_fn(probs: np.ndarray, fidelities: np.ndarray) -> float:
-    """Default objective calculation based on branch probabilities and fidelities."""
-    min_infidel = 2e-2
-    infidelities = np.maximum(1.0 - fidelities, min_infidel)
-    capped_fidelities = np.minimum(fidelities, 1 - min_infidel)
+def beam_search_loss_fn(probs: np.ndarray, fidelities: np.ndarray, epsilon: float = 2e-2,
+                        delta: float = 1e-72, lam: float = 1e4) -> float:
+    """Beam search pattern discovery loss function (Eqs. 3-5 in paper).
+    
+    Filters low-fidelity outcomes and sharpens gradients around high-quality candidate patterns.
+    L_beam = - log(S + delta) - lambda * S
+    where S = sum_k p_k * (F_tilde_k^2 * Lambda_k)^4
+    
+    Returns score such that loss = -1 * score + penalty = L_beam + penalty.
+    """
+    infidelities = np.maximum(1.0 - fidelities, epsilon)
+    capped_fidelities = np.minimum(fidelities, 1.0 - epsilon)
 
-    log_vals = np.log10(infidelities) / np.log10(min_infidel)
-    objective2 = np.sum(probs * (capped_fidelities**2 * log_vals)**4)
-    return float(np.log(objective2 + 1e-72) + 1e4 * objective2)
+    log_vals = np.log10(infidelities) / np.log10(epsilon)
+    score = np.sum(probs * (capped_fidelities**2 * log_vals)**4)
+    return float(np.log(score + delta) + lam * score)
+
+
+default_loss_fn = beam_search_loss_fn
+
+
+def fixed_pattern_capped_loss_fn(probs: np.ndarray, fidelities: np.ndarray, f_cap: float = 0.95,
+                                alpha: float = None) -> float:
+    """Fixed-pattern optimization loss function under capped fidelity regime (Eq. 2 in paper).
+    
+    L_fixed = - sum_k (alpha * p_k + min(F_k, F_cap))
+    Returns score such that loss = -1 * score + penalty = L_fixed + penalty.
+    
+    Default alpha is set to N_pat (the number of evaluated patterns).
+    """
+    if alpha is None:
+        alpha = float(len(probs))
+    capped_fidelities = np.minimum(fidelities, f_cap)
+    return float(np.sum(alpha * probs + capped_fidelities))
+
+
+def fixed_pattern_free_loss_fn(probs: np.ndarray, fidelities: np.ndarray,
+                              alpha: float = None) -> float:
+    """Fixed-pattern optimization loss function under free (uncapped) fidelity regime (Eq. 2 in paper).
+    
+    L_fixed = - sum_k (alpha * p_k + F_k)
+    Returns score such that loss = -1 * score + penalty = L_fixed + penalty.
+    
+    Default alpha is set to 0.1 * N_pat (0.1 times the number of evaluated patterns).
+    """
+    if alpha is None:
+        alpha = 0.1 * float(len(probs))
+    return float(np.sum(alpha * probs + fidelities))
 
 
 def _compute_fidelities_and_loss(active_kets, active_probs, active_outcome_sums, target_kets,
                                  total_truncation_error, penalty_strength, loss_fn=None):
     """Computes max phase-rotated fidelities and loss objective."""
     if loss_fn is None:
-        loss_fn = default_loss_fn
+        loss_fn = beam_search_loss_fn
 
     mask_nonzero = active_outcome_sums > 0
 
@@ -357,6 +396,9 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         active_kets, active_probs, active_outcome_sums, total_truncation_error, active_outcomes = res
         possible_mask = None
         patterns_arr = None
+
+    if loss_fn is None:
+        loss_fn = fixed_pattern_capped_loss_fn if use_fixed_patterns else beam_search_loss_fn
 
     loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero = _compute_fidelities_and_loss(
         active_kets, active_probs, active_outcome_sums, target_kets, total_truncation_error, penalty_strength,

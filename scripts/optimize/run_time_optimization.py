@@ -27,7 +27,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimiz
 import heraldo.components.circuits as circuit_module
 import heraldo.components.targets as target_module
 from heraldo.components.interfaces import TimeMultiplexedCircuit
-from heraldo.components.runner import BasinHoppingRunner
+from heraldo.components.runner import (
+    BasinHoppingRunner, beam_search_loss_fn, fixed_pattern_capped_loss_fn, fixed_pattern_free_loss_fn
+)
 from heraldo.components.targets import (
     TargetGenerator, CoreGKPTarget, SqueezedCatTarget, CatTarget,
     BinomialCodeTarget, CubicPhaseTarget, TrisqueezedTarget, QuadsqueezedTarget
@@ -413,6 +415,12 @@ def main():
     # =========================================================================
     # 6. RUNNER INITIALIZATION & OPTIMIZATION LOOP
     # =========================================================================
+    # Select loss function based on measurement strategy and regime
+    if prepared_patterns is None:
+        active_loss_fn = beam_search_loss_fn
+    else:
+        active_loss_fn = fixed_pattern_capped_loss_fn  # or fixed_pattern_free_loss_fn
+
     runner = BasinHoppingRunner(
         num_processes=NUM_PROCESSES,
         circuit=circuit,
@@ -420,7 +428,8 @@ def main():
         cutoff_dim=CUTOFF_DIM,
         beam_width=BEAM_WIDTH,
         penalty_strength=1.0,
-        measurement_patterns=prepared_patterns
+        measurement_patterns=prepared_patterns,
+        loss_fn=active_loss_fn
     )
 
     results_list = []

@@ -22,7 +22,10 @@ from heraldo.components.targets import (
 )
 from heraldo.factory import create_from_config
 from heraldo.components.interfaces import TimeMultiplexedCircuit
-from heraldo.components.runner import evaluate_time_domain_circuit
+from heraldo.components.runner import (
+    evaluate_time_domain_circuit, beam_search_loss_fn,
+    fixed_pattern_capped_loss_fn, fixed_pattern_free_loss_fn
+)
 from heraldo.utils import (
     compute_ng_scores, db_to_r, fidelity_max_rotation, fidelity_pure_state, windows_to_wsl_path
 )
@@ -110,7 +113,8 @@ def _compute_max_fidelity_dm(rho, target_ket, n_fft=256):
 
 
 def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_dim, beam_width, 
-                                    penalty_strength, prob_power, measurement_patterns=None):
+                                    penalty_strength, prob_power, measurement_patterns=None,
+                                    loss_fn=None):
     """
     Evaluates the circuit using Density Matrices to support loss/noise, using Beam Search.
     
@@ -283,7 +287,6 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
 
     # 5. Finalize Results
     results = []
-    expected_fidelity = 0.0
     total_captured_prob = 0.0
     
     for branch in active_branches:
@@ -302,8 +305,6 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
                 max_fid = fid
                 best_target_idx = t_i
         
-        expected_fidelity += prob * max_fid
-        
         # Reshape outcomes to tuple of tuples
         res_outcomes = tuple(branch['outcomes'])
         
@@ -313,6 +314,17 @@ def evaluate_time_domain_circuit_dm(flat_params, circuit, target_kets, cutoff_di
             'fidelity': max_fid,
             'target_idx': best_target_idx
         })
+
+    if results:
+        if loss_fn is None:
+            use_fixed = (measurement_patterns is not None)
+            loss_fn = fixed_pattern_free_loss_fn if use_fixed else beam_search_loss_fn
+        
+        probs_arr = np.array([b['prob'] for b in results])
+        fids_arr = np.array([b['fidelity'] for b in results])
+        expected_fidelity = loss_fn(probs_arr, fids_arr)
+    else:
+        expected_fidelity = 0.0
 
     return {
         "branches": results,
@@ -1005,7 +1017,8 @@ def evaluate_loss_influence(results_base_dir: Path, circuit_module):
             runs_results[loss_val] = evaluate_time_domain_circuit_dm(
                 np.asarray(flat_x), eval_circuit, target_kets, cutoff,
                 beam_width=100, penalty_strength=0.0, prob_power=1.0,
-                measurement_patterns=stored_patterns
+                measurement_patterns=stored_patterns,
+                loss_fn=fixed_pattern_free_loss_fn
             )
         
         branches_ideal = {b['outcome']: b for b in runs_results[1.0]['branches']}
