@@ -28,9 +28,7 @@ Key Features
   * **Single-Target Probability Harvesting**: Aggregate multiple degenerate measurement outcomes to drastically boost the generation rate of a single target state.
 * **Rotation-Invariant Optimization**: Uses an FFT-accelerated metric to evaluate state fidelity across phase-space rotations :math:`\hat{R}(\phi)`, avoiding unnecessary orientation constraints during global parameter search.
 * **Supported Non-Gaussian Resource Families**: Built-in support for Gottesman-Kitaev-Preskill (GKP) core states, Schrödinger cat states, binomial quantum codes, and cubic phase states.
-* **Flexible Architecture Engine**:
-  * **Static Spatial Circuits** (:math:`T = 1`): Parallel waveguide/fiber channels evaluated simultaneously.
-  * **Time-Domain Multiplexed (TDM) Circuits** (:math:`T \ge 1`): Recirculating optical delay loops carrying evolving states across temporal steps.
+* **Flexible Architecture Engine**: Supports both static spatial circuits (``steps = 1``) and time-domain multiplexed (TDM) architectures (``steps > 1``); see :doc:`circuits_comparison` for details.
 * **High-Performance JIT Backend**: Custom JIT-compiled Numba kernels for :math:`O(D^3)` beam splitters, disabled memory-leak gate caching, and unentangled pure-state detection optimizations for Strawberry Fields.
 
 Quick Example

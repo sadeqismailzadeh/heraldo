@@ -35,7 +35,6 @@ In optical systems, non-Gaussianity is typically induced probabilistically throu
    :alt: Photonic Circuit Architecture Comparison
    :width: 100%
 
-*Figure 1: Comparison between (a) static spatial photonic circuits and (b) time-domain multiplexed loop architectures supported by heraldo.*
 
 The Central Bottleneck
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -106,7 +105,11 @@ Supported Non-Gaussian Target State Families
 
 ------------------------------------------------------------------------
 
-Photonic Architecture Frameworks
+
+Supported Photonic Architectures
+================================
+
+``heraldo`` supports both **static spatial circuits** (single-stage interactions, ``steps = 1``) and **time-domain multiplexed circuits** (recirculating delay loops, ``steps > 1``). For a detailed comparative breakdown between spatial and time-domain architectures, see :doc:`circuits_comparison`.
 ================================
 
 ``heraldo`` seamlessly supports two complementary physical circuit paradigms:

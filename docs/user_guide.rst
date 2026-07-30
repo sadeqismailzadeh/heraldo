@@ -47,11 +47,7 @@ performance and correctness patches applied automatically on import (see
 :ref:`patches-section`).
 
 .. note::
-   The package can simulate **static spatial circuits** (all modes act at
-   once, :math:`T=1`) *and* **time-domain multiplexed (TDM) circuits**
-   (a single loop mode reused over :math:`T>1` steps). If you're not sure
-   which one you need, read :doc:`circuits_comparison` first — most
-   day-to-day usage (and everything the paper evaluates) uses ``steps=1``.
+   ``heraldo`` supports both **static spatial circuits** (``steps=1``) and **time-domain multiplexed (TDM) circuits** (``steps>1``). For a detailed comparative guide, see :doc:`circuits_comparison`.
 
 --------------------------------------------------------------------------
 
@@ -819,7 +815,11 @@ first time you import from ``heraldo.components``.
 
 --------------------------------------------------------------------------
 
-13. Static vs. Time-Domain Circuits
+
+13. Circuit Architectures
+==========================
+
+``heraldo`` supports both static spatial circuits (``steps=1``) and time-domain multiplexed circuits (``steps>1``). For a detailed architectural breakdown and comparative analysis, see :doc:`circuits_comparison`.
 ========================================
 
 If you're choosing between ``steps=1`` and ``steps>1``, or trying to

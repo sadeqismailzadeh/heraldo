@@ -367,6 +367,6 @@ Here is a complete, copy-pasteable script that executes both Phase 1 (Pattern Di
 8. Summary & Next Steps
 -----------------------
 
-* Read the :doc:`circuits_comparison` guide to understand how time-domain multiplexing relates to static spatial circuits.
+* Read :doc:`circuits_comparison` for an architectural comparison of static spatial and time-domain multiplexed circuits.
 * Explore the :doc:`user_guide` for details on circuit architectures, loss functions, and patch mechanisms.
 * Browse the :doc:`modules` section for complete API specifications of all classes and methods in ``heraldo``.
