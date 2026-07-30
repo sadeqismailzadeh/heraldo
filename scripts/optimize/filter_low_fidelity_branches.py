@@ -1,6 +1,5 @@
 """
-Script to filter out low-fidelity branches from completed optimization sweeps
-and compile an aggregated filtered sweep report matching Table 1 and Table 2 formats.
+Script to filter out low-fidelity branches from completed optimization sweeps.
 """
 
 import os

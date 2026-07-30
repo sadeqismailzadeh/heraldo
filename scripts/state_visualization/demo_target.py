@@ -88,7 +88,7 @@ def plot_target_wigner(target_instance, name, cutoff_dim=35, grid_size=200, x_li
     ax2.set_xticks(range(display_cutoff))
 
     plt.tight_layout()
-    # plt.show()
+    plt.show()
     save_path = Path("winger.png").resolve()
     plt.savefig(save_path, bbox_inches='tight', dpi=100)
     plt.close(fig)
@@ -124,7 +124,7 @@ def main():
     target3=CoreGKPTarget(csv_path=csv_path, 
                           n_max=4, 
                           delta_db=10, 
-                          mu=1)
+                          mu=0)
     plot_target_wigner(target3, "GKP", cutoff_dim=30)
 
 if __name__ == "__main__":
