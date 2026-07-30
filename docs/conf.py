@@ -34,11 +34,18 @@ extensions = [
 
 autosummary_generate = True
 
+# Autodoc default configuration to include private and special members
+autodoc_default_options = {
+    "members": True,
+    "private-members": True,
+    "show-inheritance": True,
+}
+
 # Napoleon settings for docstring parsing
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 napoleon_include_init_with_doc = True
-napoleon_include_private_with_doc = False
+napoleon_include_private_with_doc = True
 napoleon_include_special_with_doc = True
 
 templates_path = ["_templates"]
