@@ -1,6 +1,48 @@
 """
-Script to automate the Beam Search pattern discovery stage (Table I configurations)
-for unconstrained measurement pattern discovery in photonic continuous-variable circuits.
+Reproducing Table 1: Beam Search Pattern Discovery Sweeps.
+
+This script executes the unconstrained Beam Search pattern discovery phase for all
+continuous-variable (CV) photonic circuit configurations reported in Table 1 of the paper:
+"Multi-Outcome Circuit Optimization for Enhanced Non-Gaussian State Generation" (Ismailzadeh & Abedi Ravan, 2026).
+
+Overview & Workflow
+-------------------
+In heralded non-Gaussian state preparation, the optimal photon-number-resolving (PNR)
+detector outcome patterns on ancillary modes are generally unknown a priori.
+This script sets ``measurement_patterns = None`` to trigger Beam Search pattern discovery mode in
+``BasinHoppingRunner``. The runner explores the combinatorial tree of detection events,
+tracking the top ``BEAM_WIDTH`` (default B=200) most probable branches at each step and evaluating
+fidelity using the non-linear score metric :func:`~heraldo.components.runner.beam_search_loss_fn`.
+
+Table 1 Configurations Evaluated
+---------------------------------
+1. **GKP core ($\mu=1$, 2 modes)**: Targets $n_{\text{max}} \in \{4, 6, 8, 10\}$ logical 1 GKP core states.
+2. **GKP core ($\mu=1$, 3 modes)**: Targets $n_{\text{max}} \in \{4, 6, 8, 10\}$ logical 1 GKP core states across 2 ancillae.
+3. **Cat States (2 modes)**: Targets even ($\alpha=\sqrt{6}, p=0$) and odd ($\alpha=\sqrt{6}, p=1$) squeezed cat states.
+4. **Cat States (3 modes)**: Targets even and odd squeezed cat states across 2 ancillae.
+5. **GKP core ($\mu=0$, 3 modes)**: Targets $n_{\text{max}} \in \{4, 8, 12\}$ logical 0 GKP core states.
+6. **Binomial Codes (3 modes)**: Targets $(N=2, S=2)$ and $(N=2, S=3)$ logical zero binomial codewords.
+7. **Cubic Phase State (3 modes)**: Targets displaced approximate cubic phase state ($\gamma=-0.2, r=-0.7, \alpha=1.25$).
+
+Generated Output & Artifacts
+----------------------------
+Results are exported to: ``results/sweeps_beam_search_<Timestamp>/``
+Directory layout:
+- `job_01_GKP_core_mu=1_2mode/`
+  - `summary.json`: Job metadata, timing, and pattern discovery metrics.
+  - `run_0001.pkl`: Pickled dictionary containing full optimization history and parameters.
+  - `run_0001_branches.txt`: Ranked list of discovered branches, probabilities, and fidelities.
+  - `best/`: Subfolder containing `best_x.npy`, `mapped_params.npz`, and `schedule.json`.
+- ... (job_02 through job_07)
+- `beam_search_report.md`: Master Markdown report formatted matching Table 1 of the paper.
+
+Execution
+---------
+Run directly via Python from the repository root:
+
+.. code-block:: bash
+
+    python scripts/optimize/run_beam_search_sweeps.py
 """
 
 import os
@@ -34,8 +76,17 @@ from heraldo.utils import *
 from heraldo.factory import create_from_config
 
 
-def format_branches_report(branches, target_names, success_threshold):
-    """Returns a formatted string of branch statistics discovered by beam search."""
+def format_branches_report(branches: list, target_names: list, success_threshold: float) -> str:
+    """Returns a formatted plain-text summary of branch statistics discovered by beam search.
+
+    Args:
+        branches (list): List of dictionary records for discovered outcome branches.
+        target_names (list): List of human-readable target labels corresponding to target indices.
+        success_threshold (float): Minimum state fidelity threshold defining a successful outcome match.
+
+    Returns:
+        str: Multi-line formatted text report summarizing outcome probabilities and target distributions.
+    """
     lines = []
     lines.append("-" * 80)
     lines.append(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
@@ -84,8 +135,15 @@ def format_branches_report(branches, target_names, success_threshold):
     return "\n".join(lines)
 
 
-def get_target_name_brief(cfg):
-    """Formats config to readable target label."""
+def get_target_name_brief(cfg: dict) -> str:
+    """Formats a target configuration dictionary into a concise human-readable string label.
+
+    Args:
+        cfg (dict): Target configuration dictionary with 'class_name' and 'params'.
+
+    Returns:
+        str: Concise target descriptor (e.g. 'GKP_n4_mu1', 'Cat_a2.45_p0').
+    """
     c_name = cfg.get('class_name', 'Unknown')
     p = cfg.get('params', {})
     if "CoreGKP" in c_name:
@@ -101,8 +159,15 @@ def get_target_name_brief(cfg):
     return c_name
 
 
-def format_target_latex(cfg):
-    """Converts target configuration to LaTeX representation."""
+def format_target_latex(cfg: dict) -> str:
+    """Converts a target configuration dictionary into a LaTeX mathematical representation string.
+
+    Args:
+        cfg (dict): Target configuration dictionary with 'class_name' and 'params'.
+
+    Returns:
+        str: LaTeX math-mode string representation (e.g., '$\\ket{1_{A4}}$', '$\\ket{\\text{cat}_+}$').
+    """
     c_name = cfg.get('class_name', 'Unknown')
     p = cfg.get('params', {})
     if "CoreGKP" in c_name:
@@ -121,8 +186,18 @@ def format_target_latex(cfg):
     return c_name
 
 
-def format_patterns(outcomes):
-    """Formats discovered heralding patterns into string representation."""
+def format_patterns(outcomes: list) -> str:
+    """Formats discovered outcome pattern tuples into a concise string for report tables.
+
+    Detects if all outcomes share a constant total photon sum $\\sum n_i$ and summarizes
+    the pattern set accordingly.
+
+    Args:
+        outcomes (list): List of outcome tuples discovered for a target state.
+
+    Returns:
+        str: Formatted pattern string representation (e.g. '$(4)$', '$\\sum n_i = 4$ (5 patterns)').
+    """
     if not outcomes:
         return "None"
     out_tuples = [tuple(o) for o in outcomes]
@@ -138,7 +213,14 @@ def format_patterns(outcomes):
     return f"{len(out_tuples)} patterns (e.g., {out_tuples[0]}, {out_tuples[1]}, ...)"
 
 
-def main():
+def main() -> None:
+    """Executes the automated Beam Search pattern discovery sweep for Table 1 of the paper.
+
+    Initializes circuit parameters (12 dB source squeezing, cutoff dimension D=30, beam width B=200),
+    constructs the 7 sweep jobs corresponding to Table 1 of the paper, executes Basin-Hopping
+    beam search optimizations sequentially across parallel worker pools, and compiles the final
+    master Markdown report ``beam_search_report.md``.
+    """
     CUTOFF_DIM = 30
     STEPS = 1
     BEAM_WIDTH = 200  # Beam width B = 200 for pattern discovery
@@ -155,7 +237,7 @@ def main():
     sweep_jobs = []
 
     # =========================================================================
-    # BEAM SEARCH PATTERN DISCOVERY JOBS
+    # BEAM SEARCH PATTERN DISCOVERY JOBS (TABLE 1 OF THE PAPER)
     # =========================================================================
 
     # 1. GKP mu=1, 2 modes
