@@ -1,16 +1,30 @@
+"""Monkey-patch for Strawberry Fields Fock backend multi-mode state preparation.
+
+Provides pure-state optimization by detecting separable/unentangled mode cuts
+during state preparation, maintaining pure state vector representations and avoiding
+costly conversions to mixed state density matrices.
+"""
 import heraldo
 import numpy as np
 import strawberryfields.backends.fockbackend.ops as ops
 from strawberryfields.backends.fockbackend.circuit import Circuit
 
 def _prepare_multimode_patched(self, state, modes):
-    r"""
-    Prepares a given mode or list of modes in the given state.
-    
-    This patched version includes an Unentangled Detection Optimization:
-    If the system is in a pure state, and we are preparing a subset of modes with a 
-    pure state, and the resulting cut leaves the system unentangled (separable), 
-    we update the state vector directly without converting to a mixed state (density matrix).
+    r"""Prepares a target state on specified mode(s) with pure-state unentangled detection optimization.
+
+    If the overall circuit state is pure and the target subsystem state is pure, this function
+    checks whether the resulting state after replacing the specified modes remains separable
+    (unentangled). If so, it updates the pure state vector directly rather than converting
+    the backend circuit representation to a density matrix.
+
+    Args:
+        self: Strawberry Fields Fock backend ``Circuit`` instance.
+        state (np.ndarray): Target state tensor, vector, or density matrix to prepare on ``modes``.
+        modes (int or list[int]): Index or list of mode indices to prepare.
+
+    Raises:
+        ValueError: If state dimensions are incompatible with cutoff or mode specification,
+            or if duplicate modes are provided.
     """
     if isinstance(modes, int):
         modes = [modes]
@@ -146,12 +160,19 @@ def _prepare_multimode_patched(self, state, modes):
 
 
 def patch_prepare_multimode():
+    """Applies the unentangled state preparation patch to Strawberry Fields.
+
+    Monkey-patches ``strawberryfields.backends.fockbackend.circuit.Circuit.prepare_multimode``
+    with the pure-state unentangled optimization routine, saving the original method as
+    ``prepare_multimode_original``.
+    """
     if not hasattr(Circuit, 'prepare_multimode_original'):
         Circuit.prepare_multimode_original = Circuit.prepare_multimode
     Circuit.prepare_multimode = _prepare_multimode_patched
     print("Circuit.prepare_multimode patched with unentangled pure state optimization.")
 
 def revert_prepare_multimode_patch():
+    """Reverts ``Circuit.prepare_multimode`` to its original Strawberry Fields implementation."""
     if hasattr(Circuit, 'prepare_multimode_original'):
         Circuit.prepare_multimode = Circuit.prepare_multimode_original
         print("Circuit.prepare_multimode reverted to original.")
