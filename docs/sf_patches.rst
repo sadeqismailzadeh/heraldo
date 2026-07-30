@@ -11,13 +11,14 @@ Overview & Motivation
 
 Simulating continuous-variable (CV) quantum circuits in the Fock basis requires truncating the infinite-dimensional Hilbert space to a finite cutoff dimension :math:`D`. Standard backend implementations in `Strawberry Fields <https://strawberryfields.ai/>`_ can encounter severe memory bottlenecks and computational scaling issues during global parameter optimizations involving thousands of circuit evaluations at high cutoff dimensions (e.g., :math:`D = 30`).
 
-To enable high-speed global optimization and maintain a minimal RAM footprint on standard consumer laptop hardware, ``heraldo`` automatically applies three specialized performance and backend patches upon importing ``heraldo.components``:
+To enable high-speed global optimization and maintain a minimal RAM footprint on standard consumer laptop hardware, ``heraldo`` automatically applies specialized performance and backend patches upon importing ``heraldo.components``:
 
-1. **Fock Gate Cache Removal** (``disable_fock_caching``)
-2. **JIT-Compiled :math:`O(D^3)` Beam Splitter Kernel** (``patch_beamsplitter``)
-3. **Pure-State Preservation in Multi-Mode Preparation** (``patch_prepare_multimode``)
+1. **Single-Threaded BLAS/NumPy Configuration** (``OMP_NUM_THREADS=1``, etc.)
+2. **Fock Gate Cache Removal** (``disable_fock_caching``)
+3. **JIT-Compiled :math:`O(D^3)` Beam Splitter Kernel** (``patch_beamsplitter``)
+4. **Pure-State Preservation in Multi-Mode Preparation** (``patch_prepare_multimode``)
 
-Together, these patches reduce memory growth from unbounded :math:`O(\text{evals} \times D^4)` to constant, bounded storage, and accelerate tensor contractions by orders of magnitude.
+Together, these patches reduce memory growth from unbounded :math:`O(\text{evals} \times D^4)` to constant, bounded storage, prevent thread contention during parallel Basin-Hopping runs, and accelerate tensor contractions by orders of magnitude.
 
 ------------------------------------------------------------------------
 
@@ -103,7 +104,51 @@ Benefits
 
 ------------------------------------------------------------------------
 
+4. Single-Threaded BLAS/NumPy Threading for Parallel Basin-Hopping
+===================================================================
+
+* **Source File**: ``heraldo/components/__init__.py``
+* **Mechanism**: Sets environment variables (``OMP_NUM_THREADS=1``, ``OPENBLAS_NUM_THREADS=1``, ``MKL_NUM_THREADS=1``, ``VECLIB_MAXIMUM_THREADS=1``, ``NUMEXPR_NUM_THREADS=1``) before backend imports.
+
+Problem
+~~~~~~~
+
+By default, NumPy linear algebra backends (OpenBLAS, MKL, OMP) attempt to use all available CPU threads for matrix computations. When ``BasinHoppingRunner`` executes parallel optimization runs using Python's multiprocessing workers, each process spawning its own multi-threaded BLAS pool leads to severe CPU thread oversubscription, context-switching thrashing, and degraded optimization throughput.
+
+Solution
+~~~~~~~~
+
+Upon importing ``heraldo.components``, thread limits for NumPy and underlying BLAS backends are automatically set to ``1``. Each Basin-Hopping worker process executes matrix operations in a single thread, allowing parallel Basin-Hopping optimization runs to scale cleanly across available CPU cores without thread contention.
+
+------------------------------------------------------------------------
+
 Performance Impact Summary
+==========================
+
+The table below summarizes the computational impact of these patches:
+
+.. list-table::
+   :widths: 30 35 35
+   :header-rows: 1
+
+   * - Metric / Operation
+     - Stock Strawberry Fields
+     - With ``heraldo`` Patches
+   * - **NumPy Threading in Parallel Runs**
+     - Multi-threaded BLAS thread contention
+     - Single-threaded per process (optimized for multiprocessing)
+   * - **RAM Usage over 10,000 Evals**
+     - Unbounded growth (OOM crash)
+     - Flat & constant (~ hundreds of MB)
+   * - **Beam Splitter Complexity**
+     - :math:`O(D^4)`
+     - :math:`O(D^3)` (Numba JIT)
+   * - **Loop State Representation**
+     - Density matrix :math:`\rho \in \mathbb{C}^{D \times D}`
+     - Pure ket vector :math:`|\psi\rangle \in \mathbb{C}^D`
+   * - **Practical Cutoff Dimension**
+     - :math:`D \approx 10 - 15`
+     - :math:`D = 30+` on laptop CPU
 ==========================
 
 The table below summarizes the computational impact of these patches:
@@ -128,4 +173,4 @@ The table below summarizes the computational impact of these patches:
      - :math:`D \approx 10 - 15`
      - :math:`D = 30+` on laptop CPU
 
-Thanks to these optimizations, high-fidelity circuit simulations with Fock space cutoffs up to :math:`D = 30` run with fast execution times and a small memory footprint directly on consumer laptop processors.
+Thanks to these optimizations, high-fidelity circuit simulations with Fock space cutoffs up to :math:`D = 30` run with fast execution times and a small memory footprint directly on consumer laptop processors.

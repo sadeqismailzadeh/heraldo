@@ -29,11 +29,16 @@ Before running optimizations, ensure that all required dependencies are installe
 
    pip install numpy scipy pandas strawberryfields thewalrus numba tqdm
 
-When you import ``heraldo.components``, the package automatically applies three key patches:
+When you import ``heraldo.components``, the package automatically applies key performance patches:
 
+* **Single-Threaded BLAS/NumPy Configuration**: Sets NumPy thread limits (``OMP_NUM_THREADS=1``, etc.) to 1 to prevent CPU thread oversubscription during parallel Basin-Hopping optimization runs.
 * **Fock Caching Disable**: Prevents memory buildup during thousands of optimizer iterations.
 * **JIT Beam Splitter Kernel**: Speeds up circuit tensor contraction to :math:`O(D^3)` complexity.
 * **Unentangled State Optimization**: Preserves pure-state simulation when ancillae are re-prepared.
+
+.. note::
+   **Main Function Requirement**:
+   Because ``BasinHoppingRunner`` uses multiprocessing to execute parallel optimization runs across CPU cores, all Python code that invokes circuit runner optimizations must be structured inside a ``main()`` function protected by an ``if __name__ == '__main__':`` block.
 
 Test your setup by running the following Python snippet:
 

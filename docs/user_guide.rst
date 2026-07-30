@@ -282,7 +282,17 @@ For fully worked, copy-pasteable versions of both flows (including saving
 =======
 .. _quick-start-full:
 
+
 5. Quick Start
+==================
+
+.. warning::
+   **Mandatory Entry Point Requirement**:
+   Because ``BasinHoppingRunner`` relies on multiprocessing for parallel optimization runs, your execution code **must** be enclosed within a ``main()`` function and executed under an ``if __name__ == '__main__':`` block. Executing runner instances at the top level without this guard will cause recursive process spawning errors on platforms using the ``spawn`` start method (e.g., Windows and macOS).
+
+The smallest complete example: optimize a 2-mode circuit (1 loop mode + 1
+ancilla) to herald even/odd squeezed cat states on ancilla outcomes
+``n=4`` and ``n=5`` respectively.
 ==================
 
 The smallest complete example: optimize a 2-mode circuit (1 loop mode + 1
@@ -760,7 +770,16 @@ framework to physically loop-based, time-multiplexed hardware.
 
 --------------------------------------------------------------------------
 
+
+**My run always returns loss = 100.0 — what went wrong?**
+=======
 14. Common Pitfalls / FAQ
+==============================
+
+**Why do I get a RuntimeError or infinite loop when executing optimization scripts?**
+    Because ``BasinHoppingRunner`` utilizes multiprocessing for parallel Basin-Hopping runs, all script execution logic invoking the runner must be placed inside a ``main()`` function protected by ``if __name__ == '__main__':``. Without this guard, worker subprocesses will continuously attempt to re-import the main execution module.
+
+**My run always returns loss = 100.0 — what went wrong?**
 ==============================
 
 **My run always returns loss = 100.0 — what went wrong?**
