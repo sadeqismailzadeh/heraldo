@@ -102,44 +102,21 @@ def main():
 
     # 2. Squeezed Cat Target
     # Superposition of coherent states with squeezing
-    # cat = SqueezedCatTarget(alpha=3.0, r=1.38, p=1) # p=1 for odd parity
+    cat = SqueezedCatTarget(alpha=3.0, r=1.38, p=1) # p=1 for odd parity
     # plot_target_wigner(cat, "Squeezed Cat (Odd)", cutoff_dim=70)
 
 
     cat1 = CatTarget(alpha=2, p=0) # p=1 for odd parity
     # plot_target_wigner(cat1, " Cat (Odd)", cutoff_dim=40)
 
-    # # 3. Square GKP Target
-    # # Gottesman-Kitaev-Preskill state (Logical 0)
-    # # Note: GKP states often require high cutoff dimensions.
-    gkp_sq = GKPTarget(gkp_type='square', mu=0, delta=0.35)
-    # plot_target_wigner(gkp_sq, "Square GKP |0>", cutoff_dim=40, x_limit=6)
-
-    # # 4. Hexagonal GKP Target
-    # # Hexagonal lattice GKP (Logical 1)
-    # gkp_hex = GKPTarget(gkp_type='hex', mu=1, delta=0.35)
-    # plot_target_wigner(gkp_hex, "Hex GKP |1>", cutoff_dim=40, x_limit=6)
 
     # # 5. Cubic Resource State
     # # Specific resource state for gate synthesis
-    # resource = CubicResourceTarget(a=0.61)
+    resource = CubicResourceTarget(a=0.61)
     # plot_target_wigner(resource, "Cubic Resource", cutoff_dim=15)
-
-    # # 6. Quartic Phase Target
-    # # State with x^4 non-linearity
-    # quartic = QuarticPhaseTarget(delta=0.03, s_r=0.0)
-    # plot_target_wigner(quartic, "Quartic Phase", cutoff_dim=40)
 
     # target4 = BinomialCodeTarget(N=3, S=1, mu=0)
     # plot_target_wigner(target4, "BinomialCode", cutoff_dim=14)
-
-
-    # target4 = TrisqueezedTarget()
-    # plot_target_wigner(target4, "Trisqueezed", cutoff_dim=50)
-
-    # target4 = QuadsqueezedTarget()
-    # plot_target_wigner(target4, "Quadsqueezed", cutoff_dim=50)
-
 
     
 
@@ -148,7 +125,7 @@ def main():
                           n_max=4, 
                           delta_db=10, 
                           mu=1)
-    plot_target_wigner(target3, "Quartic Phase", cutoff_dim=30)
+    plot_target_wigner(target3, "GKP", cutoff_dim=30)
 
 if __name__ == "__main__":
     main()

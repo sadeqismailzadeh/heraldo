@@ -27,7 +27,7 @@ from heraldo.components.runner import (
     fixed_pattern_capped_loss_fn, fixed_pattern_free_loss_fn
 )
 from heraldo.utils import (
-    compute_ng_scores, db_to_r, fidelity_max_rotation, fidelity_pure_state, windows_to_wsl_path
+    db_to_r, fidelity_max_rotation, fidelity_pure_state, windows_to_wsl_path
 )
 
 

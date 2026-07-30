@@ -32,9 +32,9 @@ from heraldo.components.runner import (
 )
 from heraldo.components.targets import (
     TargetGenerator, CoreGKPTarget, SqueezedCatTarget, CatTarget,
-    BinomialCodeTarget, CubicPhaseTarget, TrisqueezedTarget, QuadsqueezedTarget
+    BinomialCodeTarget, CubicPhaseTarget,
 )
-from heraldo.utils import db_to_r, compute_ng_scores
+from heraldo.utils import db_to_r
 from heraldo.factory import create_from_config
 
 
@@ -409,8 +409,6 @@ def main():
     print("\nNon-Gaussianity scores for targets:")
     for i, target in enumerate(targets):
         ket = target.get_target_ket(CUTOFF_DIM)
-        ng_score = compute_ng_scores([ket], CUTOFF_DIM)[0]
-        print(f"  Target {i+1}: {ng_score:.4f}")
 
     # =========================================================================
     # 6. RUNNER INITIALIZATION & OPTIMIZATION LOOP
