@@ -96,16 +96,7 @@ number of compatibility/performance patches automatically; see
         ├── beamsplitter_patch.py       # custom O(D^3) JIT beam-splitter (big speedup)
         └── prepare_multimode_patch.py  # keeps pure states pure when re-preparing ancillae
 
-    scripts/
-    ├── optimize/    # end-to-end optimization drivers (single runs and batch sweeps)
-    ├── analysis/    # standalone loss/robustness analyses
-    ├── plotting/    # publication-quality Wigner-function figures
-    └── state_visualization/  # quick-look Wigner + Fock-histogram plots for a target
-
 Everything you need for day-to-day work lives in ``heraldo.components``.
-The ``scripts/`` directory is not part of the installable package — it's a
-collection of runnable examples/drivers, and the best place to copy a
-starting point from.
 
 --------------------------------------------------------------------------
 
@@ -170,10 +161,8 @@ This only matters when ``steps > 1``; for ``steps=1`` it has no effect.
 +---------------------------+-----------------------------------------------+----------------------------------------------+
 
 In practice, the recommended workflow mirrors the paper: run a **Beam
-Search** first to discover promising patterns (see
-``scripts/optimize/run_beam_search_sweeps.py``), then lock those patterns
-in and run **Fixed-Pattern** refinement (see
-``scripts/optimize/run_table_sweeps.py``).
+Search** first to discover promising patterns, then lock those patterns
+in and run **Fixed-Pattern** refinement.
 
 4.4 Pattern format
 ----------------------
@@ -389,11 +378,7 @@ Running an unconstrained **Beam Search** instead only requires dropping
     )
     result = runner.run(n_iter=200)
 
-For fully worked, copy-pasteable versions of both flows (including saving
-results, generating reports, and reproducing the paper's tables), see
-``scripts/optimize/run_time_optimization.py`` (single run),
-``scripts/optimize/run_beam_search_sweeps.py`` (batch discovery), and
-``scripts/optimize/run_table_sweeps.py`` (batch refinement).
+For a hands-on guide and runnable examples, see the :doc:`quickstart_tutorial`.
 
 --------------------------------------------------------------------------
 
@@ -597,61 +582,6 @@ as long as it matches this signature — e.g. wrap one of the built-ins with
 
 --------------------------------------------------------------------------
 
-10. Evaluating & Visualizing Results
-=========================================
-
-Once you have an optimized parameter vector, ``scripts/optimize/eval_time_optimized.py``
-provides a toolbox of post-processing utilities (these operate on the
-``opt_*``/``job_*`` result directories written by the ``run_*`` scripts):
-
-10.1 Deterministic path evaluation
---------------------------------------
-
-:func:`run_deterministic_path` re-simulates the optimized circuit for one
-*specific* measurement outcome, returning the exact heralded state ket and
-its probability — this is what powers the Wigner-function plots and
-density-matrix exports.
-
-10.2 Loss / robustness analysis
-------------------------------------
-
-:func:`evaluate_time_domain_circuit_dm` (density-matrix version of the
-core evaluator) lets you re-run an optimized circuit with
-``loss_transmissivity < 1`` to see how fidelity and success probability
-degrade under realistic photon loss — this is exactly what produces
-Table IV of the paper (:func:`evaluate_loss_influence` automates it across
-every optimized configuration and emits a LaTeX table). For a quick
-single-target scan, see ``scripts/analysis/loss_impact.py``.
-
-10.3 Truncation-error sanity check
-----------------------------------------
-
-:func:`evaluate_cutoff_fidelity` compares infidelities computed at two
-different Fock cutoffs (e.g. 30 vs. 50) to make sure your chosen
-``cutoff_dim`` isn't introducing artificial error — see Sec. II of the
-paper for why this matters.
-
-10.4 Rotation-invariance report
-------------------------------------
-
-:func:`evaluate_and_report_rotations` computes, for every pattern in a
-targeted cluster, the optimal correcting phase-rotation angle, and reports
-the overall angular spread. A spread of :math:`0^\circ` means a single
-static phase shifter can correct every branch in the cluster; a nonzero
-spread means you'd need per-pattern feed-forward correction (see Sec. 4.5
-above, and Sec. III.C of the paper).
-
-10.5 Figures
-----------------
-
-``scripts/plotting/paper_plot_comparison.py`` and
-``paper_plot_comparison_5_patterns.py`` render publication-quality,
-multi-panel 3D Wigner-function comparisons (target vs. several heralded
-branches), matching the style of the paper's figures.
-``scripts/state_visualization/demo_target.py`` is the quickest way to
-sanity-check what a *target* state alone looks like (Wigner function +
-Fock-number histogram) before you even start optimizing.
-
 --------------------------------------------------------------------------
 
 11. Extending heraldo
@@ -727,13 +657,7 @@ and implement its four abstract members: ``per_step_parameter_names``,
 11.3 Config-driven construction with the factory
 ---------------------------------------------------
 
-Every batch script in ``scripts/optimize/`` (``run_table_sweeps.py``,
-``run_beam_search_sweeps.py``, ``merge_table_sweeps.py``) builds its
-circuits and targets from plain dictionaries rather than importing and
-instantiating classes directly. This is what :func:`heraldo.factory.create_from_config`
-is for — it's especially useful once you're sweeping over many
-configurations, since the whole sweep can be described as data (and
-serialized to JSON alongside the results) instead of code.
+Circuits and targets can be constructed from plain dictionaries rather than importing and instantiating classes directly. This is what :func:`heraldo.factory.create_from_config` is for — it's especially useful when sweeping over many configurations, since the whole setup can be described as data (and serialized to JSON alongside optimization results) instead of code.
 
 .. code-block:: python
 
@@ -880,20 +804,4 @@ nothing happened.**
     broader exploration of the parameter space — tune to your
     core count and how multi-modal you expect the loss landscape to be.
 
---------------------------------------------------------------------------
 
-15. Where to Go Next
-=========================
-
-* :doc:`circuits_comparison` — static spatial vs. time-domain multiplexed
-  architectures, with the Motes *et al.* loop-unraveling background.
-* :doc:`modules` — full, docstring-generated API reference for every
-  class and function mentioned above.
-* ``scripts/optimize/run_time_optimization.py`` — the best single file to
-  copy as a starting point for a new optimization.
-* ``scripts/optimize/run_beam_search_sweeps.py`` /
-  ``run_table_sweeps.py`` — how the paper's Tables I & II were generated,
-  end-to-end (batch discovery, then batch refinement, with automatic
-  Markdown report generation).
-* ``paper.tex`` — the full theoretical background, target-state
-  definitions, and numerical results this package was built to produce.
