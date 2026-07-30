@@ -222,43 +222,46 @@ ancilla) to herald even/odd squeezed cat states on ancilla outcomes
     from heraldo.components.runner import BasinHoppingRunner, fixed_pattern_capped_loss_fn
     from heraldo.utils import db_to_r
 
-    # 1. Convert 12 dB of source squeezing into the squeezing parameter r
-    squeezing = db_to_r(12)
 
-    # 2. Build the circuit: 1 loop mode + 1 ancilla, single spatial stage (T=1)
-    circuit = TwoModeTimeDomainSqueezeOnly(
-        steps=1,
-        time_invariant=False,
-        clip_size=squeezing,
-        measure_fock_cutoff=30,
-    )
 
-    # 3. Define the target(s) to herald
-    targets = [
-        SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),  # even cat
-        SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=1),  # odd cat
-    ]
 
-    # 4. Fix the heralding patterns to optimize for (see Sec. 4.4 above)
-    patterns = [[(4,)], [(5,)]]
 
-    # 5. Build and run the optimizer
-    runner = BasinHoppingRunner(
-        circuit=circuit,
-        target_gens=targets,
-        cutoff_dim=30,
-        beam_width=200,
-        penalty_strength=1.0,
-        measurement_patterns=patterns,
-        loss_fn=fixed_pattern_capped_loss_fn,
-    )
 
-    result = runner.run(n_iter=20, method="L-BFGS-B")
 
-    print(f"Loss:               {result['loss']:.5f}")
-    print(f"Expected fidelity:  {result['expected_fidelity']:.5f}")
-    for branch in result["branches"]:
-        print(branch)
+    def main():
+        # 1. Convert 12 dB of source squeezing into the squeezing parameter r
+        squeezing = db_to_r(12)
+        # 2. Build the circuit: 1 loop mode + 1 ancilla, single spatial stage (T=1)
+        circuit = TwoModeTimeDomainSqueezeOnly(
+            steps=1,
+            time_invariant=False,
+            clip_size=squeezing,
+            measure_fock_cutoff=30,
+        )
+        # 3. Define the target(s) to herald
+        targets = [
+            SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),  # even cat
+            SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=1),  # odd cat
+        ]
+        # 4. Fix the heralding patterns to optimize for (see Sec. 4.4 above)
+        patterns = [[(4,)], [(5,)]]
+        # 5. Build and run the optimizer
+        runner = BasinHoppingRunner(
+            circuit=circuit,
+            target_gens=targets,
+            cutoff_dim=30,
+            beam_width=200,
+            penalty_strength=1.0,
+            measurement_patterns=patterns,
+            loss_fn=fixed_pattern_capped_loss_fn,
+        )
+        result = runner.run(n_iter=20, method="L-BFGS-B")
+        print(f"Loss:               {result['loss']:.5f}")
+        print(f"Expected fidelity:  {result['expected_fidelity']:.5f}")
+        for branch in result["branches"]:
+            print(branch)
+    if __name__ == "__main__":
+        main()
 
 Running an unconstrained **Beam Search** instead only requires dropping
 ``measurement_patterns`` (and switching the loss function):
@@ -332,22 +335,18 @@ ancilla) to herald even/odd squeezed cat states on ancilla outcomes
     from heraldo.components.runner import BasinHoppingRunner, fixed_pattern_capped_loss_fn
     from heraldo.utils import db_to_r
 
-    # 1. Convert 12 dB of source squeezing into the squeezing parameter r
-    squeezing = db_to_r(12)
-
-    # 2. Build the circuit: 1 loop mode + 1 ancilla, single spatial stage (T=1)
-    circuit = TwoModeTimeDomainSqueezeOnly(
-        steps=1,
-        time_invariant=False,
-        clip_size=squeezing,
-        measure_fock_cutoff=30,
-    )
-
-    # 3. Define the target(s) to herald
-    targets = [
+    def main():
+        squeezing = db_to_r(12)
+        circuit = TwoModeTimeDomainSqueezeOnly(
+            steps=1,
+            time_invariant=False,
+            clip_size=squeezing,
+            measure_fock_cutoff=30,
+        )
+        targets = [
         SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),  # even cat
         SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=1),  # odd cat
-    ]
+        ]
 
     # 4. Fix the heralding patterns to optimize for (see Sec. 4.4 above)
     patterns = [[(4,)], [(5,)]]
@@ -377,16 +376,20 @@ Running an unconstrained **Beam Search** instead only requires dropping
 
     from heraldo.components.runner import beam_search_loss_fn
 
-    runner = BasinHoppingRunner(
-        circuit=circuit,
-        target_gens=targets,
-        cutoff_dim=30,
-        beam_width=200,          # keep the 200 most-probable branches per step
-        penalty_strength=1.0,
-        measurement_patterns=None,   # <-- triggers Beam Search discovery mode
-        loss_fn=beam_search_loss_fn,
-    )
-    result = runner.run(n_iter=200)
+        runner = BasinHoppingRunner(
+            circuit=circuit,
+            target_gens=targets,
+            cutoff_dim=30,
+            beam_width=200,          # keep the 200 most-probable branches per step
+            penalty_strength=1.0,
+            measurement_patterns=None,   # <-- triggers Beam Search discovery mode
+            loss_fn=beam_search_loss_fn,
+        )
+        result = runner.run(n_iter=200)
+
+
+    if __name__ == "__main__":
+        main()
 
 For a hands-on guide and runnable examples, see the :doc:`quickstart_tutorial`.
 

@@ -139,13 +139,12 @@ Code Example: Running Beam Search Pattern Discovery
 
    import numpy as np
    from heraldo.components.circuits import TwoModeTimeDomainSqueezeOnly
-   from heraldo.components.targets imp   # 1. Setup circuit & targets
-   squeezing_r = db_to_r(12.0)
-   circuit = TwoModeTimeDomainSqueezeOnly(steps=1, clip_size=squeezing_r, measure_fock_cutoff=30)
+   from heraldo.components.targets import SqueezedCatTarget
+   from heraldo.components.runner import BasinHoppingRunner, beam_search_loss_fn
+   from heraldo.utils import db_to_r
 
-   targets = [
-       SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),  # even cat
-       SqueezedCatTarget(alpha=np.sqrt(6)   def main():
+
+   def main():
        # 1. Setup circuit & targets
        squeezing_r = db_to_r(12.0)
        circuit = TwoModeTimeDomainSqueezeOnly(steps=1, clip_size=squeezing_r, measure_fock_cutoff=30)

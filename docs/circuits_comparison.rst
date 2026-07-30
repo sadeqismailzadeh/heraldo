@@ -154,27 +154,31 @@ To run a static 3-mode circuit matching the paper:
    from heraldo.components.runner import BasinHoppingRunner
    from heraldo.components.targets import CoreGKPTarget
 
-   # 1. Initialize static 3-mode circuit (steps=1 matches the paper)
-   circuit = ThreeModeTimeDomainGeneral(
-       steps=1,                 # steps=1 isolates a single static interaction stage
-       time_invariant=True,
-       clip_size=2.0,
-       measure_fock_cutoff=10
-   )
+   def main():
+       # 1. Initialize static 3-mode circuit (steps=1 matches the paper)
+       circuit = ThreeModeTimeDomainGeneral(
+           steps=1,                 # steps=1 isolates a single static interaction stage
+           time_invariant=True,
+           clip_size=2.0,
+           measure_fock_cutoff=10
+       )
 
-   # 2. Define target (e.g. GKP core logical 1 state)
-   target = CoreGKPTarget(n_max=4, delta_db=10.0, mu=1)
+       # 2. Define target (e.g. GKP core logical 1 state)
+       target = CoreGKPTarget(n_max=4, delta_db=10.0, mu=1)
 
-   # 3. Optimize parameters using Basin-Hopping with Beam Search
-   runner = BasinHoppingRunner(
-       circuit=circuit,
-       target_gens=[target],
-       cutoff_dim=30,
-       beam_width=100
-   )
+       # 3. Optimize parameters using Basin-Hopping with Beam Search
+       runner = BasinHoppingRunner(
+           circuit=circuit,
+           target_gens=[target],
+           cutoff_dim=30,
+           beam_width=100
+       )
 
-   result = runner.run(n_iter=20, method="L-BFGS-B")
-   print(f"Paper static circuit loss: {result['loss']}")
+       result = runner.run(n_iter=20, method="L-BFGS-B")
+       print(f"Paper static circuit loss: {result['loss']}")
+
+   if __name__ == "__main__":
+       main()
 
 2. Extending to Multi-Step Time-Domain Multiplexing (``steps > 1``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -183,20 +187,30 @@ To explore multi-step temporal state engineering beyond the scope of the paper:
 
 .. code-block:: python
 
-   # 4-step time-domain multiplexed loop circuit
-   tdm_circuit = ThreeModeTimeDomainGeneral(
-       steps=4,                 # 4 recirculating steps in time
-       time_invariant=False,    # Dynamic, step-dependent control parameters
-       clip_size=2.0,
-       measure_fock_cutoff=10
-   )
+   from heraldo.components.circuits import ThreeModeTimeDomainGeneral
+   from heraldo.components.runner import BasinHoppingRunner
+   from heraldo.components.targets import CoreGKPTarget
 
-   runner_tdm = BasinHoppingRunner(
-       circuit=tdm_circuit,
-       target_gens=[target],
-       cutoff_dim=30,
-       beam_width=100
-   )
+   def main():
+       target = CoreGKPTarget(n_max=4, delta_db=10.0, mu=1)
 
-   result_tdm = runner_tdm.run(n_iter=20, method="L-BFGS-B")
-   print(f"Multi-step TDM circuit loss: {result_tdm['loss']}")
+       # 4-step time-domain multiplexed loop circuit
+       tdm_circuit = ThreeModeTimeDomainGeneral(
+           steps=4,                 # 4 recirculating steps in time
+           time_invariant=False,    # Dynamic, step-dependent control parameters
+           clip_size=2.0,
+           measure_fock_cutoff=10
+       )
+
+       runner_tdm = BasinHoppingRunner(
+           circuit=tdm_circuit,
+           target_gens=[target],
+           cutoff_dim=30,
+           beam_width=100
+       )
+
+       result_tdm = runner_tdm.run(n_iter=20, method="L-BFGS-B")
+       print(f"Multi-step TDM circuit loss: {result_tdm['loss']}")
+
+   if __name__ == "__main__":
+       main()
