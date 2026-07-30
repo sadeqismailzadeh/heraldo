@@ -29,7 +29,7 @@ Key Features
 * **Rotation-Invariant Optimization**: Uses an FFT-accelerated metric to evaluate state fidelity across phase-space rotations :math:`\hat{R}(\phi)`, avoiding unnecessary orientation constraints during global parameter search.
 * **Supported Non-Gaussian Resource Families**: Built-in support for Gottesman-Kitaev-Preskill (GKP) core states, Schrödinger cat states, binomial quantum codes, and cubic phase states.
 * **Flexible Architecture Engine**: Supports both static spatial circuits (``steps = 1``) and time-domain multiplexed (TDM) architectures (``steps > 1``); see :doc:`circuits_comparison` for details.
-* **High-Performance JIT Backend**: Custom JIT-compiled Numba kernels for :math:`O(D^3)` beam splitters, disabled memory-leak gate caching, and unentangled pure-state detection optimizations for Strawberry Fields.
+* **High-Performance Backend & Patches**: Automatic Strawberry Fields patches featuring an :math:`O(D^3)` JIT-compiled beam splitter, memory-leak-free uncached gate evaluation, and pure-state preservation for TDM loops, enabling fast, low-memory simulations at high cutoff dimensions (:math:`D = 30`) on standard laptop hardware; see :doc:`sf_patches` for details.
 
 Quick Example
 =============
@@ -80,6 +80,7 @@ Documentation Contents
    :caption: Architecture & Theory
 
    circuits_comparison
+   sf_patches
 
 .. toctree::
    :maxdepth: 2
