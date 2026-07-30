@@ -15,6 +15,8 @@ Heraldo Documentation
 
    *Multi-Outcome Circuit Optimization for Enhanced Non-Gaussian State Generation* (S. Ismailzadeh & B. Abedi Ravan, 2026)
 
+``heraldo`` is released under the MIT License — see ``LICENSE`` in the repository root for the full text.
+
 .. note::
    **New to Heraldo?** Start with the :doc:`introduction` for core concepts and the :doc:`quickstart_tutorial` for a step-by-step hands-on guide to running your first optimization!
 
@@ -88,7 +90,54 @@ Documentation Contents
    modules
 
 
+=======
+Citing This Work
+================
+
+If you use ``heraldo`` in published research, please cite the paper it
+implements:
+
+.. code-block:: bibtex
+
+   @article{ismailzadeh_multioutcome,
+     title = {Multi-Outcome Circuit Optimization for Enhanced Non-Gaussian State Generation},
+     author = {Ismailzadeh, S. and Abedi Ravan, B.},
+     journal = {<FILL IN — journal / arXiv identifier once assigned>},
+     year = {<FILL IN>},
+   }
+
+and, if you'd also like to credit the software specifically:
+
+.. code-block:: bibtex
+
+   @software{heraldo_software,
+     title = {heraldo: Multi-Outcome Circuit Optimization Framework},
+     author = {Ismailzadeh, Sadeq},
+     year = {2025},
+     url = {<FILL IN — repository URL>},
+     note = {<FILL IN — version / DOI, e.g. from a Zenodo release>},
+   }
+
+Both entries have placeholder fields (journal/arXiv ID, DOI) — fill these
+in once the paper and/or a tagged software release have a permanent
+identifier.
+
+
+Building These Docs Locally
+============================
+
+.. code-block:: bash
+
+   python build_docs.py
+
+This installs ``docs/requirements.txt``, regenerates the API ``.rst``
+files via ``sphinx-apidoc``, builds HTML into ``docs/_build/html/``, and
+opens it in your browser. Windows users can equivalently double-click
+``build_docs_windows.bat``.
+
+
 Indices and Tables
+==================
 ==================
 
 * :ref:`genindex`

@@ -153,7 +153,25 @@ To navigate the complex non-convex optimization landscape of continuous-variable
 
 ------------------------------------------------------------------------
 
+
+Simulating high-dimensional continuous-variable quantum circuits in the Fock basis is computationally intensive. When ``heraldo`` is imported, it automatically applies three optimized patches to the Strawberry Fields engine:
+
+1. **Fock Caching Disable**: Replaces global gate caching with uncached evaluation, preventing memory leaks during long optimization sweeps.
+2. **JIT-Compiled Beam Splitter**: Implements an :math:`O(D^3)` diagonal-traversal kernel compiled with Numba, speeding up tensor contraction by orders of magnitude.
+3. **Unentangled State Preservation**: Detects separable pure states when resetting ancilla modes, avoiding unnecessary conversion to density matrices.
+=======
 High-Performance Backend & Patches
+==================================
+
+Importing ``heraldo.components`` automatically applies three patches to
+the Strawberry Fields Fock backend: disabled gate-tensor caching (bounds
+memory across long optimization sweeps), a JIT-compiled :math:`O(D^3)`
+beam-splitter kernel, and an unentangled-state fast path that avoids
+dropping to density-matrix simulation when it isn't necessary.
+
+See :ref:`patches-section` in the :doc:`user_guide` for the full
+explanation of each patch, including why the ``scipy.integrate.simps``
+compatibility shim shows up alongside them.
 ==================================
 
 Simulating high-dimensional continuous-variable quantum circuits in the Fock basis is computationally intensive. When ``heraldo`` is imported, it automatically applies three optimized patches to the Strawberry Fields engine:
@@ -170,4 +188,4 @@ Documentation Roadmap
 * :doc:`quickstart_tutorial`: A step-by-step hands-on guide for onboarding new research students.
 * :doc:`user_guide`: In-depth user manual detailing package components, parameter structures, and workflows.
 * :doc:`circuits_comparison`: Technical guide comparing static spatial circuits and time-domain multiplexed loop architectures.
-* :doc:`modules`: Auto-generated API reference for all modules, classes, and utility functions.
+* :doc:`modules`: Auto-generated API reference for all modules, classes, and utility functions.

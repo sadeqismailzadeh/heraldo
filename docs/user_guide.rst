@@ -224,7 +224,105 @@ feed-forward correction) — this corresponds to Sec. III.C of the paper.
 
 --------------------------------------------------------------------------
 
+
+The smallest complete example: optimize a 2-mode circuit (1 loop mode + 1
+ancilla) to herald even/odd squeezed cat states on ancilla outcomes
+``n=4`` and ``n=5`` respectively.
+
+.. code-block:: python
+
+    import numpy as np
+    from heraldo.components.circuits import TwoModeTimeDomainSqueezeOnly
+    from heraldo.components.targets import SqueezedCatTarget
+    from heraldo.components.runner import BasinHoppingRunner, fixed_pattern_capped_loss_fn
+    from heraldo.utils import db_to_r
+
+    # 1. Convert 12 dB of source squeezing into the squeezing parameter r
+    squeezing = db_to_r(12)
+
+    # 2. Build the circuit: 1 loop mode + 1 ancilla, single spatial stage (T=1)
+    circuit = TwoModeTimeDomainSqueezeOnly(
+        steps=1,
+        time_invariant=False,
+        clip_size=squeezing,
+        measure_fock_cutoff=30,
+    )
+
+    # 3. Define the target(s) to herald
+    targets = [
+        SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),  # even cat
+        SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=1),  # odd cat
+    ]
+
+    # 4. Fix the heralding patterns to optimize for (see Sec. 4.4 above)
+    patterns = [[(4,)], [(5,)]]
+
+    # 5. Build and run the optimizer
+    runner = BasinHoppingRunner(
+        circuit=circuit,
+        target_gens=targets,
+        cutoff_dim=30,
+        beam_width=200,
+        penalty_strength=1.0,
+        measurement_patterns=patterns,
+        loss_fn=fixed_pattern_capped_loss_fn,
+    )
+
+    result = runner.run(n_iter=20, method="L-BFGS-B")
+
+    print(f"Loss:               {result['loss']:.5f}")
+    print(f"Expected fidelity:  {result['expected_fidelity']:.5f}")
+    for branch in result["branches"]:
+        print(branch)
+
+Running an unconstrained **Beam Search** instead only requires dropping
+``measurement_patterns`` (and switching the loss function):
+
+.. code-block:: python
+
+    from heraldo.components.runner import beam_search_loss_fn
+
+    runner = BasinHoppingRunner(
+        circuit=circuit,
+        target_gens=targets,
+        cutoff_dim=30,
+        beam_width=200,          # keep the 200 most-probable branches per step
+        penalty_strength=1.0,
+        measurement_patterns=None,   # <-- triggers Beam Search discovery mode
+        loss_fn=beam_search_loss_fn,
+    )
+    result = runner.run(n_iter=200)
+
+For fully worked, copy-pasteable versions of both flows (including saving
+=======
+.. _quick-start-full:
+
 5. Quick Start
+==================
+
+The smallest complete example: optimize a 2-mode circuit (1 loop mode + 1
+ancilla) to herald even/odd squeezed cat states on ancilla outcomes
+``n=4`` and ``n=5`` respectively.
+
+.. literalinclude:: examples/cat_state_quickstart.py
+   :language: python
+   :start-after: [start:setup]
+   :end-before: [end:setup]
+
+.. literalinclude:: examples/cat_state_quickstart.py
+   :language: python
+   :start-after: [start:fixed-pattern]
+   :end-before: [end:fixed-pattern]
+
+Running an unconstrained **Beam Search** instead only requires dropping
+``measurement_patterns`` (and switching the loss function):
+
+.. literalinclude:: examples/cat_state_quickstart.py
+   :language: python
+   :start-after: [start:beam-search]
+   :end-before: [end:beam-search]
+
+For fully worked, copy-pasteable versions of both flows (including saving
 ==================
 
 The smallest complete example: optimize a 2-mode circuit (1 loop mode + 1
@@ -630,7 +728,48 @@ and implement its four abstract members: ``per_step_parameter_names``,
 ``per_step_parameter_bounds``, ``run_step``, and
 ``get_measurement_specs``.
 
-11.3 Custom loss functions
+11.3 Config-driven construction with the factory
+---------------------------------------------------
+
+Every batch script in ``scripts/optimize/`` (``run_table_sweeps.py``,
+``run_beam_search_sweeps.py``, ``merge_table_sweeps.py``) builds its
+circuits and targets from plain dictionaries rather than importing and
+instantiating classes directly. This is what :func:`heraldo.factory.create_from_config`
+is for — it's especially useful once you're sweeping over many
+configurations, since the whole sweep can be described as data (and
+serialized to JSON alongside the results) instead of code.
+
+.. code-block:: python
+
+    import heraldo.components.circuits as circuit_module
+    import heraldo.components.targets as target_module
+    from heraldo.factory import create_from_config
+
+    circuit_config = {
+        "class_name": "ThreeModeTimeDomainSqueezeOnly",
+        "params": {
+            "steps": 1,
+            "time_invariant": False,
+            "clip_size": 1.38,
+            "measure_fock_cutoff": 30,
+        },
+    }
+    target_config = {
+        "class_name": "CoreGKPTarget",
+        "params": {"csv_path": "data/GKP_core_coefficients.csv", "n_max": 4, "delta_db": 10, "mu": 0},
+    }
+
+    circuit = create_from_config(circuit_config, circuit_module)
+    target = create_from_config(target_config, target_module)
+
+``class_name`` must match a class defined in the module you pass as the
+second argument; ``params`` is passed straight through as keyword
+arguments to the constructor. This is also why saved run metadata
+(``summary.json``, ``schedule.json`` in the ``results/`` directories) can
+fully reconstruct a circuit or target without you having to remember
+which script produced it — the config dict *is* the recipe.
+
+11.4 Custom loss functions
 --------------------------------
 
 Any callable with signature ``(probs: np.ndarray, fidelities: np.ndarray) -> float``
