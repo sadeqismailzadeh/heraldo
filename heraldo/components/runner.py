@@ -1,5 +1,7 @@
-"""
-Optimization runner for time-domain multiplexed circuits using Beam Search.
+"""Optimization runner for time-domain multiplexed circuits using Beam Search and Basin-Hopping.
+
+Provides evaluation routines and global parameter optimization frameworks for time-multiplexed
+optical quantum state preparation under Beam Search pruning or fixed measurement sequences.
 """
 import time
 import numpy as np
@@ -21,9 +23,26 @@ from functools import partial
 from tqdm import tqdm
 
 
-def _process_fixed_patterns(circuit: TimeMultiplexedCircuit, initial_ket: np.ndarray, mapped_params, meas_specs,
-                            cutoff_dim: int, measurement_patterns):
-    """Processes fixed measurement patterns trajectories."""
+def _process_fixed_patterns(circuit: TimeMultiplexedCircuit, initial_ket: np.ndarray, mapped_params: np.ndarray,
+                            meas_specs: list[tuple[int, int]], cutoff_dim: int, measurement_patterns):
+    """Simulates time-domain circuit execution under pre-specified measurement sequences.
+
+    Args:
+        circuit (TimeMultiplexedCircuit): Time-domain circuit instance to simulate.
+        initial_ket (np.ndarray): Initial state vector for Mode 0 in Fock space.
+        mapped_params (np.ndarray): 2D array of shape ``(steps, n_params)`` containing per-step parameters.
+        meas_specs (list[tuple[int, int]]): List of tuples ``(mode_index, max_fock_cutoff)`` for measured modes.
+        cutoff_dim (int): Fock space truncation cutoff dimension.
+        measurement_patterns (np.ndarray or list): Array or tensor of measurement outcome patterns of shape
+            ``(n_sequences, steps, n_meas_modes)`` or ``(steps, n_meas_modes)``.
+
+    Returns:
+        tuple or None: Tuple containing ``(active_kets, active_probs, active_outcome_sums, total_truncation_error, possible_mask, patterns_arr)``
+        if at least one pattern has non-zero probability, or ``None`` if all patterns are impossible.
+
+    Raises:
+        ValueError: If `measurement_patterns` format, step count, or mode count is invalid.
+    """
     if not isinstance(measurement_patterns, np.ndarray):
         try:
             patterns_arr = np.array(measurement_patterns, dtype=int)
@@ -146,9 +165,22 @@ def _process_fixed_patterns(circuit: TimeMultiplexedCircuit, initial_ket: np.nda
     return active_kets, active_probs, active_outcome_sums, total_truncation_error, possible_mask, patterns_arr
 
 
-def _process_beam_search(circuit: TimeMultiplexedCircuit, initial_ket: np.ndarray, mapped_params, meas_specs,
-                         cutoff_dim: int, beam_width: int):
-    """Processes trajectories using Beam Search."""
+def _process_beam_search(circuit: TimeMultiplexedCircuit, initial_ket: np.ndarray, mapped_params: np.ndarray,
+                         meas_specs: list[tuple[int, int]], cutoff_dim: int, beam_width: int):
+    """Simulates time-domain circuit execution using Beam Search trajectory pruning.
+
+    Args:
+        circuit (TimeMultiplexedCircuit): Time-domain circuit instance to simulate.
+        initial_ket (np.ndarray): Initial state vector for Mode 0 in Fock space.
+        mapped_params (np.ndarray): 2D array of shape ``(steps, n_params)`` containing per-step parameters.
+        meas_specs (list[tuple[int, int]]): List of tuples ``(mode_index, max_fock_cutoff)`` for measured modes.
+        cutoff_dim (int): Fock space truncation cutoff dimension.
+        beam_width (int): Maximum number of top measurement branches retained per time step.
+
+    Returns:
+        tuple or None: Tuple containing ``(active_kets, active_probs, active_outcome_sums, total_truncation_error, active_outcomes)``
+        if active branches survive, or ``None`` if all trajectories drop below probability threshold.
+    """
     active_kets = np.zeros((1, cutoff_dim), dtype=np.complex128)
     active_kets[0] = initial_ket 
     active_probs = np.array([1.0])
@@ -240,13 +272,23 @@ def _process_beam_search(circuit: TimeMultiplexedCircuit, initial_ket: np.ndarra
 
 def beam_search_loss_fn(probs: np.ndarray, fidelities: np.ndarray, epsilon: float = 2e-2,
                         delta: float = 1e-72, lam: float = 1e4) -> float:
-    """Beam search pattern discovery loss function (Eqs. 3-5 in paper).
-    
-    Filters low-fidelity outcomes and sharpens gradients around high-quality candidate patterns.
-    L_beam = - log(S + delta) - lambda * S
-    where S = sum_k p_k * (F_tilde_k^2 * Lambda_k)^4
-    
-    Returns score such that loss = -1 * score + penalty = L_beam + penalty.
+    r"""Evaluates the multi-outcome beam search pattern discovery loss function.
+
+    Implements the non-linear multi-outcome loss metric (Eqs. 3–5 in paper) that filters
+    low-fidelity outcomes and sharpens optimization gradients around high-quality candidate patterns:
+
+    .. math::
+        L_{\text{beam}} = \log\left( \sum_k p_k (\tilde{F}_k^2 \Lambda_k)^4 + \delta \right) + \lambda \sum_k p_k (\tilde{F}_k^2 \Lambda_k)^4
+
+    Args:
+        probs (np.ndarray): Array of probabilities :math:`p_k` for surviving output patterns.
+        fidelities (np.ndarray): Array of state fidelities :math:`F_k` for surviving output patterns.
+        epsilon (float, optional): Clipping parameter :math:`\epsilon` defining fidelity bounds. Defaults to 0.02.
+        delta (float, optional): Regularization parameter :math:`\delta` to prevent logarithmic divergence. Defaults to 1e-72.
+        lam (float, optional): Linear penalty multiplier :math:`\lambda`. Defaults to 1e4.
+
+    Returns:
+        float: Calculated beam search objective value.
     """
     infidelities = np.maximum(1.0 - fidelities, epsilon)
     capped_fidelities = np.minimum(fidelities, 1.0 - epsilon)
@@ -261,12 +303,21 @@ default_loss_fn = beam_search_loss_fn
 
 def fixed_pattern_capped_loss_fn(probs: np.ndarray, fidelities: np.ndarray, f_cap: float = 0.95,
                                 alpha: float = None) -> float:
-    """Fixed-pattern optimization loss function under capped fidelity regime (Eq. 2 in paper).
-    
-    L_fixed = - sum_k (alpha * p_k + min(F_k, F_cap))
-    Returns score such that loss = -1 * score + penalty = L_fixed + penalty.
-    
-    Default alpha is set to N_pat (the number of evaluated patterns).
+    r"""Evaluates the fixed-pattern optimization loss function under a capped fidelity regime.
+
+    Implements the capped fidelity objective (Eq. 2 in paper):
+
+    .. math::
+        L_{\text{fixed}} = \sum_k \left( \alpha p_k + \min(F_k, F_{\text{cap}}) \right)
+
+    Args:
+        probs (np.ndarray): Array of probabilities :math:`p_k` for fixed outcome patterns.
+        fidelities (np.ndarray): Array of state fidelities :math:`F_k` for fixed outcome patterns.
+        f_cap (float, optional): Maximum fidelity cap :math:`F_{\text{cap}}`. Defaults to 0.95.
+        alpha (float, optional): Weighting coefficient :math:`\alpha`. Defaults to `len(probs)` if None.
+
+    Returns:
+        float: Calculated objective score.
     """
     if alpha is None:
         alpha = float(len(probs))
@@ -276,21 +327,52 @@ def fixed_pattern_capped_loss_fn(probs: np.ndarray, fidelities: np.ndarray, f_ca
 
 def fixed_pattern_free_loss_fn(probs: np.ndarray, fidelities: np.ndarray,
                               alpha: float = None) -> float:
-    """Fixed-pattern optimization loss function under free (uncapped) fidelity regime (Eq. 2 in paper).
-    
-    L_fixed = - sum_k (alpha * p_k + F_k)
-    Returns score such that loss = -1 * score + penalty = L_fixed + penalty.
-    
-    Default alpha is set to 0.1 * N_pat (0.1 times the number of evaluated patterns).
+    r"""Evaluates the fixed-pattern optimization loss function under an uncapped (free) fidelity regime.
+
+    Implements the uncapped objective function (Eq. 2 in paper):
+
+    .. math::
+        L_{\text{fixed}} = \sum_k \left( \alpha p_k + F_k \right)
+
+    Args:
+        probs (np.ndarray): Array of probabilities :math:`p_k` for fixed outcome patterns.
+        fidelities (np.ndarray): Array of state fidelities :math:`F_k` for fixed outcome patterns.
+        alpha (float, optional): Weighting coefficient :math:`\alpha`. Defaults to `0.1 * len(probs)` if None.
+
+    Returns:
+        float: Calculated objective score.
     """
     if alpha is None:
         alpha = 0.1 * float(len(probs))
     return float(np.sum(alpha * probs + fidelities))
 
 
-def _compute_fidelities_and_loss(active_kets, active_probs, active_outcome_sums, target_kets,
-                                 total_truncation_error, penalty_strength, loss_fn=None):
-    """Computes max phase-rotated fidelities and loss objective."""
+def _compute_fidelities_and_loss(active_kets: np.ndarray, active_probs: np.ndarray,
+                                 active_outcome_sums: np.ndarray, target_kets: list[np.ndarray],
+                                 total_truncation_error: float, penalty_strength: float,
+                                 loss_fn=None):
+    """Computes max phase-rotated target fidelities and combined loss objective.
+
+    Optimizes target state fidelity over phase rotation angles using FFT acceleration across all
+    surviving trajectories with non-zero photon counts.
+
+    Args:
+        active_kets (np.ndarray): 2D array of state kets for active trajectories.
+        active_probs (np.ndarray): 1D array of trajectory probabilities.
+        active_outcome_sums (np.ndarray): 1D array of total detected photon count per trajectory.
+        target_kets (list[np.ndarray]): List of candidate target state vectors in Fock space.
+        total_truncation_error (float): Accumulated truncation norm error across steps.
+        penalty_strength (float): Multiplier for state truncation error penalties.
+        loss_fn (callable, optional): Objective loss evaluation function. Defaults to `beam_search_loss_fn`.
+
+    Returns:
+        tuple: A tuple containing:
+            - **loss** (*float*): Combined objective loss value including truncation error penalty.
+            - **expected_fidelity** (*float*): Objective score calculated by `loss_fn`.
+            - **fidelities** (*np.ndarray*): Maximum fidelity per active trajectory.
+            - **best_target_indices** (*np.ndarray*): Best-matching target index per active trajectory.
+            - **mask_nonzero** (*np.ndarray*): Boolean mask indicating active branches with non-zero photon counts.
+    """
     if loss_fn is None:
         loss_fn = beam_search_loss_fn
 
@@ -321,10 +403,25 @@ def _compute_fidelities_and_loss(active_kets, active_probs, active_outcome_sums,
     return loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero
 
 
-def _format_branch_details(mask_nonzero, active_probs, fidelities, best_target_indices,
+def _format_branch_details(mask_nonzero: np.ndarray, active_probs: np.ndarray,
+                           fidelities: np.ndarray, best_target_indices: np.ndarray,
                            measurement_patterns=None, patterns_arr=None, possible_mask=None,
-                           active_outcomes=None):
-    """Formats detailed branch metadata dictionary list."""
+                           active_outcomes=None) -> list[dict]:
+    """Formats detailed trajectory and measurement metadata dictionaries.
+
+    Args:
+        mask_nonzero (np.ndarray): Boolean mask indicating branches with non-zero photon counts.
+        active_probs (np.ndarray): Array of probabilities for active branches.
+        fidelities (np.ndarray): Array of state fidelities for active branches.
+        best_target_indices (np.ndarray): Array of best-matching target indices per branch.
+        measurement_patterns (optional): Fixed measurement patterns supplied to evaluator.
+        patterns_arr (np.ndarray, optional): Reshaped dense pattern array.
+        possible_mask (np.ndarray, optional): Boolean mask of non-zero probability patterns.
+        active_outcomes (np.ndarray, optional): Accumulated measurement history from Beam Search.
+
+    Returns:
+        list[dict]: List of dictionaries containing keys: ``"outcome"``, ``"prob"``, ``"fidelity"``, and ``"target_idx"``.
+    """
     branch_details = []
 
     if np.any(mask_nonzero):
@@ -350,24 +447,31 @@ def _format_branch_details(mask_nonzero, active_probs, fidelities, best_target_i
     return branch_details
 
 
-def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, target_kets, cutoff_dim, beam_width,
-                                  penalty_strength, measurement_patterns=None, return_details: bool = False,
+def evaluate_time_domain_circuit(flat_params: np.ndarray, circuit: TimeMultiplexedCircuit,
+                                  target_kets: list[np.ndarray], cutoff_dim: int,
+                                  beam_width: int, penalty_strength: float,
+                                  measurement_patterns=None, return_details: bool = False,
                                   loss_fn=None):
-    """
-    Evaluates the circuit using either Beam Search or fixed measurement patterns.
-    
+    """Evaluates a time-domain circuit configuration against target state generators.
+
+    Executes either Beam Search or fixed measurement pattern evaluation based on whether
+    `measurement_patterns` is provided.
+
     Args:
-        flat_params: Flat array of parameters
-        circuit: TimeMultiplexedCircuit instance
-        target_kets: List of target state vectors
-        cutoff_dim: Fock space cutoff dimension
-        beam_width: Beam width for beam search (ignored if measurement_patterns is provided)
-        penalty_strength: Penalty strength for truncation errors
-        measurement_patterns: Optional list of fixed measurement patterns.
-        return_details: If True, returns dictionary with detailed evaluation metrics.
-    
+        flat_params (np.ndarray): Flat 1D array containing initialization and per-step parameters.
+        circuit (TimeMultiplexedCircuit): Time-domain circuit model to evaluate.
+        target_kets (list[np.ndarray]): Target state vectors in Fock basis.
+        cutoff_dim (int): Fock space truncation cutoff dimension.
+        beam_width (int): Maximum trajectory beam width for Beam Search pruning.
+        penalty_strength (float): Penalty coefficient applied to Fock truncation errors.
+        measurement_patterns (optional): Pre-specified fixed measurement sequences.
+        return_details (bool, optional): If True, returns a dictionary containing comprehensive
+            evaluation metrics and trajectory metadata. Defaults to False.
+        loss_fn (callable, optional): Custom objective loss function.
+
     Returns:
-        Loss value or dict (if return_details=True)
+        float or dict: Objective loss float if `return_details` is False, or dictionary of evaluation results
+        containing keys ``"loss"``, ``"expected_fidelity"``, ``"branches"``, and ``"total_probability"``.
     """
     n_init = circuit.num_initial_parameters
     init_params = flat_params[:n_init]
@@ -423,19 +527,33 @@ def evaluate_time_domain_circuit(flat_params, circuit: TimeMultiplexedCircuit, t
         "total_probability": float(np.sum(active_probs[mask_nonzero])) if np.any(mask_nonzero) else 0.0
     }
 
+
 class BasinHoppingRunner:
+    """Optimizes time-domain optical circuits using Basin-Hopping with Beam Search or fixed patterns.
+
+    Executes global parameter optimization for time-multiplexed photonic circuits across
+    single or parallelized Basin-Hopping workers. Supports trajectory tree exploration via Beam Search
+    or evaluating explicit photon detection outcome sequences.
+
+    Architecture / Phases per step:
+        1. **Evolution**: Serial state transformation for active trajectory kets.
+        2. **Virtual Branching**: Tensor contraction over PNR detector outcomes.
+        3. **Pruning**: Selection of top-K probable trajectories (Beam Search).
+        4. **Realization**: Projection and normalization of retained quantum states.
+
+    Args:
+        circuit (TimeMultiplexedCircuit): Time-domain circuit model to optimize.
+        target_gens (TargetGenerator or list[TargetGenerator]): Target quantum state generators.
+        cutoff_dim (int): Fock space cutoff dimension for state vector truncation.
+        beam_width (int, optional): Maximum trajectories retained per time step. Defaults to 5.
+        penalty_strength (float, optional): Multiplier for truncation error penalty. Defaults to 10.0.
+        measurement_patterns (optional): Fixed measurement sequences. Defaults to None.
+        num_parallel_runs (int, optional): Number of parallel Basin-Hopping optimization runs. Defaults to 4.
+        num_processes (int, optional): Number of worker processes for parallel execution. Defaults to 4.
+        loss_fn (callable, optional): Custom objective loss evaluation function.
+        **kwargs: Additional unused configuration options.
     """
-    Optimizes time-domain circuits using Basin-Hopping with a Beam Search strategy.
-    
-    This runner executes the circuit step-by-step, maintaining a 'beam' of the most 
-    probable trajectories (measurement outcomes).
-    
-    Phases:
-    A. Evolution: Serial execution of the circuit step for each active branch.
-    B. Virtual Branching: Vectorized calculation of all possible measurement outcome probabilities.
-    C. Pruning: Vectorized selection of the top-K probable paths (Beam Search).
-    D. Realization: Lazy projection and normalization of the selected states.
-    """
+
     def __init__(self, 
                  circuit: TimeMultiplexedCircuit, 
                  target_gens: list[TargetGenerator], 
@@ -464,9 +582,14 @@ class BasinHoppingRunner:
         self.eval_count = 0
         self.iteration_count = 0
         
-    def _loss_function(self, flat_params):
-        """
-        Calculates loss: -Expected_Fidelity + Penalties
+    def _loss_function(self, flat_params: np.ndarray) -> float:
+        """Calculates loss objective for candidate parameter vector.
+
+        Args:
+            flat_params (np.ndarray): Flat 1D parameter array.
+
+        Returns:
+            float: Evaluated loss score.
         """
         self.eval_count += 1
         return evaluate_time_domain_circuit(
@@ -480,14 +603,35 @@ class BasinHoppingRunner:
             loss_fn=self.loss_fn,
         )
 
-    def callback(self, x, f, accept):
+    def callback(self, x: np.ndarray, f: float, accept: bool):
+        """Basin-Hopping iteration callback logging optimization progress.
+
+        Args:
+            x (np.ndarray): Current parameter vector.
+            f (float): Current objective loss value.
+            accept (bool): Whether the basin hopping step was accepted.
+        """
         self.iteration_count += 1
         status = "Accept" if accept else "Reject"
         print(f"  [Iteration {self.iteration_count}] [{status}] (Evals: {self.eval_count}) Loss: {f} ")
         self.eval_count = 0
 
-    def _execute_single_run(self, seed, run_idx, total_runs, n_iter, method, full_bounds, **kwargs):
-        """Helper to execute a single basin hopping run (for parallelization)."""
+    def _execute_single_run(self, seed: int | None, run_idx: int, total_runs: int,
+                            n_iter: int, method: str, full_bounds: list[tuple[float, float]],
+                            **kwargs) -> dict:
+        """Executes a single Basin-Hopping optimization run.
+
+        Args:
+            seed (int, optional): Random seed for parameter initialization.
+            run_idx (int): Index of current run.
+            total_runs (int): Total number of parallel runs.
+            n_iter (int): Number of Basin-Hopping iterations.
+            method (str): Local minimization method (e.g. ``"L-BFGS-B"``, ``"Nelder-Mead"``).
+            full_bounds (list[tuple[float, float]]): Parameter bounds list.
+
+        Returns:
+            dict: Optimization run results including best parameters, loss, fidelity, and metadata.
+        """
         if seed is not None:
             np.random.seed(seed)
             
@@ -558,10 +702,25 @@ class BasinHoppingRunner:
             # Catch exceptions to prevent crashing all runs
             return {"success": False, "error": str(e), "seed": seed}
 
-    def run(self, n_iter=20, method="L-BFGS-B", n_generations=None, 
-            num_parallel_runs=None, base_seed=None, **kwargs):
-        """
-        Runs the global optimization.
+    def run(self, n_iter: int = 20, method: str = "L-BFGS-B", n_generations: int | None = None, 
+            num_parallel_runs: int | None = None, base_seed: int | None = None, **kwargs) -> dict:
+        """Executes global circuit optimization.
+
+        Args:
+            n_iter (int, optional): Number of Basin-Hopping iterations per run. Defaults to 20.
+            method (str, optional): Local minimizer algorithm. Defaults to ``"L-BFGS-B"``.
+            n_generations (int, optional): Legacy alias for `n_iter`.
+            num_parallel_runs (int, optional): Override for number of parallel optimization runs.
+            base_seed (int, optional): Base random seed for reproducible runs.
+            **kwargs: Additional execution options.
+
+        Returns:
+            dict: Dictionary containing optimal parameters ``"x"``, minimum ``"loss"``,
+            ``"expected_fidelity"``, branch metadata ``"branches"``, total duration ``"duration"``,
+            and parallel run results.
+
+        Raises:
+            RuntimeError: If all optimization runs fail.
         """
         if n_generations is not None:
             n_iter = n_generations
