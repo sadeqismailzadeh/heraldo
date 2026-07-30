@@ -1,3 +1,10 @@
+"""Monkey-patch for Strawberry Fields Fock backend beam splitter operation.
+
+Provides high-performance JIT-compiled tensor generation and diagonal traversal
+routines for beam splitter interactions in the Fock basis, reducing computational
+complexity to O(D^3).
+"""
+
 # Scipy compatibility patch
 import scipy.integrate
 if not hasattr(scipy.integrate, 'simps'):
@@ -15,9 +22,20 @@ from numba import jit
 
 @jit(nopython=True, fastmath=True, cache=True)
 def _generate_bs_tensor_optimized(theta, phi, cutoff):
-    """
-    Generates the BS tensor with O(D^3) complexity using optimized bounds.
-    Removes internal branching by calculating exact loop ranges.
+    """Generates the beam splitter recurrence matrix tensor using JIT compilation.
+
+    Computes the beam splitter transition amplitudes in the Fock basis with $O(D^3)$
+    complexity using optimized recurrence relations with tight loop bounds to eliminate
+    internal branching.
+
+    Args:
+        theta (float): Beam splitter transmission angle parameter $\\theta$.
+        phi (float): Beam splitter phase angle parameter $\\phi$.
+        cutoff (int): Fock space cutoff dimension $D$.
+
+    Returns:
+        np.ndarray: Complex 3D array of shape ``(cutoff, cutoff, cutoff)`` containing
+        recurrence tensor elements $Z[m, n, p]$.
     """
     dtype = np.complex128
     
@@ -99,11 +117,20 @@ def _generate_bs_tensor_optimized(theta, phi, cutoff):
 
 @jit(nopython=True, fastmath=True, cache=True)
 def _apply_bs_diagonal(state_flat, bs_tensor, cutoff, dim_rest):
-    """
-    Applies the tensor using Diagonal Traversal (Photon Number Conserved Manifolds).
-    
-    Complexity: O(D^3) arithmetic, but with drastically better memory strides 
-    and no branch mispredictions compared to standard loops.
+    """Applies the beam splitter transformation tensor via diagonal manifold traversal.
+
+    Exploits total photon number conservation $S = n_1 + n_2$ across photon-number-conserved
+    subspaces to achieve $O(D^3)$ complexity with cache-friendly memory access patterns.
+
+    Args:
+        state_flat (np.ndarray): Array of shape ``(dim_rest, cutoff, cutoff)`` representing
+            the state flattened across spectator modes.
+        bs_tensor (np.ndarray): Precomputed beam splitter tensor of shape ``(cutoff, cutoff, cutoff)``.
+        cutoff (int): Fock space truncation cutoff dimension $D$.
+        dim_rest (int): Total combined dimension of all un-modeled spectator modes.
+
+    Returns:
+        np.ndarray: Transformed state array of shape ``(dim_rest, cutoff, cutoff)``.
     """
     new_state = np.zeros_like(state_flat)
     
@@ -149,6 +176,18 @@ def _apply_bs_diagonal(state_flat, bs_tensor, cutoff, dim_rest):
 # -----------------------------------------------------------------------------
 
 def _beamsplitter_patched_optimized(self, theta, phi, mode1, mode2):
+    """Patched beam splitter method for Strawberry Fields Circuit backend.
+
+    Replaces standard beam splitter evolution with the $O(D^3)$ diagonal traversal
+    method for both pure and mixed quantum states.
+
+    Args:
+        self: Strawberry Fields Fock backend ``Circuit`` instance.
+        theta (float): Beam splitter parameter $\\theta$.
+        phi (float): Beam splitter parameter $\\phi$.
+        mode1 (int): Index of the first mode in the interaction.
+        mode2 (int): Index of the second mode in the interaction.
+    """
     trunc = self._trunc
     
     # 1. Generate Tensor (Optimized)
@@ -233,6 +272,12 @@ def _beamsplitter_patched_optimized(self, theta, phi, mode1, mode2):
 
 
 def patch_beamsplitter():
+    """Applies the optimized $O(D^3)$ beam splitter patch to Strawberry Fields.
+
+    Monkey-patches ``strawberryfields.backends.fockbackend.circuit.Circuit.beamsplitter``
+    with the JIT-compiled diagonal traversal implementation, caching the original
+    method as ``beamsplitter_original``.
+    """
     from strawberryfields.backends.fockbackend.circuit import Circuit
     if not hasattr(Circuit, 'beamsplitter_original'):
         Circuit.beamsplitter_original = Circuit.beamsplitter
@@ -240,6 +285,7 @@ def patch_beamsplitter():
     print("BeamSplitter patch applied (Optimized O(D^3) Diagonal Traversal).")
 
 def revert_beamsplitter_patch():
+    """Reverts ``Circuit.beamsplitter`` to its original Strawberry Fields implementation."""
     from strawberryfields.backends.fockbackend.circuit import Circuit
     if hasattr(Circuit, 'beamsplitter_original'):
         Circuit.beamsplitter = Circuit.beamsplitter_original
