@@ -1,6 +1,62 @@
-"""
-Script to automate the optimization sweeps for Table 1 and Table 2 configurations
-at a fixed success fidelity threshold of 0.99 (as requested by referees).
+"""Fixed-Pattern Optimization Sweeps (Tables II and III Reproducibility).
+
+Automates parameter optimization sweeps for continuous-variable (CV) photonic circuits
+under pre-determined photon-number-resolving (PNR) detection pattern sequences.
+This script reproduces the numerical optimization results presented in Table II
+(Resource Multiplexing) and Table III (Single-Target Probability Harvesting) of the paper:
+"Multi-Outcome Circuit Optimization for Enhanced Non-Gaussian State Generation"
+(Ismailzadeh & Abedi Ravan, 2026).
+
+Overview & Methodological Framework
+------------------------------------
+While Phase 1 (Beam Search, `run_beam_search_sweeps.py`) discovers viable measurement
+outcomes without prior assumptions, Phase 2 (Fixed-Pattern Optimization, executed here)
+locks in specific sets of heralding patterns $S = \\{\\mathbf{n}_k\\}$ and optimizes classical
+circuit parameters $\\boldsymbol{\\theta}$ (squeezing magnitudes/phases and beam-splitter angles)
+to maximize state fidelity and generation probability.
+
+The script evaluates two core multi-outcome strategies:
+
+1. **Resource Multiplexing (Table II of the Paper)**
+   Optimizes a single physical circuit layout to simultaneously herald a diverse portfolio of
+   distinct target states across different PNR detection events.
+   - Example: A 2-mode circuit heralding an even cat state $|\\text{cat}_+\\rangle$ on outcome $n=4$
+     and an odd cat state $|\\text{cat}_-\\rangle$ on outcome $n=5$.
+   - Metric: Aggregated Success Probability $P_{\\text{agg}} = \\sum_k P(\\mathbf{n}_k)$.
+
+2. **Single-Target Probability Harvesting (Table III of the Paper)**
+   Optimizes a circuit to produce one specific target state by accepting multiple degenerate
+   heralding patterns.
+   - Example: A 3-mode circuit preparing GKP core $|0_{A4}\\rangle$ by harvesting outcomes
+     $(1,3)$, $(3,1)$, and $(2,2)$ simultaneously.
+   - Metric: Target Success Probability $P_{\\text{target}} = \\sum_{k \\in \\text{target}} P(\\mathbf{n}_k)$.
+
+Loss Function & Quality Regime
+------------------------------
+Optimizations employ the capped fidelity objective :func:`~heraldo.components.runner.fixed_pattern_capped_loss_fn`
+with a baseline target fidelity cap $F_{\\text{cap}} = 0.95$ (infidelity threshold of $5 \\times 10^{-2}$).
+This ensures a standardized, fair comparison of generation probabilities across single-outcome
+and multi-outcome configurations under equivalent state quality constraints.
+
+Generated Output & Artifacts
+----------------------------
+Results are written to: `results/sweeps_fid099_<Timestamp>/`
+
+Inside this folder:
+- Individual job subdirectories (`job_01_...`, `job_02_...`, etc.), each containing:
+  - `summary.json`: Job metadata, execution time, and target performance summary.
+  - `run_0001.pkl`: Pickled result dictionary containing optimal parameters and branch details.
+  - `run_0001_branches.txt`: Ranked table of outcome probabilities, fidelities, and target assignments.
+  - `best/`: Subfolder containing exported parameters (`best_x.npy`, `mapped_params.npz`, `schedule.json`).
+- `sweep_report.md`: Consolidated Markdown summary report formatted matching Tables II and III of the paper.
+
+Execution
+---------
+Run directly via Python from the repository root:
+
+.. code-block:: bash
+
+    python scripts/optimize/run_fixed_pattern_sweeps.py
 """
 
 import os
@@ -21,6 +77,7 @@ import shutil
 import multiprocessing as mp
 from pathlib import Path
 from datetime import datetime
+from typing import List, Dict, Tuple, Any, Optional, Union
 import numpy as np
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
@@ -34,8 +91,18 @@ from heraldo.utils import *
 from heraldo.factory import create_from_config
 
 
-def prepare_measurement_patterns(patterns):
-    """Convert input list patterns to numpy structure expected by runner."""
+def prepare_measurement_patterns(patterns: Optional[Union[List, np.ndarray]]) -> Optional[np.ndarray]:
+    """Converts user-specified measurement pattern lists into a normalized 3D NumPy array.
+
+    Args:
+        patterns (list or np.ndarray, optional): List or array of measurement pattern sequences.
+            Each sequence specifies a list of photon-count tuples per time step,
+            e.g. ``[[(4,)], [(5,)]]`` for 2-mode or ``[[(1, 3)], [(3, 1)]]`` for 3-mode.
+
+    Returns:
+        np.ndarray or None: Dense 3D NumPy array of shape ``(n_sequences, steps, n_meas_modes)``,
+        or ``None`` if ``patterns`` is None.
+    """
     if patterns is None:
         return None
     if isinstance(patterns, np.ndarray):
@@ -51,8 +118,20 @@ def prepare_measurement_patterns(patterns):
         return patterns
 
 
-def format_branches_report(branches, target_names, success_threshold):
-    """Returns a formatted string of branch statistics."""
+def format_branches_report(branches: List[Dict[str, Any]], 
+                           target_names: List[str], 
+                           success_threshold: float) -> str:
+    """Formats branch probabilities, state fidelities, and target assignments into a plain-text table.
+
+    Args:
+        branches (List[dict]): List of branch dictionaries containing ``"outcome"``, ``"prob"``,
+            ``"fidelity"``, and ``"target_idx"``.
+        target_names (List[str]): Human-readable labels for the target states.
+        success_threshold (float): Minimum state fidelity threshold for success analysis.
+
+    Returns:
+        str: Formatted plain-text table summarizing branch performance.
+    """
     lines = []
     lines.append("-" * 80)
     lines.append(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
@@ -69,7 +148,7 @@ def format_branches_report(branches, target_names, success_threshold):
 
     lines.append(f"\nTotal Probability captured: {total_prob:.5f}")
 
-    # Target Analysis
+    # Target Distribution Analysis
     lines.append("-" * 60)
     lines.append(f"Target Distribution Analysis (Success > {success_threshold}):")
     lines.append(f"{'Rank':<5} {'Target Name':<20} {'Tot. Prob':<10} {'Outcomes (Top 3)'}")
@@ -101,8 +180,15 @@ def format_branches_report(branches, target_names, success_threshold):
     return "\n".join(lines)
 
 
-def get_target_name_brief(cfg):
-    """Formats config to readable target label."""
+def get_target_name_brief(cfg: Dict[str, Any]) -> str:
+    """Formats a target configuration dictionary into a concise string label.
+
+    Args:
+        cfg (dict): Configuration dictionary with 'class_name' and 'params'.
+
+    Returns:
+        str: Brief target label (e.g. 'GKP_n4_mu0', 'SqCat_a2.45_r0.50_p0').
+    """
     c_name = cfg.get('class_name', 'Unknown')
     p = cfg.get('params', {})
     if "CoreGKP" in c_name:
@@ -116,8 +202,17 @@ def get_target_name_brief(cfg):
     return c_name
 
 
-def map_branch_to_target(b, family, target_configs):
-    """Identifies which target index a given branch belongs to."""
+def map_branch_to_target(b: Dict[str, Any], family: str, target_configs: List[Dict[str, Any]]) -> int:
+    """Identifies which target state index a given branch belongs to based on photon count rules.
+
+    Args:
+        b (dict): Branch dictionary containing outcome pattern information.
+        family (str): Target state family descriptor (e.g. 'GKP mu=0', 'Cat', 'Binomial').
+        target_configs (List[dict]): List of target configuration dictionaries.
+
+    Returns:
+        int: Zero-based index of the matching target state generator.
+    """
     if 'target_idx' in b and b['target_idx'] is not None:
         return b['target_idx']
     
@@ -148,8 +243,18 @@ def map_branch_to_target(b, family, target_configs):
     return 0
 
 
-def get_patterns_for_target(target_idx, job_patterns, family, target_configs):
-    """Extracts the subset of patterns associated with a given target index."""
+def get_patterns_for_target(target_idx: int, job_patterns: Optional[List], family: str, target_configs: List[Dict[str, Any]]) -> List:
+    """Extracts the subset of measurement patterns associated with a specific target index.
+
+    Args:
+        target_idx (int): Index of the target state.
+        job_patterns (list, optional): List of pattern groups for the job.
+        family (str): Target state family descriptor.
+        target_configs (List[dict]): List of target configuration dictionaries.
+
+    Returns:
+        List: List of pattern tuples matching the target index.
+    """
     matched = []
     if job_patterns is None:
         return matched
@@ -162,8 +267,15 @@ def get_patterns_for_target(target_idx, job_patterns, family, target_configs):
     return matched
 
 
-def format_target_latex(cfg):
-    """Converts target configuration to beautiful LaTeX representation."""
+def format_target_latex(cfg: Dict[str, Any]) -> str:
+    """Converts a target configuration dictionary into a LaTeX mathematical representation string.
+
+    Args:
+        cfg (dict): Target configuration dictionary with 'class_name' and 'params'.
+
+    Returns:
+        str: LaTeX math string (e.g. '$\\ket{0_{A4}}$', '$\\ket{\\text{cat}_+}$').
+    """
     c_name = cfg.get('class_name', 'Unknown')
     p = cfg.get('params', {})
     if "CoreGKP" in c_name:
@@ -180,8 +292,15 @@ def format_target_latex(cfg):
     return c_name
 
 
-def format_patterns(pats):
-    """Formats heralding patterns to be human-readable or match LaTeX notation."""
+def format_patterns(pats: List) -> str:
+    """Formats heralding pattern tuples into a readable string representation for markdown/LaTeX tables.
+
+    Args:
+        pats (list): List of pattern tuples.
+
+    Returns:
+        str: Formatted pattern string (e.g. '$(1, 3)$', '$(1, 3), (3, 1)$', '$\\sum n_i = 4$').
+    """
     if not pats:
         return ""
     pats_tuples = [tuple(p) for p in pats]
@@ -199,30 +318,36 @@ def format_patterns(pats):
     return ", ".join(str(p) for p in pats_tuples[:3]) + ", ..."
 
 
-def main():
+def main() -> None:
+    """Executes the fixed-pattern optimization sweeps reproducing Tables II and III of the paper.
+
+    Initializes simulation parameters (12 dB squeezing, cutoff dimension D=30, beam width B=200),
+    builds the sweep jobs corresponding to Table II (Resource Multiplexing) and Table III
+    (Single-Target Probability Harvesting), runs Basin-Hopping optimizations per job, saves
+    all run artifacts, and generates the final consolidated Markdown report `sweep_report.md`.
+    """
     CUTOFF_DIM = 30
     STEPS = 1
     BEAM_WIDTH = 200
     TIME_INVARIANT = False
     MEASURE_CUTOFF = CUTOFF_DIM
-    SUCCESS_THRESHOLD = 0.93  # Fixed at 0.99 per referee request
+    SUCCESS_THRESHOLD = 0.93  # Baseline quality threshold
     N_GENERATIONS = 200
-    NITER = 1
 
     squeezing = db_to_r(12)
     csv_path_abs = str(Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv")
 
-    print("--- Defining Sweep Jobs for LaTeX Tables ---")
+    print("--- Defining Fixed-Pattern Optimization Jobs (Tables II and III) ---")
 
     sweep_jobs = []
 
-    # ==========================================
-    # TABLE 1 CONFIGURATIONS
-    # ==========================================
+    # =========================================================================
+    # TABLE II CONFIGURATIONS: RESOURCE MULTIPLEXING
+    # =========================================================================
 
     # 1. GKP mu=0, 3 modes, Single (1,3)
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "GKP mu=0",
         "strategy": "Single (1,3)",
         "modes": 3,
@@ -246,7 +371,7 @@ def main():
 
     # 2. GKP mu=0, 3 modes, Single (2,2)
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "GKP mu=0",
         "strategy": "Single (2,2)",
         "modes": 3,
@@ -268,9 +393,9 @@ def main():
         "patterns": [[(2, 2)]]
     })
 
-    # 3. GKP mu=0, 3 modes, Multi
+    # 3. GKP mu=0, 3 modes, Multi (Multiplexing n_max=4, 8, 12)
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "GKP mu=0",
         "strategy": "Multi",
         "modes": 3,
@@ -296,7 +421,7 @@ def main():
 
     # 4. Cat, 2 modes, Single (+)
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "Cat",
         "strategy": "Single (+)",
         "modes": 2,
@@ -321,7 +446,7 @@ def main():
 
     # 5. Cat, 2 modes, Single (-)
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "Cat",
         "strategy": "Single (-)",
         "modes": 2,
@@ -344,9 +469,9 @@ def main():
         "patterns": [[(5,)]]
     })
 
-    # 6. Cat, 2 modes, Multi
+    # 6. Cat, 2 modes, Multi (Multiplexing even n=4 and odd n=5)
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "Cat",
         "strategy": "Multi (2 modes)",
         "modes": 2,
@@ -372,7 +497,7 @@ def main():
 
     # 7. Cat, 3 modes, Multi
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "Cat",
         "strategy": "Multi (3 modes)",
         "modes": 3,
@@ -397,7 +522,7 @@ def main():
 
     # 8. GKP mu=1, 2 modes, Single
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "GKP mu=1",
         "strategy": "Single (4)",
         "modes": 2,
@@ -422,7 +547,7 @@ def main():
 
     # 9. GKP mu=1, 2 modes, Multi
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "GKP mu=1",
         "strategy": "Multi (2 modes)",
         "modes": 2,
@@ -450,7 +575,7 @@ def main():
 
     # 10. GKP mu=1, 3 modes, Single
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "GKP mu=1",
         "strategy": "Single (4,0)",
         "modes": 3,
@@ -478,7 +603,7 @@ def main():
         gkp_mu1_3m_multi_patterns.extend([[(i, s-i)] for i in range(s + 1)])
 
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "GKP mu=1",
         "strategy": "Multi (3 modes)",
         "modes": 3,
@@ -505,7 +630,7 @@ def main():
 
     # 12. Binomial, 3 modes, Single
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "Binomial",
         "strategy": "Single (2,4)",
         "modes": 3,
@@ -529,7 +654,7 @@ def main():
 
     # 13. Binomial, 3 modes, Multi
     sweep_jobs.append({
-        "table": "Table 1",
+        "table": "Table II",
         "family": "Binomial",
         "strategy": "Multi",
         "modes": 3,
@@ -552,10 +677,13 @@ def main():
         "patterns": [[(2, 4)], [(4, 2)], [(3, 5)], [(5, 3)]]
     })
 
+    # =========================================================================
+    # TABLE III CONFIGURATIONS: SINGLE-TARGET PROBABILITY HARVESTING
+    # =========================================================================
 
-    # 13.1 Binomial, 3 modes, Multi
+    # 14. Binomial, 3 modes, Harvest (2,4), (4,2)
     sweep_jobs.append({
-        "table": "Table 2",
+        "table": "Table III",
         "family": "Binomial",
         "strategy": "Harvest (2,4), (4,2)",
         "modes": 3,
@@ -573,17 +701,13 @@ def main():
         },
         "target_configs": [
             {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 2, 'mu': 0}}
-                ],
+        ],
         "patterns": [[(2, 4)], [(4, 2)]]
     })
 
-    # ==========================================
-    # TABLE 2 CONFIGURATIONS (Non-redundant entries)
-    # ==========================================
-
-    # 14. Table 2: GKP mu=0, 3 modes, (1,3) + (3,1)
+    # 15. GKP mu=0, 3 modes, Harvesting (1,3) + (3,1)
     sweep_jobs.append({
-        "table": "Table 2",
+        "table": "Table III",
         "family": "GKP mu=0",
         "strategy": "Harvesting (1,3), (3,1)",
         "modes": 3,
@@ -605,9 +729,9 @@ def main():
         "patterns": [[(1, 3)], [(3, 1)]]
     })
 
-    # 15. Table 2: GKP mu=0, 3 modes, (1,3) + (3,1) + (2,2)
+    # 16. GKP mu=0, 3 modes, Harvesting (1,3) + (3,1) + (2,2)
     sweep_jobs.append({
-        "table": "Table 2",
+        "table": "Table III",
         "family": "GKP mu=0",
         "strategy": "Harvesting (1,3), (3,1), (2,2)",
         "modes": 3,
@@ -629,9 +753,9 @@ def main():
         "patterns": [[(1, 3)], [(3, 1)], [(2, 2)]]
     })
 
-    # 16. Table 2: GKP mu=1, 3 modes, (2,2)
+    # 17. GKP mu=1, 3 modes, Harvesting (2,2)
     sweep_jobs.append({
-        "table": "Table 2",
+        "table": "Table III",
         "family": "GKP mu=1",
         "strategy": "Harvesting (2,2)",
         "modes": 3,
@@ -653,9 +777,9 @@ def main():
         "patterns": [[(2, 2)]]
     })
 
-    # 17. Table 2: GKP mu=1, 3 modes, (3,1), (2,2), (4,0), (1,3), (0,4)
+    # 18. GKP mu=1, 3 modes, Harvesting 5-patterns
     sweep_jobs.append({
-        "table": "Table 2",
+        "table": "Table III",
         "family": "GKP mu=1",
         "strategy": "Harvesting 5-patterns",
         "modes": 3,
@@ -677,9 +801,9 @@ def main():
         "patterns": [[(3, 1)], [(2, 2)], [(4, 0)], [(1, 3)], [(0, 4)]]
     })
 
-    # 18. Table 2: Cat, 3 modes, (2,2)
+    # 19. Cat, 3 modes, Harvesting (2,2)
     sweep_jobs.append({
-        "table": "Table 2",
+        "table": "Table III",
         "family": "Cat",
         "strategy": "Harvesting (2,2)",
         "modes": 3,
@@ -701,9 +825,9 @@ def main():
         "patterns": [[(2, 2)]]
     })
 
-    # 19. Table 2: Cat, 3 modes, 5-patterns
+    # 20. Cat, 3 modes, Harvesting 5-patterns
     sweep_jobs.append({
-        "table": "Table 2",
+        "table": "Table III",
         "family": "Cat",
         "strategy": "Harvesting 5-patterns",
         "modes": 3,
@@ -756,7 +880,7 @@ def main():
                 target_gens=targets,
                 cutoff_dim=CUTOFF_DIM,
                 beam_width=BEAM_WIDTH,
-                penalty_strength=1,
+                penalty_strength=1.0,
                 measurement_patterns=patterns,
                 loss_fn=fixed_pattern_capped_loss_fn
             )
@@ -834,7 +958,7 @@ def main():
                 print(f"     Worst-case Infidelity: {t_infid_str}")
                 print(f"     Success Prob: {tgt['agg_prob']:.2%}")
             if len(target_results) > 1:
-                print(f"   * Total Aggregated Success Prob (P_agg @ >=0.99): {agg_prob:.2%}")
+                print(f"   * Total Aggregated Success Prob (P_agg @ >=0.93): {agg_prob:.2%}")
 
             # Generate target names for report
             target_names = []
@@ -852,16 +976,14 @@ def main():
                 else:
                     target_names.append("UnknownTarget")
 
-            # Sort branches as done in run_time_optimization.py
+            # Sort branches
             branches.sort(key=lambda x: x['prob'], reverse=True)
             expected_fidelity = sum(b['prob'] * b['fidelity'] for b in branches)
             
-            # Inject values into res dictionary so it matches expectation of run_time_optimization.py structure
             res['expected_fidelity'] = expected_fidelity
             res['success_prob'] = agg_prob
             res['run_index'] = 1
             
-            # Prepare metadata matching structure expected by eval_time_optimized.py
             run_meta = {
                 "run_index": 1,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -891,14 +1013,13 @@ def main():
             with open(job_dir / "run_0001_branches.txt", "w") as f:
                 f.write(branches_report)
 
-            # Save reformatted results.pkl for compatibility with older load scripts if needed
             with open(job_dir / "results.pkl", "wb") as f:
                 pickle.dump({"meta": run_meta, "res": res}, f)
 
             with open(job_dir / "summary.json", "w") as f:
                 json.dump(job_result, f, indent=2)
 
-            # Reconstruct the "best/" folder directory structure as in run_time_optimization.py
+            # Reconstruct 'best/' folder structure
             try:
                 best_dir = job_dir / "best"
                 best_dir.mkdir(exist_ok=True)
@@ -909,7 +1030,6 @@ def main():
                 with open(best_dir / "best_run_0001_summary.json", "w") as f:
                     json.dump(summary, f, indent=2)
 
-                # Save parameter files
                 if 'x' in res:
                     np.save(best_dir / "best_x.npy", res['x'])
                     mapped_params = circuit.map_parameters(res['x'])
@@ -946,24 +1066,25 @@ def main():
 
         results_summary.append(job_result)
 
-    # Save aggregated table summary files
+    # =========================================================================
+    # COMPILE MASTER MARKDOWN REPORT FOR TABLES II AND III
+    # =========================================================================
     print("\n" + "=" * 80)
-    print("ALL SWEEPS COMPLETE - COMPILING REPORTS")
+    print("ALL SWEEPS COMPLETE - COMPILING REPORTS FOR TABLES II AND III")
     print("=" * 80)
 
-    # Write Markdown Report
     report_path = results_dir / "sweep_report.md"
     with open(report_path, "w") as f:
-        f.write("# Referee-Requested Sweep Report (Fixed Fidelity Threshold = 0.99)\n\n")
+        f.write("# Fixed-Pattern Optimization Sweep Report (Tables II and III)\n\n")
         f.write(f"Generated on: {datetime.utcnow().isoformat()}Z\n\n")
 
-        # Table 1 Section
-        f.write("## Table 1 Comparison Summary\n\n")
+        # Table II Section: Resource Multiplexing
+        f.write("## Table II: Resource Multiplexing Summary\n\n")
         f.write("| Family | Modes | Strategy | Target | Patterns | $N_{\\mathrm{pat}}$ | Max Infidelity ($1-\\mathcal{F}_{\\mathrm{min}}$) | Success Prob ($P_{\\mathrm{agg}}$) | Status |\n")
         f.write("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
         
         for r in results_summary:
-            if r["table"] == "Table 1":
+            if r["table"] == "Table II":
                 detailed = r.get("targets_detailed", [])
                 if not detailed:
                     f.write(f"| {r['family']} | {r['modes']} | {r['strategy']} | Error | - | - | - | - | {r['status']} |\n")
@@ -983,17 +1104,16 @@ def main():
                     prob_total_str = f"{r['agg_prob']:.2%}"
                     f.write(f"| | | | *Total* | | {r['n_pat_total']} | -- | {prob_total_str} | |\n")
                 
-                # Write an empty row line for grouping
                 f.write("| | | | | | | | | |\n")
 
         f.write("\n\n")
 
-        # Table 2 Section
-        f.write("## Table 2 Harvesting Summary\n\n")
+        # Table III Section: Single-Target Probability Harvesting
+        f.write("## Table III: Single-Target Probability Harvesting Summary\n\n")
         f.write("| Target | Modes | Strategy/Patterns | Max Infidelity ($1-\\mathcal{F}_{\\mathrm{min}}$) | Total Success Prob ($P_{\\mathrm{total}}$) | Status |\n")
         f.write("| :--- | :--- | :--- | :--- | :--- | :--- |\n")
         for r in results_summary:
-            if r["table"] == "Table 2":
+            if r["table"] == "Table III":
                 detailed = r.get("targets_detailed", [])
                 if detailed:
                     tgt = detailed[0]
@@ -1003,7 +1123,6 @@ def main():
                 else:
                     f.write(f"| {r['targets']} | {r['modes']} | {r['strategy']} | N/A | 0.0% | {r['status']} |\n")
 
-    # Print markdown structure to console for easy viewing
     with open(report_path, "r") as f:
         print(f.read())
 
