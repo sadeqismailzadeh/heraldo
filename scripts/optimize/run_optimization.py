@@ -1,6 +1,59 @@
-"""
-Script to run single-configuration time-domain optimization for loop-based
-photonic continuous-variable (CV) state-preparation circuits using Basin-Hopping.
+"""Single-Configuration Time-Domain Photonic Circuit Optimizer.
+
+This script executes global parameter optimization for single configurations of
+continuous-variable (CV) photonic quantum state engineering circuits using the
+Basin-Hopping algorithm with local L-BFGS-B / Nelder-Mead minimizers.
+
+Overview & Workflow
+-------------------
+The script supports two primary operational regimes for state heralding:
+
+1. **Phase 1: Unconstrained Pattern Discovery (Beam Search)**
+   Set ``patterns = None`` to enable Beam Search pattern discovery. The runner
+   dynamically explores the tree of photon-number-resolving (PNR) detection
+   outcomes across ancillary modes, tracking the top ``beam_width`` most probable
+   trajectories and evaluating state quality using the non-linear score metric
+   :func:`~heraldo.components.runner.beam_search_loss_fn`.
+
+2. **Phase 2: Fixed-Pattern Optimization & Refinement**
+   Set ``patterns = [[(n1, n2, ...)], ...]`` to optimize circuit parameters
+   for pre-determined PNR detection sequences. This phase supports:
+   - **Resource Multiplexing**: Optimizing a single circuit to generate distinct
+     target states across different detection events (e.g., even cat on n=4, odd cat on n=5).
+   - **Single-Target Probability Harvesting**: Aggregating degenerate measurement
+     outcomes that all herald the same target state (e.g., harvesting (1,3), (3,1), and (2,2)
+     for GKP logical zero).
+
+Generated Artifacts & Output Directory Structure
+------------------------------------------------
+Optimizations automatically export results to an output folder named:
+``results/opt_<CircuitTag>_<TargetTag>_<Timestamp>/``
+
+The directory contains:
+- ``experiment_details.txt``: Plain-text log of circuit, target, and measurement settings.
+- ``run_0001.pkl``: Pickle file containing metadata and optimization results.
+- ``run_0001_summary.json``: JSON summary of run statistics (fidelity, total probability).
+- ``run_0001_branches.txt``: Formatted table of outcome probabilities and target fidelities.
+- ``sorted_runs.txt``: Ranked summary of optimization attempts.
+- ``best/`` subfolder (legacy output structure mirroring single-run outputs):
+  - ``best_x.npy``: Raw 1D NumPy array of optimal circuit parameters.
+  - ``mapped_params.npz``: 2D array of per-step control parameters.
+  - ``schedule.json``: Human-readable parameter schedule mapped by gate name.
+  - ``best_branches.txt``: Outcome details for the run.
+  - ``best_run_0001.pkl``: Copy of the result pickle.
+
+.. note::
+   This script runs a single optimization pass (``N_RUNS = 1``). Saving the output into
+   a ``best/`` subfolder is a legacy output convention maintained for compatibility
+   with downstream evaluation scripts (e.g., ``eval_time_optimized.py``).
+
+Execution
+---------
+Run directly from the repository root:
+
+.. code-block:: bash
+
+    python scripts/optimize/run_time_optimization.py
 """
 
 import os
@@ -13,9 +66,10 @@ import warnings
 import itertools
 from pathlib import Path
 from datetime import datetime
+from typing import List, Dict, Tuple, Any, Optional, Union
 import numpy as np
 
-# --- Set thread limits for NumPy/OpenBLAS/MKL before importing libraries ---
+# --- Set thread limits for NumPy/OpenBLAS/MKL before importing heavy backend libraries ---
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
@@ -38,10 +92,17 @@ from heraldo.utils import db_to_r
 from heraldo.factory import create_from_config
 
 
-def prepare_measurement_patterns(patterns):
-    """
-    Convert user-friendly list/tuple measurement patterns into a NumPy array structure
-    expected by the optimizer runner.
+def prepare_measurement_patterns(patterns: Optional[Union[List, np.ndarray]]) -> Optional[np.ndarray]:
+    """Converts user-specified measurement patterns into a normalized NumPy array.
+
+    Args:
+        patterns (list or np.ndarray, optional): List or array of measurement pattern sequences.
+            Each sequence specifies a list of photon-count tuples per time step,
+            e.g., ``[[(4,)], [(5,)]]`` for a 1-step 2-mode circuit or ``[[(1, 3)]]`` for 3-mode.
+
+    Returns:
+        np.ndarray or None: Dense 3D NumPy array of shape ``(n_sequences, steps, n_meas_modes)``,
+        or ``None`` if ``patterns`` is None (triggering Beam Search discovery mode).
     """
     if patterns is None:
         return None
@@ -57,27 +118,27 @@ def prepare_measurement_patterns(patterns):
             patterns_np = patterns_np[None, ...]
         return patterns_np
     except Exception:
-        # Fallback for ragged or non-uniform pattern shapes
+        # Fallback for non-standard pattern shapes
         return patterns
 
 
 def generate_measurement_patterns(circuit: TimeMultiplexedCircuit, 
-                                  min_total_photons: int = None, 
-                                  max_total_photons: int = None, 
-                                  exact_total: int = None,
-                                  max_per_mode: int = None):
-    """
-    Generate all possible measurement outcome patterns for a given circuit under photon count constraints.
+                                  min_total_photons: Optional[int] = None, 
+                                  max_total_photons: Optional[int] = None, 
+                                  exact_total: Optional[int] = None,
+                                  max_per_mode: Optional[int] = None) -> List[List[Tuple[int, ...]]]:
+    """Combinatorially generates all valid measurement patterns subject to photon count constraints.
 
     Args:
-        circuit: TimeMultiplexedCircuit instance.
-        min_total_photons: Minimum total photon sum across all measured modes/steps.
-        max_total_photons: Maximum total photon sum across all measured modes/steps.
-        exact_total: Exact photon sum constraint (overrides min/max if set).
-        max_per_mode: Max photons allowed in a single measurement outcome.
+        circuit (TimeMultiplexedCircuit): Target circuit model to generate patterns for.
+        min_total_photons (int, optional): Minimum sum of detected photons across all modes and steps.
+        max_total_photons (int, optional): Maximum sum of detected photons across all modes and steps.
+        exact_total (int, optional): Exact sum of detected photons required (overrides min/max if specified).
+        max_per_mode (int, optional): Upper bound on photon number measured by a single detector.
 
     Returns:
-        List of pattern sequences, where each pattern is a list of tuples per step.
+        List[List[Tuple[int, ...]]]: List of valid outcome patterns, where each pattern is a
+        list containing one tuple per step with photon numbers for each measured mode.
     """
     if exact_total is not None:
         min_total_photons = exact_total
@@ -112,8 +173,15 @@ def generate_measurement_patterns(circuit: TimeMultiplexedCircuit,
     return all_patterns
 
 
-def print_targets(targets, cutoff_dim, tolerance=1e-6):
-    """Prints target state labels and non-zero Fock basis coefficients."""
+def print_targets(targets: List[TargetGenerator], cutoff_dim: int, tolerance: float = 1e-6) -> None:
+    """Prints diagnostic labels and significant Fock-basis expansion coefficients for target states.
+
+    Args:
+        targets (List[TargetGenerator]): List of initialized target generator instances.
+        cutoff_dim (int): Fock space truncation dimension used to expand the target ket.
+        tolerance (float, optional): Absolute amplitude threshold below which coefficients are omitted.
+            Defaults to 1e-6.
+    """
     for i, target in enumerate(targets):
         if isinstance(target, CoreGKPTarget):
             target_name = f"GKP_n{target.n_max}_mu{target.mu}"
@@ -139,8 +207,23 @@ def print_targets(targets, cutoff_dim, tolerance=1e-6):
         print("")
 
 
-def save_experiment_details(results_dir: Path, circuit_config: dict, target_configs: list, patterns=None, beam_width=None):
-    """Saves a readable summary of the experiment setup to experiment_details.txt."""
+def save_experiment_details(results_dir: Path, 
+                            circuit_config: Dict[str, Any], 
+                            target_configs: List[Dict[str, Any]], 
+                            patterns: Optional[Union[List, np.ndarray]] = None, 
+                            beam_width: Optional[int] = None) -> str:
+    """Exports a comprehensive plain-text summary of the optimization configuration.
+
+    Args:
+        results_dir (Path): Output directory where ``experiment_details.txt`` will be saved.
+        circuit_config (dict): Configuration dictionary defining the circuit class and parameters.
+        target_configs (list[dict]): Configuration dictionaries defining the target state generators.
+        patterns (list or np.ndarray, optional): Fixed measurement patterns array, or None if Beam Search.
+        beam_width (int, optional): Trajectory beam width if running in Beam Search mode.
+
+    Returns:
+        str: Formatted text string containing the experiment details.
+    """
     lines = []
     lines.append("=" * 80)
     lines.append(" EXPERIMENT CONFIGURATION DETAILS")
@@ -186,8 +269,20 @@ def save_experiment_details(results_dir: Path, circuit_config: dict, target_conf
     return content
 
 
-def format_branches_report(branches, target_names, success_threshold):
-    """Formats branch probability and fidelity statistics into a readable report."""
+def format_branches_report(branches: List[Dict[str, Any]], 
+                           target_names: List[str], 
+                           success_threshold: float) -> str:
+    """Formats branch probability, state fidelity, and target mapping into a plain-text table.
+
+    Args:
+        branches (List[dict]): List of dictionary records returned by the circuit runner.
+            Each dictionary contains keys ``"outcome"``, ``"prob"``, ``"fidelity"``, and ``"target_idx"``.
+        target_names (List[str]): List of human-readable target labels corresponding to target indices.
+        success_threshold (float): Minimum state fidelity threshold used to define successful heralding events.
+
+    Returns:
+        str: Formatted multi-line text report summarizing branch performance and target distribution.
+    """
     lines = []
     lines.append("-" * 80)
     lines.append(f"{'Outcome':<20} {'Prob':<10} {'Fidelity':<10} {'1-Fid':<10} {'Best Target':<15}")
@@ -236,22 +331,23 @@ def format_branches_report(branches, target_names, success_threshold):
     return "\n".join(lines)
 
 
-def main():
+def main() -> None:
+    """Executes single-configuration time-domain circuit optimization."""
     # =========================================================================
-    # 1. HYPERPARAMETERS & SIMULATION SETTINGS
+    # STAGE 1: HYPERPARAMETERS & SIMULATION SETTINGS
     # =========================================================================
-    CUTOFF_DIM = 30          # Fock space cutoff dimension
-    STEPS = 1                # Depth / time steps of the circuit
-    BEAM_WIDTH = 200         # Beam width (max branches tracked during search)
-    TIME_INVARIANT = False   # True = identical params across time steps
-    MEASURE_CUTOFF = CUTOFF_DIM  # Max photon number cutoff for ancilla measurement
-    SUCCESS_THRESHOLD = 0.97     # Fidelity threshold for considering a branch successful
+    CUTOFF_DIM = 30          # Fock space truncation dimension
+    STEPS = 1                # Recirculation depth / spatial stages (steps=1 matches paper model)
+    BEAM_WIDTH = 200         # Beam search width (max branches tracked during discovery)
+    TIME_INVARIANT = False   # True = identical gate parameters across steps; False = step-dependent
+    MEASURE_CUTOFF = CUTOFF_DIM  # PNR detector cutoff dimension for ancillary modes
+    SUCCESS_THRESHOLD = 0.97     # Minimum fidelity threshold defining a successful outcome
     
-    N_GENERATIONS = 200      # Basin-Hopping iterations per run
-    N_RUNS = 1               # Number of global optimization attempts
-    NUM_PROCESSES = 4        # Parallel process count for optimizer runner
+    N_GENERATIONS = 200      # Basin-Hopping global iterations per run
+    N_RUNS = 1               # Single-run execution (N_RUNS = 1; 'best/' folder export is a legacy structure)
+    NUM_PROCESSES = 4        # Parallel worker processes for BasinHoppingRunner
 
-    squeezing = db_to_r(12)  # 12 dB squeezing converted to squeezing parameter r
+    squeezing = db_to_r(12)  # Convert 12 dB physical squeezing to squeezing parameter r (~1.38)
     csv_path_abs = str(Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv")
 
     print("=" * 80)
@@ -260,32 +356,32 @@ def main():
     print(f"Steps: {STEPS} | Beam Width: {BEAM_WIDTH} | Cutoff Dim: {CUTOFF_DIM} | Initial Squeezing r: {squeezing:.4f}\n")
 
     # =========================================================================
-    # 2. TARGET STATE CONFIGURATIONS (PRESETS)
+    # STAGE 2: TARGET STATE CONFIGURATIONS (PRESETS)
     # =========================================================================
-    # Select which target state(s) to optimize for.
+    # Select which target quantum state(s) to optimize for:
 
-    # Preset A: Cubic Phase State
+    # Preset A: Displaced Cubic Phase State
     preset_cubic = [
         {'class_name': 'CubicPhaseTarget', 'params': {'gamma': -0.2, 'r': -0.7, 'alpha': 1.25}}
     ]
 
-    # Preset B: Core GKP State (mu=0, n_max=4)
+    # Preset B: Core GKP State (Logical 0, n_max=4 stellar rank, 10 dB envelope)
     preset_gkp_mu0 = [
         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 0}}
     ]
 
-    # Preset C: Core GKP State (mu=1, n_max=4)
+    # Preset C: Core GKP State (Logical 1, n_max=4 stellar rank, 10 dB envelope)
     preset_gkp_mu1 = [
         {'class_name': 'CoreGKPTarget', 'params': {'csv_path': csv_path_abs, 'n_max': 4, 'delta_db': 10, 'mu': 1}}
     ]
 
-    # Preset D: Squeezed Cat States (Even & Odd superpositions)
+    # Preset D: Squeezed Schrödinger Cat States (Even & Odd superpositions)
     preset_sq_cat = [
         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 0}},
         {'class_name': 'SqueezedCatTarget', 'params': {'alpha': np.sqrt(6), 'r': 0.5, 'p': 1}}
     ]
 
-    # Preset E: Binomial Code State
+    # Preset E: Binomial Quantum Code State (N=2, S=2, Logical 0)
     preset_binomial = [
         {'class_name': 'BinomialCodeTarget', 'params': {'N': 2, 'S': 2, 'mu': 0}}
     ]
@@ -293,16 +389,16 @@ def main():
     # ---> ACTIVE TARGET SELECTION <---
     active_target_configs = preset_sq_cat
 
-    # Instantiate Target Generators
+    # Instantiate Target Generators using the factory module
     targets = [create_from_config(cfg, target_module) for cfg in active_target_configs]
     print(f"Loaded {len(targets)} target generator(s):")
     print_targets(targets, CUTOFF_DIM)
 
     # =========================================================================
-    # 3. CIRCUIT CONFIGURATIONS (PRESETS)
+    # STAGE 3: CIRCUIT ARCHITECTURE CONFIGURATIONS (PRESETS)
     # =========================================================================
 
-    # Preset 1: 3-Mode Squeeze-Only Circuit
+    # Preset 1: 3-Mode Squeeze-Only Circuit (1 Loop Mode + 2 Ancillae)
     preset_circuit_3m_squeeze = {
         'class_name': 'ThreeModeTimeDomainSqueezeOnly',
         'params': {
@@ -316,7 +412,7 @@ def main():
         }
     }
 
-    # Preset 2: 2-Mode Squeeze-Only Circuit
+    # Preset 2: 2-Mode Squeeze-Only Circuit (1 Loop Mode + 1 Ancilla)
     preset_circuit_2m_squeeze = {
         'class_name': 'TwoModeTimeDomainSqueezeOnly',
         'params': {
@@ -331,7 +427,7 @@ def main():
         }
     }
 
-    # Preset 3: 3-Mode Time-Domain General
+    # Preset 3: 3-Mode General Circuit (Includes displacement gates on ancillae)
     preset_circuit_3m_General = {
         'class_name': 'ThreeModeTimeDomainGeneral',
         'params': {
@@ -350,20 +446,19 @@ def main():
     circuit = create_from_config(active_circuit_config, circuit_module)
 
     # =========================================================================
-    # 4. MEASUREMENT PATTERN SELECTION
+    # STAGE 4: MEASUREMENT PATTERN & OPTIMIZATION MODE SELECTION
     # =========================================================================
     # Options:
-    #   patterns = None                     -> Unconstrained Beam Search Pattern Discovery
-    #   patterns = [[(o1, o2)], ...]        -> Evaluate fixed set of heralding patterns
+    #   patterns = None                     -> Phase 1: Beam Search Pattern Discovery Mode
+    #   patterns = [[(n1, n2)], ...]        -> Phase 2: Fixed-Pattern Optimization / Refinement
 
-    # patterns = [[(0, 6)], [(2, 6)], [(4, 6)], [(8, 6)], [(10, 6)]]
-    patterns = [[(4,)],[(5,)],]
+    patterns = [[(4,)], [(5,)]]
 
-    # To enable unconstrained pattern discovery via beam search, uncomment below:
+    # To run Beam Search Pattern Discovery instead, set patterns to None:
     # patterns = None
 
     # =========================================================================
-    # 5. OUTPUT DIRECTORY SETUP
+    # STAGE 5: RESULTS DIRECTORY SETUP & EXPERIMENT LOGGING
     # =========================================================================
     c_name = active_circuit_config.get('class_name', '')
     if "General" in c_name: 
@@ -393,7 +488,7 @@ def main():
     results_dir.mkdir(parents=True, exist_ok=True)
     print(f"Results will be written to: {results_dir}\n")
 
-    # Save experiment details
+    # Save plain-text configuration metadata
     details_txt = save_experiment_details(
         results_dir, 
         active_circuit_config, 
@@ -405,19 +500,14 @@ def main():
 
     prepared_patterns = prepare_measurement_patterns(patterns)
 
-    # Calculate non-Gaussianity scores for target states
-    print("\nNon-Gaussianity scores for targets:")
-    for i, target in enumerate(targets):
-        ket = target.get_target_ket(CUTOFF_DIM)
-
     # =========================================================================
-    # 6. RUNNER INITIALIZATION & OPTIMIZATION LOOP
+    # STAGE 6: LOSS FUNCTION SELECTION & RUNNER INITIALIZATION
     # =========================================================================
-    # Select loss function based on measurement strategy and regime
+    # Choose appropriate objective loss function based on measurement mode
     if prepared_patterns is None:
         active_loss_fn = beam_search_loss_fn
     else:
-        active_loss_fn = fixed_pattern_capped_loss_fn  # or fixed_pattern_free_loss_fn
+        active_loss_fn = fixed_pattern_capped_loss_fn  # Capped regime (f_cap=0.95)
 
     runner = BasinHoppingRunner(
         num_processes=NUM_PROCESSES,
@@ -446,7 +536,10 @@ def main():
         else:
             target_names.append("UnknownTarget")
 
-    print(f"\nStarting {N_RUNS} optimization run(s) ({N_GENERATIONS} Basin-Hopping iterations per run)...")
+    # =========================================================================
+    # STAGE 7: OPTIMIZATION RUN EXECUTION
+    # =========================================================================
+    print(f"\nStarting optimization run ({N_GENERATIONS} Basin-Hopping iterations)...")
 
     for run_idx in range(N_RUNS):
         print(f"\n--- Optimization Run {run_idx+1}/{N_RUNS} ---")
@@ -470,13 +563,13 @@ def main():
             
             print(f"\n  {'Outcome':<15} {'Prob':<10} {'Fidelity':<10} {'Best Target'}")
             print("  " + "-" * 50)
-            for b in branches[:10]:  # Print top 10 branches
+            for b in branches[:10]:  # Display top 10 outcome branches
                 tgt_name = target_names[b['target_idx']] if b['target_idx'] < len(target_names) else f"T{b['target_idx']}"
                 print(f"  {str(b['outcome']):<15} {b['prob']:<10.4f} {b['fidelity']:<10.4f} {tgt_name}")
 
             results_list.append(res)
 
-            # Save per-run artifacts
+            # Export run metadata and results
             run_meta = {
                 "run_index": run_idx + 1,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -513,8 +606,10 @@ def main():
         return
 
     # =========================================================================
-    # 7. SAVE BEST RESULT & SUMMARY REPORTS
+    # STAGE 8: RESULTS EXPORT & LEGACY 'BEST' SUBFOLDER POPULATION
     # =========================================================================
+    # Note: Saving results into the 'best/' subfolder is a legacy convention maintained
+    # for compatibility with evaluation scripts (e.g., eval_time_optimized.py).
     results_list.sort(key=lambda x: x['success_prob'], reverse=True)
     best_res = results_list[0]
 
@@ -551,7 +646,7 @@ def main():
     with open(best_dir / "best_branches.txt", "w") as f:
         f.write(branches_report)
 
-    # Print Final Summary
+    # Print Final Summary & Parameter Table
     print("\n" + "=" * 80)
     print(" OPTIMIZATION SUMMARY (BEST RESULT) ")
     print("=" * 80)
