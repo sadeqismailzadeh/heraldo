@@ -13,8 +13,8 @@ if errorlevel 1 (
 )
 
 REM Step 1: Install Sphinx requirements
-echo [1/4] Installing Sphinx dependencies...
-python -m pip install -r docs\requirements.txt --quiet
+REM echo [1/4] Installing Sphinx dependencies...
+REM python -m pip install -r docs\requirements.txt --quiet
 
 REM Step 2: Regenerate RST API documents
 echo [2/4] Auto-generating API reStructuredText files...
