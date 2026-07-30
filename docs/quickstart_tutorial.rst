@@ -139,38 +139,44 @@ Code Example: Running Beam Search Pattern Discovery
 
    import numpy as np
    from heraldo.components.circuits import TwoModeTimeDomainSqueezeOnly
-   from heraldo.components.targets import SqueezedCatTarget
-   from heraldo.components.runner import BasinHoppingRunner, beam_search_loss_fn
-   from heraldo.utils import db_to_r
-
-   # 1. Setup circuit & targets
+   from heraldo.components.targets imp   # 1. Setup circuit & targets
    squeezing_r = db_to_r(12.0)
    circuit = TwoModeTimeDomainSqueezeOnly(steps=1, clip_size=squeezing_r, measure_fock_cutoff=30)
 
    targets = [
        SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),  # even cat
-       SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=1),  # odd cat
-   ]
+       SqueezedCatTarget(alpha=np.sqrt(6)   def main():
+       # 1. Setup circuit & targets
+       squeezing_r = db_to_r(12.0)
+       circuit = TwoModeTimeDomainSqueezeOnly(steps=1, clip_size=squeezing_r, measure_fock_cutoff=30)
 
-   # 2. Configure Basin-Hopping runner in Beam Search discovery mode
-   runner = BasinHoppingRunner(
-       circuit=circuit,
-       target_gens=targets,
-       cutoff_dim=30,
-       beam_width=200,             # Keep top 200 trajectories
-       penalty_strength=1.0,
-       measurement_patterns=None,  # Triggers Beam Search discovery mode!
-       loss_fn=beam_search_loss_fn,
-       num_processes=4,
-   )
+       targets = [
+           SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),  # even cat
+           SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=1),  # odd cat
+       ]
 
-   # 3. Run optimization
-   result = runner.run(n_generations=20, method="L-BFGS-B")
+       # 2. Configure Basin-Hopping runner in Beam Search discovery mode
+       runner = BasinHoppingRunner(
+           circuit=circuit,
+           target_gens=targets,
+           cutoff_dim=30,
+           beam_width=200,             # Keep top 200 trajectories
+           penalty_strength=1.0,
+           measurement_patterns=None,  # Triggers Beam Search discovery mode!
+           loss_fn=beam_search_loss_fn,
+           num_processes=4,
+       )
 
-   print(f"Discovery Loss: {result['loss']:.4f}")
-   print("\nDiscovered Heralding Outcomes:")
-   for branch in result["branches"]:
-       print(f"  Outcome: {branch['outcome']} | Prob: {branch['prob']:.4f} | Fidelity: {branch['fidelity']:.4f} | Target Index: {branch['target_idx']}")
+       # 3. Run optimization
+       result = runner.run(n_generations=20, method="L-BFGS-B")
+
+       print(f"Discovery Loss: {result['loss']:.4f}")
+       print("\nDiscovered Heralding Outcomes:")
+       for branch in result["branches"]:
+           print(f"  Outcome: {branch['outcome']} | Prob: {branch['prob']:.4f} | Fidelity: {branch['fidelity']:.4f} | Target Index: {branch['target_idx']}")
+
+   if __name__ == "__main__":
+       main()
 
 ---
 
@@ -189,33 +195,42 @@ Code Example: Fixed-Pattern Optimization for Resource Multiplexing
 
 .. code-block:: python
 
-   from heraldo.components.runner import fixed_pattern_capped_loss_fn
+   import numpy as np
+   from heraldo.components.circuits import TwoModeTimeDomainSqueezeOnly
+   from heraldo.components.targets import SqueezedCatTarget
+   from heraldo.components.runner import BasinHoppingRunner, fixed_pattern_capped_loss_fn
+   from heraldo.utils import db_to_r
 
-   # Define fixed heralding patterns discovered in Phase 1
-   patterns = [[(4,)], [(5,)]]
+   def main():
+       squeezing_r = db_to_r(12.0)
+       circuit = TwoModeTimeDomainSqueezeOnly(steps=1, clip_size=squeezing_r, measure_fock_cutoff=30)
+       targets = [
+           SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),
+           SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=1),
+       ]
 
-   runner_fixed = BasinHoppingRunner(
-       circuit=circuit,
-       target_gens=targets,
-       cutoff_dim=30,
-       beam_width=200,
-       penalty_strength=1.0,
-       measurement_patterns=patterns,       # Fixed outcome patterns
-       loss_fn=fixed_pattern_capped_loss_fn, # Capped fidelity objective
-       num_processes=4,
-   )
+       # Define fixed heralding patterns discovered in Phase 1
+       patterns = [[(4,)], [(5,)]]
 
-   res_fixed = runner_fixed.run(n_iter=20, method="L-BFGS-B")
+       runner_fixed = BasinHoppingRunner(
+           circuit=circuit,
+           target_gens=targets,
+           cutoff_dim=30,
+           beam_width=200,
+           penalty_strength=1.0,
+           measurement_patterns=patterns,       # Fixed outcome patterns
+           loss_fn=fixed_pattern_capped_loss_fn, # Capped fidelity objective
+           num_processes=4,
+       )
 
-   print(f"Refined Objective Score: {res_fixed['expected_fidelity']:.4f}")
-   print(f"Total Aggregated Success Probability: {res_fixed['total_probability']:.2%}")
+       res_fixed = runner_fixed.run(n_iter=20, method="L-BFGS-B")
 
----
+       print(f"Refined Objective Score: {res_fixed['expected_fidelity']:.4f}")
+       print(f"Total Aggregated Success Probability: {res_fixed['total_probability']:.2%}")
 
-6. Post-Processing & Quantum State Analysis
---------------------------------------------
-
-6.1 Evaluating Phase-Space Rotation Invariance
+   if __name__ == "__main__":
+       main()
+on Invariance
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Heralded states across different measurement outcomes may differ by a global phase-space rotation :math:`\hat{R}(\phi) = e^{i \hat{n} \phi}`. Because a phase-space rotation can be corrected post-generation using a simple optical delay, ``heraldo`` uses an FFT-accelerated rotation-invariant fidelity metric:
