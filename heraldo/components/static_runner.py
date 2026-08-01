@@ -4,7 +4,7 @@ import numpy as np
 import strawberryfields as sf
 
 from heraldo.components.interfaces import StaticCircuit
-from heraldo.components.runner import beam_search_loss_fn, fixed_pattern_capped_loss_fn
+from heraldo.components.objectives import beam_search_loss_fn, fixed_pattern_capped_loss_fn
 
 
 def _process_fixed_patterns(circuit: StaticCircuit, full_ket: np.ndarray,

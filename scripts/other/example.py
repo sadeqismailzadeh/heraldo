@@ -1,7 +1,8 @@
 import numpy as np
 from heraldo.components.circuits import TwoModeTimeDomainSqueezeOnly
 from heraldo.components.targets import SqueezedCatTarget
-from heraldo.components.runner import BasinHoppingRunner, fixed_pattern_capped_loss_fn
+from heraldo.components.runner import BasinHoppingRunner
+from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.utils import db_to_r
 
 def main():
@@ -19,8 +20,7 @@ def main():
         circuit=circuit,
         target_gens=targets,
         cutoff_dim=30,
-        measurement_patterns=[[(4,)], [(5,)]],
-        loss_fn=fixed_pattern_capped_loss_fn
+        # measurement_patterns=[[(4,)], [(5,)]],
     )
 
     result = runner.run(n_iter=20)

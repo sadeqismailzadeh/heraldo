@@ -38,11 +38,13 @@ from heraldo.components.targets import (
     BinomialCodeTarget,
     CubicPhaseTarget,
 )
-from heraldo.components.runner import (
-    evaluate_time_domain_circuit,
+from heraldo.components.objectives import (
     beam_search_loss_fn,
     fixed_pattern_capped_loss_fn,
     fixed_pattern_free_loss_fn,
+)
+from heraldo.components.runner import (
+    evaluate_time_domain_circuit,
 )
 from heraldo.components.static_runner import evaluate_circuit
 
