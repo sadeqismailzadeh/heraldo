@@ -27,6 +27,8 @@ def _process_fixed_patterns(circuit: StaticCircuit, full_ket: np.ndarray,
     meas_cutoffs = [min(c, cutoff_dim) for m, c in meas_specs]
 
     patterns_arr = np.asarray(measurement_patterns, dtype=int)
+    if patterns_arr.ndim == 3 and patterns_arr.shape[1] == 1:
+        patterns_arr = patterns_arr.squeeze(axis=1)
     if patterns_arr.ndim == 1:
         patterns_arr = patterns_arr[None, :]
 
@@ -265,4 +267,4 @@ def evaluate_circuit(params: np.ndarray,
         "expected_fidelity": float(expected_fidelity),
         "branches": branch_details,
         "total_probability": float(np.sum(probs[mask_nonzero])) if np.any(mask_nonzero) else 0.0
-    }
+    }
