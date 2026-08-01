@@ -1,10 +1,15 @@
 """Evaluation runner for static spatial photonic circuits used in static setup evaluations."""
 
+import multiprocessing
+import time
+from scipy.optimize import basinhopping
+
 import numpy as np
 import strawberryfields as sf
 
 from heraldo.components.interfaces import StaticCircuit
 from heraldo.components.objectives import beam_search_loss_fn, fixed_pattern_capped_loss_fn
+from heraldo.components.targets import TargetGenerator
 
 
 def _process_fixed_patterns(circuit: StaticCircuit, full_ket: np.ndarray,
@@ -268,3 +273,161 @@ def evaluate_circuit(params: np.ndarray,
         "branches": branch_details,
         "total_probability": float(np.sum(probs[mask_nonzero])) if np.any(mask_nonzero) else 0.0
     }
+
+
+def _single_basinhopping_run(seed: int | None, circuit: StaticCircuit,
+                             target_kets: list[np.ndarray], cutoff_dim: int,
+                             beam_width: int, penalty_strength: float,
+                             measurement_patterns, loss_fn, n_iter: int,
+                             method: str, bounds: list[tuple[float, float]]) -> dict:
+    if seed is not None:
+        np.random.seed(seed)
+
+    x0 = np.array([np.random.uniform(low, high) for low, high in bounds])
+
+    def loss_func(x):
+        return evaluate_circuit(
+            x,
+            circuit=circuit,
+            target_kets=target_kets,
+            cutoff_dim=cutoff_dim,
+            beam_width=beam_width,
+            penalty_strength=penalty_strength,
+            measurement_patterns=measurement_patterns,
+            loss_fn=loss_fn,
+        )
+
+    try:
+        result = basinhopping(
+            loss_func,
+            x0,
+            niter=n_iter,
+            minimizer_kwargs={"method": method, "bounds": bounds},
+            stepsize=0.5,
+        )
+
+        final_eval = evaluate_circuit(
+            result.x,
+            circuit=circuit,
+            target_kets=target_kets,
+            cutoff_dim=cutoff_dim,
+            beam_width=beam_width,
+            penalty_strength=penalty_strength,
+            measurement_patterns=measurement_patterns,
+            return_details=True,
+            loss_fn=loss_fn,
+        )
+
+        return {
+            "x": result.x,
+            "loss": final_eval["loss"],
+            "expected_fidelity": final_eval.get("expected_fidelity", 0.0),
+            "branches": final_eval.get("branches", []),
+            "total_probability": final_eval.get("total_probability", 0.0),
+            "message": result.message,
+            "seed": seed,
+            "success": True,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "seed": seed, "loss": float("inf")}
+
+
+class BasinHoppingRunner:
+    """Optimizes static spatial optical circuits using Basin-Hopping with Beam Search or fixed patterns.
+
+    Args:
+        circuit (StaticCircuit): Static spatial circuit model to optimize.
+        target_gens (TargetGenerator or list[TargetGenerator]): Target quantum state generators.
+        cutoff_dim (int): Fock space cutoff dimension for state vector truncation.
+        beam_width (int, optional): Maximum trajectories retained per evaluation. Defaults to 5.
+        penalty_strength (float, optional): Multiplier for truncation error penalty. Defaults to 10.0.
+        measurement_patterns (optional): Fixed measurement sequences. Defaults to None.
+        num_parallel_runs (int, optional): Number of parallel Basin-Hopping optimization runs. Defaults to 4.
+        num_processes (int, optional): Number of worker processes for parallel execution. Defaults to 4.
+        loss_fn (callable, optional): Custom objective loss evaluation function.
+    """
+
+    def __init__(self,
+                 circuit: StaticCircuit,
+                 target_gens: list[TargetGenerator] | TargetGenerator,
+                 cutoff_dim: int,
+                 beam_width: int = 5,
+                 penalty_strength: float = 10.0,
+                 measurement_patterns=None,
+                 num_parallel_runs: int = 4,
+                 num_processes: int = 4,
+                 loss_fn=None):
+        self.circuit = circuit
+        if not isinstance(target_gens, list):
+            target_gens = [target_gens]
+        self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
+        self.cutoff_dim = cutoff_dim
+        self.beam_width = beam_width
+        self.penalty_strength = penalty_strength
+        self.measurement_patterns = measurement_patterns
+        self.num_parallel_runs = num_parallel_runs
+        self.num_processes = num_processes
+        self.loss_fn = loss_fn
+
+    def run(self, n_iter: int = 20, method: str = "L-BFGS-B",
+            num_parallel_runs: int | None = None, base_seed: int | None = None) -> dict:
+        """Executes global static circuit optimization using Basin-Hopping.
+
+        Args:
+            n_iter (int, optional): Number of Basin-Hopping iterations per run. Defaults to 20.
+            method (str, optional): Local minimizer algorithm. Defaults to "L-BFGS-B".
+            num_parallel_runs (int, optional): Override for number of parallel optimization runs.
+            base_seed (int, optional): Base random seed for reproducible runs.
+
+        Returns:
+            dict: Optimization results containing best parameter vector, loss, fidelities, and branches.
+        """
+        n_parallel = num_parallel_runs if num_parallel_runs is not None else self.num_parallel_runs
+        bounds = self.circuit.parameter_bounds
+
+        start_time = time.time()
+
+        if base_seed is None:
+            base_seed = np.random.randint(0, 2**31 - 1)
+        seeds = [base_seed + i for i in range(n_parallel)]
+
+        if n_parallel <= 1:
+            res = _single_basinhopping_run(
+                seeds[0], self.circuit, self.target_kets, self.cutoff_dim,
+                self.beam_width, self.penalty_strength, self.measurement_patterns,
+                self.loss_fn, n_iter, method, bounds
+            )
+            if not res.get("success", False):
+                raise RuntimeError(f"Basin-Hopping run failed: {res.get('error')}")
+            res["duration"] = time.time() - start_time
+            return res
+
+        workers = min(n_parallel, self.num_processes if self.num_processes > 1 else multiprocessing.cpu_count())
+        args_list = [
+            (seeds[i], self.circuit, self.target_kets, self.cutoff_dim,
+             self.beam_width, self.penalty_strength, self.measurement_patterns,
+             self.loss_fn, n_iter, method, bounds)
+            for i in range(n_parallel)
+        ]
+
+        with multiprocessing.Pool(processes=workers) as pool:
+            results = pool.starmap(_single_basinhopping_run, args_list)
+
+        valid_results = [r for r in results if r.get("success", False)]
+        if not valid_results:
+            raise RuntimeError("All parallel Basin-Hopping runs failed.")
+
+        best_res = min(valid_results, key=lambda x: x["loss"])
+        total_duration = time.time() - start_time
+
+        return {
+            "x": best_res["x"],
+            "loss": best_res["loss"],
+            "expected_fidelity": best_res.get("expected_fidelity", 0.0),
+            "branches": best_res.get("branches", []),
+            "total_probability": best_res.get("total_probability", 0.0),
+            "duration": total_duration,
+            "message": f"Best of {n_parallel} parallel runs",
+            "run_results": results,
+            "best_run_idx": seeds.index(best_res["seed"])
+        }
