@@ -1,8 +1,53 @@
-"""Abstract base interfaces for target state generators and time-multiplexed circuits."""
+"""Abstract base interfaces for target state generators and photonic circuit models."""
 
 import abc
 import numpy as np
 import strawberryfields as sf
+
+
+class StaticCircuit(abc.ABC):
+    """Abstract base class for static Continuous-Variable (CV) spatial photonic circuits.
+
+    Defines the standard operational framework for static spatial circuits consisting of
+    an unmeasured output mode (Mode 0) and one or more measured ancillary modes (Modes 1..N-1).
+    Static circuits operate in a single spatial stage without time steps, recirculating loops,
+    or temporal multiplexing.
+    """
+
+    @property
+    @abc.abstractmethod
+    def parameter_names(self) -> list[str]:
+        """list[str]: Names of all optimization parameters for the static circuit."""
+        pass
+
+    @property
+    @abc.abstractmethod
+    def parameter_bounds(self) -> list[tuple[float, float]]:
+        """list[tuple[float, float]]: Parameter bounds (min, max) for all static circuit parameters."""
+        pass
+
+    @abc.abstractmethod
+    def run_circuit(self, params: np.ndarray, engine: sf.Engine) -> sf.engine.Result:
+        """Executes the static circuit unitary evolution and interactions.
+
+        Args:
+            params (np.ndarray): 1D array of optimization parameters.
+            engine (sf.Engine): Strawberry Fields engine instance configured for the simulation.
+
+        Returns:
+            sf.engine.Result: Strawberry Fields execution result containing updated state.
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_measurement_specs(self) -> list[tuple[int, int]]:
+        """Returns photon-number-resolving (PNR) measurement specifications for ancillary modes.
+
+        Returns:
+            list[tuple[int, int]]: List of tuples ``(mode_index, max_fock_cutoff)`` specifying
+            the index of each measured ancillary mode and its associated detector cutoff dimension.
+        """
+        pass
 
 
 class TargetGenerator(abc.ABC):

@@ -12,6 +12,14 @@ heraldo.components.circuits module
    :show-inheritance:
    :undoc-members:
 
+heraldo.components.static_circuits module
+-----------------------------------------
+
+.. automodule:: heraldo.components.static_circuits
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 heraldo.components.interfaces module
 ------------------------------------
 
