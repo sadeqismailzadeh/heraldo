@@ -88,6 +88,7 @@ Documentation Contents
 
    circuits_comparison
    sf_patches
+   developer_guide_runner
 
 .. toctree::
    :maxdepth: 2
