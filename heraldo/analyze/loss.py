@@ -61,11 +61,11 @@ def analyze_loss(
         transmissivities (list[float], optional): List of channel transmissivity values eta in (0, 1].
             Defaults to [1.0, 0.99, 0.90] (corresponding to 0%, 1%, and 10% loss).
         outcomes (int, tuple, or list, optional): Measurement outcome pattern(s) to analyze.
-            If None, retrieved from runner configuration or active branches.
+            If None, retrieved from runner configuration.
         targets (TargetGenerator or list, optional): Target state generator(s).
             If None, retrieved or reconstructed from `results`.
         cutoff_dim (int, optional): Fock space truncation cutoff dimension.
-            If None, retrieved from runner configuration or defaults to 30.
+            If None, defaults to 15 for 3-mode and higher circuits, and 30 for 2-mode circuits.
         n_fft (int, optional): Resolution for phase space rotation optimization. Defaults to 256.
         print_summary (bool, optional): Whether to print a formatted summary report. Defaults to True.
 
@@ -80,7 +80,10 @@ def analyze_loss(
         reconstructed = reconstruct_objects(results)
         circuit = reconstructed.get("circuit")
 
-    if circuit is None and "circuit_config" not in results:
+    if circuit is None and "circuit_config" in results and results["circuit_config"]:
+        circuit = create_from_config(results["circuit_config"])
+
+    if circuit is None:
         raise ValueError("Circuit configuration or object missing from results. Cannot execute circuit.")
 
     x_params = results.get("x")
@@ -89,7 +92,13 @@ def analyze_loss(
 
     runner_cfg = results.get("runner_config", {})
     if cutoff_dim is None:
-        cutoff_dim = runner_cfg.get("cutoff_dim", 30) if runner_cfg else 30
+        num_modes = getattr(circuit, "num_modes", None)
+        if num_modes is None and hasattr(circuit, "get_measurement_specs"):
+            num_modes = len(circuit.get_measurement_specs()) + 1
+        if num_modes is not None and num_modes >= 3:
+            cutoff_dim = 15
+        else:
+            cutoff_dim = 30
 
     if transmissivities is None:
         transmissivities = [1.0, 0.99, 0.90]
@@ -281,4 +290,4 @@ def analyze_loss(
 
         print(separator + "\n")
 
-    return output_dict
+    return output_dict
