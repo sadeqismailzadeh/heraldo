@@ -1,7 +1,7 @@
 import numpy as np
-from heraldo.components.static_circuits import TwoModeStaticSqueezeOnly
+from heraldo.components.circuits import TwoModeStaticSqueezeOnly
 from heraldo.components.targets import SqueezedCatTarget
-from heraldo.components.static_runner import BasinHoppingRunner
+from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.utils import db_to_r
 

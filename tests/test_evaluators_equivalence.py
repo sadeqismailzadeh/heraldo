@@ -24,11 +24,11 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
 
-from heraldo.components.circuits import (
+from heraldo.experimental.time_circuits import (
     TwoModeTimeDomainSqueezeOnly,
     ThreeModeTimeDomainSqueezeOnly,
 )
-from heraldo.components.static_circuits import (
+from heraldo.components.circuits import (
     TwoModeStaticSqueezeOnly,
     ThreeModeStaticSqueezeOnly,
 )
@@ -43,10 +43,10 @@ from heraldo.components.objectives import (
     fixed_pattern_capped_loss_fn,
     fixed_pattern_free_loss_fn,
 )
-from heraldo.components.runner import (
+from heraldo.experimental.time_runner import (
     evaluate_time_domain_circuit,
 )
-from heraldo.components.static_runner import evaluate_circuit
+from heraldo.components.runner import evaluate_circuit
 
 
 def map_2mode_tdm_to_static(tdm_params: np.ndarray) -> np.ndarray:

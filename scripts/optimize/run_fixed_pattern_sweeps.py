@@ -15,7 +15,7 @@ patterns S = {n_k} and optimizes classical circuit parameters theta (squeezing m
 and beam-splitter angles) to maximize state fidelity and generation probability.
 
 This script directly evaluates static spatial architectures (T = 1) using the `StaticCircuit`
-and `static_runner` components.
+and `runner` components.
 
 Generated Output & Artifacts
 ----------------------------
@@ -53,10 +53,10 @@ import numpy as np
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
 
-import heraldo.components.static_circuits as circuit_module
+import heraldo.components.circuits as circuit_module
 import heraldo.components.targets as target_module
-from heraldo.components.static_circuits import *
-from heraldo.components.static_runner import BasinHoppingRunner
+from heraldo.components.circuits import *
+from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.components.targets import *
 from heraldo.utils import *

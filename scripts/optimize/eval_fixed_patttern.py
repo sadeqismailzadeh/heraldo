@@ -23,13 +23,13 @@ import numpy as np
 import strawberryfields as sf
 
 import heraldo.components.targets as target_module
-import heraldo.components.static_circuits as circuit_module
+import heraldo.components.circuits as circuit_module
 from heraldo.components.targets import (
     BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, SqueezedCatTarget
 )
 from heraldo.factory import create_from_config
 from heraldo.components.interfaces import StaticCircuit
-from heraldo.components.static_runner import (
+from heraldo.components.runner import (
     evaluate_circuit
 )
 

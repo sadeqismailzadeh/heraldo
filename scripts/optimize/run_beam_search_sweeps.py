@@ -9,8 +9,8 @@ Overview & Workflow
 -------------------
 In heralded non-Gaussian state preparation, the optimal photon-number-resolving (PNR)
 detector outcome patterns on ancillary modes are generally unknown a priori.
-This script uses the static circuit engine (`heraldo.components.static_circuits` and
-`heraldo.components.static_runner.BasinHoppingRunner`) with ``measurement_patterns = None``
+This script uses the static circuit engine (`heraldo.components.circuits` and
+`heraldo.components.runner.BasinHoppingRunner`) with ``measurement_patterns = None``
 to trigger Beam Search pattern discovery. The runner explores the outcome tree, tracking
 the top ``BEAM_WIDTH`` (default B=200) most probable branches and evaluating state fidelity
 using the non-linear score metric :func:`~heraldo.components.objectives.beam_search_loss_fn`.
@@ -67,10 +67,10 @@ import numpy as np
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy.optimize")
 
-import heraldo.components.static_circuits as circuit_module
+import heraldo.components.circuits as circuit_module
 import heraldo.components.targets as target_module
-from heraldo.components.static_circuits import *
-from heraldo.components.static_runner import BasinHoppingRunner, evaluate_circuit
+from heraldo.components.circuits import *
+from heraldo.components.runner import BasinHoppingRunner, evaluate_circuit
 from heraldo.components.objectives import beam_search_loss_fn
 from heraldo.components.targets import *
 from heraldo.utils import *
