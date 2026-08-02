@@ -55,6 +55,7 @@ def plot_wigner(
     ax_wigner: Optional[plt.Axes] = None,
     ax_fock: Optional[plt.Axes] = None,
     show: bool = True,
+    dpi: int = 300,
 ) -> plt.Figure:
     """Generates a Wigner function and Fock distribution plot for a single-mode state vector.
 
@@ -68,6 +69,7 @@ def plot_wigner(
         ax_wigner (plt.Axes, optional): Pre-existing matplotlib axis for Wigner plot.
         ax_fock (plt.Axes, optional): Pre-existing matplotlib axis for Fock bar plot.
         show (bool, optional): Whether to display the plot with plt.show(). Defaults to True.
+        dpi (int, optional): Resolution DPI for saved image. Defaults to 300.
 
     Returns:
         plt.Figure: Matplotlib figure object containing the plot.
@@ -94,25 +96,26 @@ def plot_wigner(
     W = state.wigner(mode=0, xvec=xvec, pvec=pvec)
     probs = state.all_fock_probs(cutoff=cutoff_dim)
 
-    plt.rcParams.update({'font.size': 12, 'font.family': 'sans-serif'})
     custom_axes = (ax_wigner is not None) and (ax_fock is not None)
 
     if custom_axes:
         ax1, ax2 = ax_wigner, ax_fock
         fig = ax1.figure
     else:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6), dpi=300)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
     X, P = np.meshgrid(xvec, pvec)
     lim = np.max(np.abs(W)) if np.max(np.abs(W)) > 0 else 1.0
     c = ax1.pcolormesh(X, P, W, cmap='RdBu', shading='auto', vmin=-lim, vmax=lim, rasterized=True)
 
-    cbar = fig.colorbar(c, ax=ax1, label='W(x, p)', pad=0.02)
+    cbar = fig.colorbar(c, ax=ax1, fraction=0.046, pad=0.04)
+    cbar.set_label('W(x, p)', fontsize=11)
     cbar.ax.tick_params(labelsize=10)
 
-    ax1.set_title(f"Wigner Function: {title}", fontsize=14, pad=12)
-    ax1.set_xlabel("x (Position)", fontsize=12)
-    ax1.set_ylabel("p (Momentum)", fontsize=12)
+    ax1.set_title(f"Wigner Function: {title}", fontsize=11, pad=10)
+    ax1.set_xlabel("x (Position)", fontsize=11)
+    ax1.set_ylabel("p (Momentum)", fontsize=11)
+    ax1.tick_params(labelsize=10)
     ax1.set_aspect('equal')
     ax1.axhline(0, color='gray', linestyle=':', alpha=0.5, linewidth=1)
     ax1.axvline(0, color='gray', linestyle=':', alpha=0.5, linewidth=1)
@@ -122,9 +125,10 @@ def plot_wigner(
     max_p = max(probs[:display_cutoff]) if len(probs) > 0 else 1.0
     ax2.bar(indices, probs[:display_cutoff], color='#2c7bb6', alpha=0.8, edgecolor='black', width=0.7)
 
-    ax2.set_title("Fock State Probabilities", fontsize=14, pad=12)
-    ax2.set_xlabel("Fock Number |n>", fontsize=12)
-    ax2.set_ylabel("Probability", fontsize=12)
+    ax2.set_title("Fock State Probabilities", fontsize=11, pad=10)
+    ax2.set_xlabel("Fock Number |n>", fontsize=11)
+    ax2.set_ylabel("Probability", fontsize=11)
+    ax2.tick_params(labelsize=10)
 
     step = 5 if display_cutoff > 20 else 1
     ax2.set_xticks(np.arange(0, display_cutoff, step))
@@ -133,11 +137,11 @@ def plot_wigner(
     ax2.set_ylim(0, max_p * 1.1 if max_p > 0 else 1.0)
 
     if not custom_axes:
-        plt.tight_layout()
+        fig.tight_layout()
         if filename is not None:
             save_path = Path(filename).resolve()
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path, bbox_inches='tight', dpi=300)
+            fig.savefig(save_path, bbox_inches='tight', dpi=dpi)
             print(f"Plot saved to: {save_path}")
         if show:
             plt.show()
@@ -286,4 +290,4 @@ def plot_outcomes(
         )
         figs.append(fig)
 
-    return figs
+    return figs
