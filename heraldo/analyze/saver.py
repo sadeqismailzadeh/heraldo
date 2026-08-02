@@ -46,11 +46,14 @@ def save_results(
     return str(save_path.resolve())
 
 
-def load_results(filepath: Union[str, Path]) -> Dict[str, Any]:
+def load_results(filepath: Union[str, Path], reconstruct: bool = False) -> Dict[str, Any]:
     """Loads run optimization results from a pickle file.
 
     Args:
         filepath (str or Path): Path to the pickle (.pkl) file to load.
+        reconstruct (bool, optional): If True, reconstructs circuit and target generator
+            instances from saved configuration metadata and attaches them as 'circuit'
+            and 'targets' keys in the returned dictionary. Defaults to False.
 
     Returns:
         dict: The loaded optimization result dictionary.
@@ -62,4 +65,33 @@ def load_results(filepath: Union[str, Path]) -> Dict[str, Any]:
     with open(path, "rb") as f:
         results = pickle.load(f)
 
-    return results
+    if reconstruct:
+        reconstructed = reconstruct_objects(results)
+        results.update(reconstructed)
+
+    return results
+
+
+def reconstruct_objects(results: Dict[str, Any]) -> Dict[str, Any]:
+    """Reconstructs circuit and target generator instances from results configuration metadata.
+
+    Args:
+        results (dict): Result dictionary containing 'circuit_config' and/or 'target_configs'.
+
+    Returns:
+        dict: Dictionary with 'circuit' and/or 'targets' instantiated objects.
+    """
+    from heraldo.factory import create_from_config
+
+    out = {}
+    if "circuit_config" in results and results["circuit_config"]:
+        out["circuit"] = create_from_config(results["circuit_config"])
+
+    if "target_configs" in results and results["target_configs"]:
+        tc = results["target_configs"]
+        if isinstance(tc, list):
+            out["targets"] = [create_from_config(item) for item in tc]
+        else:
+            out["targets"] = create_from_config(tc)
+
+    return out

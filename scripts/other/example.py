@@ -6,7 +6,7 @@ from heraldo.components.targets import SqueezedCatTarget
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.utils import db_to_r
-from heraldo.analyze import save_results, load_results, print_results
+from heraldo.analyze import save_results, load_results, print_results, reconstruct_objects
 
 
 def main():
@@ -35,9 +35,9 @@ def main():
     save_path = Path(__file__).parent / "example_results.pkl"
     saved_file = save_results(result, filepath=save_path)
 
-    # 6. Load results from the saved file
+    # 6. Load results from the saved file with object reconstruction
     print("\n--- Loading Saved Results ---")
-    loaded_result = load_results(saved_file)
+    loaded_result = load_results(saved_file, reconstruct=True)
 
     # 7. Display loaded results using print_results
     print_results(loaded_result)

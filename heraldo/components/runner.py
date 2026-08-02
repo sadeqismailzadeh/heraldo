@@ -10,6 +10,7 @@ import strawberryfields as sf
 from heraldo.components.interfaces import StaticCircuit
 from heraldo.components.objectives import beam_search_loss_fn, fixed_pattern_capped_loss_fn
 from heraldo.components.targets import TargetGenerator
+from heraldo.factory import to_config
 
 
 def _process_fixed_patterns(circuit: StaticCircuit, full_ket: np.ndarray,
@@ -379,7 +380,7 @@ class BasinHoppingRunner:
                  circuit: StaticCircuit,
                  target_gens: list[TargetGenerator] | TargetGenerator,
                  cutoff_dim: int,
-                 beam_width: int = 5,
+                 beam_width: int = 20,
                  penalty_strength: float = 10.0,
                  measurement_patterns=None,
                  num_parallel_runs: int = 4,
@@ -389,6 +390,7 @@ class BasinHoppingRunner:
         self.circuit = circuit
         if not isinstance(target_gens, list):
             target_gens = [target_gens]
+        self.target_gens = target_gens
         self.target_kets = [gen.get_target_ket(cutoff_dim) for gen in target_gens]
         self.cutoff_dim = cutoff_dim
         self.beam_width = beam_width
@@ -424,6 +426,34 @@ class BasinHoppingRunner:
             base_seed = np.random.randint(0, 2**31 - 1)
         seeds = [base_seed + i for i in range(n_parallel)]
 
+        meas_patterns_serializable = (
+            self.measurement_patterns.tolist()
+            if isinstance(self.measurement_patterns, np.ndarray)
+            else self.measurement_patterns
+        )
+
+        loss_fn_name = (
+            self.loss_fn.__name__
+            if hasattr(self.loss_fn, "__name__")
+            else (str(self.loss_fn) if self.loss_fn is not None else "default")
+        )
+
+        circuit_cfg = to_config(self.circuit)
+        target_cfgs = to_config(self.target_gens)
+
+        runner_cfg = {
+            "cutoff_dim": self.cutoff_dim,
+            "beam_width": self.beam_width,
+            "penalty_strength": self.penalty_strength,
+            "measurement_patterns": meas_patterns_serializable,
+            "loss_fn": loss_fn_name,
+            "num_parallel_runs": n_parallel,
+            "num_processes": self.num_processes,
+            "n_iter": n_iter,
+            "method": method,
+            "base_seed": base_seed,
+        }
+
         if n_parallel <= 1:
             print(f"Starting Basin-Hopping Beam Search (Width={self.beam_width})...")
             res = _single_basinhopping_run(
@@ -435,6 +465,9 @@ class BasinHoppingRunner:
             if not res.get("success", False):
                 raise RuntimeError(f"Basin-Hopping run failed: {res.get('error')}")
             res["duration"] = time.time() - start_time
+            res["circuit_config"] = circuit_cfg
+            res["target_configs"] = target_cfgs
+            res["runner_config"] = runner_cfg
             if save_path:
                 from heraldo.analyze.saver import save_results
                 save_results(res, save_path)
@@ -469,7 +502,10 @@ class BasinHoppingRunner:
             "duration": total_duration,
             "message": f"Best of {n_parallel} parallel runs",
             "run_results": results,
-            "best_run_idx": seeds.index(best_res["seed"])
+            "best_run_idx": seeds.index(best_res["seed"]),
+            "circuit_config": circuit_cfg,
+            "target_configs": target_cfgs,
+            "runner_config": runner_cfg,
         }
 
         if save_path:

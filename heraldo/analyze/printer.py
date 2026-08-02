@@ -68,6 +68,80 @@ def print_results(
     branches = results.get("branches", [])
     print(f"  Active Branches Count : {len(branches)}")
 
+    # Circuit Configuration Section
+    circuit_cfg = results.get("circuit_config")
+    if circuit_cfg and isinstance(circuit_cfg, dict):
+        print("\n" + sub_separator)
+        print(f"{'CIRCUIT CONFIGURATION':^{width}}")
+        print(sub_separator)
+        print(f"  Class Name            : {circuit_cfg.get('class_name', 'Unknown')}")
+        if "module" in circuit_cfg:
+            print(f"  Module                : {circuit_cfg['module']}")
+        params = circuit_cfg.get("params", {})
+        if params:
+            print("  Parameters            :")
+            for k, v in params.items():
+                val_str = f"{v:.{precision}f}" if isinstance(v, float) else str(v)
+                print(f"    • {k:<19}: {val_str}")
+
+    # Target Configuration Section
+    target_cfgs = results.get("target_configs")
+    if target_cfgs:
+        print("\n" + sub_separator)
+        print(f"{'TARGET CONFIGURATION(S)':^{width}}")
+        print(sub_separator)
+
+        tc_list = target_cfgs if isinstance(target_cfgs, list) else [target_cfgs]
+        for idx, tc in enumerate(tc_list, 1):
+            if isinstance(tc, dict):
+                cls_name = tc.get("class_name", "Unknown")
+                print(f"  [Target {idx}] {cls_name}")
+                t_params = tc.get("params", {})
+                for k, v in t_params.items():
+                    val_str = f"{v:.{precision}f}" if isinstance(v, float) else str(v)
+                    print(f"    • {k:<19}: {val_str}")
+
+    # Runner & Optimization Settings Section
+    runner_cfg = results.get("runner_config")
+    if runner_cfg and isinstance(runner_cfg, dict):
+        print("\n" + sub_separator)
+        print(f"{'RUNNER & OPTIMIZATION SETTINGS':^{width}}")
+        print(sub_separator)
+
+        cutoff = runner_cfg.get("cutoff_dim")
+        bw = runner_cfg.get("beam_width")
+        pen = runner_cfg.get("penalty_strength")
+        meas_pat = runner_cfg.get("measurement_patterns")
+        loss_f = runner_cfg.get("loss_fn")
+        method = runner_cfg.get("method")
+        n_iter = runner_cfg.get("n_iter")
+        n_parallel = runner_cfg.get("num_parallel_runs")
+        n_proc = runner_cfg.get("num_processes")
+        seed = runner_cfg.get("base_seed")
+
+        if cutoff is not None:
+            print(f"  Fock Cutoff Dim       : {cutoff}")
+        if bw is not None:
+            print(f"  Beam Width            : {bw}")
+        if pen is not None:
+            print(f"  Penalty Strength      : {pen:.{precision}f}" if isinstance(pen, float) else f"  Penalty Strength      : {pen}")
+        if meas_pat is not None:
+            print(f"  Measurement Patterns  : {meas_pat}")
+        else:
+            print(f"  Measurement Strategy  : Dynamic Beam Search")
+        if loss_f is not None:
+            print(f"  Loss Function         : {loss_f}")
+        if method is not None:
+            print(f"  Minimizer Method      : {method}")
+        if n_iter is not None:
+            print(f"  Basin Iterations      : {n_iter}")
+        if n_parallel is not None:
+            print(f"  Parallel Runs         : {n_parallel}")
+        if n_proc is not None:
+            print(f"  Worker Processes      : {n_proc}")
+        if seed is not None:
+            print(f"  Base Seed             : {seed}")
+
     # Measurement Branches Section
     if show_branches and branches:
         print("\n" + sub_separator)
