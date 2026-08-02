@@ -32,5 +32,5 @@ if not hasattr(scipy.integrate, 'simps'):
 else:
     print("'simps' already exists in scipy.integrate. No patch needed.")
 
-from heraldo.analyze import save_results, load_results
+from heraldo.analyze import save_results, load_results, print_results
 
