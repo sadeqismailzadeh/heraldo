@@ -142,26 +142,54 @@ def print_results(
         if seed is not None:
             print(f"  Base Seed             : {seed}")
 
+    # Resolve target display names for branches table
+    target_names = []
+    targets = results.get("targets")
+    if targets is None and "target_configs" in results and results["target_configs"]:
+        tc = results["target_configs"]
+        tc_list = tc if isinstance(tc, list) else [tc]
+        try:
+            from heraldo.factory import create_from_config
+            targets = [create_from_config(item) for item in tc_list]
+        except Exception:
+            targets = tc_list
+
+    if targets:
+        try:
+            from heraldo.analyze.rotations import get_target_display_names
+            target_names = get_target_display_names(targets if isinstance(targets, list) else [targets])
+        except Exception:
+            target_names = []
+
     # Measurement Branches Section
     if show_branches and branches:
         print("\n" + sub_separator)
         print(f"{'MEASUREMENT BRANCHES':^{width}}")
         print(sub_separator)
 
-        header = f"  {'#':<4} {'Outcome':<16} {'Target Idx':<12} {'Probability':<16} {'Fidelity':<12}"
+        target_col_width = max(24, max((len(name) for name in target_names), default=24))
+        header = f"  {'#':<4} {'Outcome':<12} {'Target Name':<{target_col_width}} {'Probability':<18} {'Fidelity':<12}"
         print(header)
-        print("  " + "-" * (width - 4))
+        print("  " + "-" * max(width - 4, len(header) - 2))
 
         for idx, b in enumerate(branches, 1):
             outcome_str = str(b.get("outcome", "-"))
-            target_idx = str(b.get("target_idx", "-"))
+            t_idx_val = b.get("target_idx")
+
+            if isinstance(t_idx_val, (int, np.integer)) and 0 <= int(t_idx_val) < len(target_names):
+                target_str = target_names[int(t_idx_val)]
+            elif t_idx_val is not None:
+                target_str = str(t_idx_val)
+            else:
+                target_str = "-"
+
             prob = b.get("prob", 0.0)
             fid = b.get("fidelity", 0.0)
 
             prob_str = f"{prob:.2%} ({prob:.{precision}f})"
             fid_str = f"{fid:.{precision}f}"
 
-            print(f"  {idx:<4} {outcome_str:<16} {target_idx:<12} {prob_str:<16} {fid_str:<12}")
+            print(f"  {idx:<4} {outcome_str:<12} {target_str:<{target_col_width}} {prob_str:<18} {fid_str:<12}")
 
     # Optimized Parameters Section
     x = results.get("x")
