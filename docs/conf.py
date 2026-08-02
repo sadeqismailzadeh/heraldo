@@ -54,6 +54,17 @@ autodoc_default_options = {
     'exclude-members': '__weakref__'
 }
 
+autodoc_mock_imports = [
+    'scipy',
+    'numpy',
+    'strawberryfields',
+    'numba',
+    'pandas',
+    'thewalrus',
+    'sympy',
+    'tqdm',
+]
+
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
@@ -66,4 +77,4 @@ intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'scipy': ('https://docs.scipy.org/doc/scipy/', None),
-}
+}
