@@ -14,5 +14,6 @@ setup(
         "pandas",
         "tqdm",
         "matplotlib",
+        "setuptools<75",
     ]
 )
