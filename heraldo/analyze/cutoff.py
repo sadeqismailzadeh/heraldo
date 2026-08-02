@@ -22,7 +22,7 @@ def analyze_cutoff(
     """Evaluates circuit performance across two Fock cutoff dimensions to quantify truncation error.
 
     Runs the static circuit at `low_cutoff` and `high_cutoff`, computing state fidelities,
-    infidelities :math:`1 - F`, absolute truncation error, relative error, and log discrepancy
+    infidelities :math:`1 - F`, absolute truncation error, and log discrepancy
     :math:`\\log_{10}(1 - F_{\\text{high}}) - \\log_{10}(1 - F_{\\text{low}})` for each outcome pattern.
 
     Reuses `_process_fixed_patterns` and `_compute_fidelities_and_loss` from `heraldo.components.runner`.
@@ -161,9 +161,6 @@ def analyze_cutoff(
     max_abs_error = -1.0
     worst_abs_outcome = None
 
-    max_rel_error = -1.0
-    worst_rel_outcome = None
-
     max_log_disc = -float('inf')
     worst_log_outcome = None
 
@@ -183,11 +180,6 @@ def analyze_cutoff(
 
         abs_error = abs(I_high - I_low)
 
-        if I_low > 1e-18:
-            rel_error = abs_error / I_low
-        else:
-            rel_error = 0.0 if abs_error < 1e-18 else float('inf')
-
         if I_high > 1e-30 and I_low > 1e-30:
             log_disc = float(np.log10(I_high) - np.log10(I_low))
         else:
@@ -206,7 +198,6 @@ def analyze_cutoff(
             "infidelity_low": I_low,
             "infidelity_high": I_high,
             "abs_error": abs_error,
-            "rel_error": rel_error,
             "log_discrepancy": log_disc,
         }
         analysis_list.append(item)
@@ -214,10 +205,6 @@ def analyze_cutoff(
         if abs_error > max_abs_error:
             max_abs_error = abs_error
             worst_abs_outcome = outcome_tuple
-
-        if rel_error != float('inf') and rel_error > max_rel_error:
-            max_rel_error = rel_error
-            worst_rel_outcome = outcome_tuple
 
         if log_disc is not None and log_disc > max_log_disc:
             max_log_disc = log_disc
@@ -234,15 +221,13 @@ def analyze_cutoff(
         "outcomes": outcomes_list,
         "analysis": analysis_list,
         "max_abs_error": max_abs_error if max_abs_error >= 0 else 0.0,
-        "max_rel_error": max_rel_error if max_rel_error >= 0 else 0.0,
         "max_log_discrepancy": max_log_disc,
         "worst_outcome_abs_error": worst_abs_outcome,
-        "worst_outcome_rel_error": worst_rel_outcome,
         "worst_outcome_log_discrepancy": worst_log_outcome,
     }
 
     if print_summary:
-        width = 110
+        width = 96
         separator = "=" * width
         sub_separator = "-" * width
 
@@ -253,7 +238,7 @@ def analyze_cutoff(
         print(f"  State Truncation Error (1 - ||ket||²)  : low ({low_cutoff}) = {trunc_error_low:.2e} | high ({high_cutoff}) = {trunc_error_high:.2e}")
         print(sub_separator)
 
-        header = f"  {'Outcome':<14} {'Target Name':<22} {f'1-F ({low_cutoff})':<14} {f'1-F ({high_cutoff})':<14} {'Abs. Error':<14} {'Rel. Error':<14} {'Log Disc.':<10}"
+        header = f"  {'Outcome':<14} {'Target Name':<22} {f'1-F ({low_cutoff})':<14} {f'1-F ({high_cutoff})':<14} {'Abs. Error':<14} {'Log Disc.':<10}"
         print(header)
         print(sub_separator)
 
@@ -265,19 +250,15 @@ def analyze_cutoff(
             i_high_str = f"{res['infidelity_high']:.2e}"
             abs_err_str = f"{res['abs_error']:.2e}"
 
-            rel_err = res['rel_error']
-            rel_str = f"{rel_err:.2e}" if rel_err != float('inf') else "inf"
-
             log_d = res['log_discrepancy']
             log_str = f"{log_d:+.2f}" if log_d is not None else "N/A"
 
-            print(f"  {out_disp:<14} {t_name:<22} {i_low_str:<14} {i_high_str:<14} {abs_err_str:<14} {rel_str:<14} {log_str:<10}")
+            print(f"  {out_disp:<14} {t_name:<22} {i_low_str:<14} {i_high_str:<14} {abs_err_str:<14} {log_str:<10}")
 
         print(sub_separator)
         print(f"  Max Absolute Truncation Error : {max_abs_error:.6e}" + (f" (Outcome: n={worst_abs_outcome})" if worst_abs_outcome else ""))
-        print(f"  Max Relative Error            : {max_rel_error:.6e}" if max_rel_error != float('inf') else "  Max Relative Error            : inf" + (f" (Outcome: n={worst_rel_outcome})" if worst_rel_outcome else ""))
         if max_log_disc is not None:
             print(f"  Max Log Discrepancy           : {max_log_disc:+.6f}" + (f" (Outcome: n={worst_log_outcome})" if worst_log_outcome else ""))
         print(separator + "\n")
 
-    return output_dict
+    return output_dict
