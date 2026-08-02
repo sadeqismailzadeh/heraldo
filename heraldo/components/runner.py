@@ -401,7 +401,7 @@ class BasinHoppingRunner:
 
     def run(self, n_iter: int = 20, method: str = "L-BFGS-B",
             num_parallel_runs: int | None = None, base_seed: int | None = None,
-            callback=None) -> dict:
+            callback=None, save_path: str | None = None) -> dict:
         """Executes global static circuit optimization using Basin-Hopping.
 
         Args:
@@ -435,6 +435,9 @@ class BasinHoppingRunner:
             if not res.get("success", False):
                 raise RuntimeError(f"Basin-Hopping run failed: {res.get('error')}")
             res["duration"] = time.time() - start_time
+            if save_path:
+                from heraldo.analyze.saver import save_results
+                save_results(res, save_path)
             return res
 
         workers = min(n_parallel, self.num_processes if self.num_processes > 1 else multiprocessing.cpu_count())
@@ -457,7 +460,7 @@ class BasinHoppingRunner:
         best_res = min(valid_results, key=lambda x: x["loss"])
         total_duration = time.time() - start_time
 
-        return {
+        out = {
             "x": best_res["x"],
             "loss": best_res["loss"],
             "expected_fidelity": best_res.get("expected_fidelity", 0.0),
@@ -468,3 +471,9 @@ class BasinHoppingRunner:
             "run_results": results,
             "best_run_idx": seeds.index(best_res["seed"])
         }
+
+        if save_path:
+            from heraldo.analyze.saver import save_results
+            save_results(out, save_path)
+
+        return out
