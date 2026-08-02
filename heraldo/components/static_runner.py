@@ -210,7 +210,7 @@ def evaluate_circuit(params: np.ndarray,
                      target_kets: list[np.ndarray],
                      cutoff_dim: int,
                      beam_width: int = 5,
-                     penalty_strength: float = 10.0,
+                     penalty_strength: float = 0.001,
                      measurement_patterns=None,
                      return_details: bool = False,
                      loss_fn=None):
@@ -279,13 +279,18 @@ def _single_basinhopping_run(seed: int | None, circuit: StaticCircuit,
                              target_kets: list[np.ndarray], cutoff_dim: int,
                              beam_width: int, penalty_strength: float,
                              measurement_patterns, loss_fn, n_iter: int,
-                             method: str, bounds: list[tuple[float, float]]) -> dict:
+                             method: str, bounds: list[tuple[float, float]],
+                             callback=None, run_idx: int = 0, total_runs: int = 1) -> dict:
     if seed is not None:
         np.random.seed(seed)
+
+    eval_count = [0]
+    iteration_count = [0]
 
     x0 = np.array([np.random.uniform(low, high) for low, high in bounds])
 
     def loss_func(x):
+        eval_count[0] += 1
         return evaluate_circuit(
             x,
             circuit=circuit,
@@ -297,12 +302,34 @@ def _single_basinhopping_run(seed: int | None, circuit: StaticCircuit,
             loss_fn=loss_fn,
         )
 
+    if method == 'Nelder-Mead':
+        def bounded_loss(x):
+            for val, (low, high) in zip(x, bounds):
+                if val < low or val > high:
+                    return 1e10
+            return loss_func(x)
+        objective = bounded_loss
+        minimizer_kwargs = {"method": method}
+    else:
+        objective = loss_func
+        minimizer_kwargs = {"method": method, "bounds": bounds}
+
+    def local_callback(x, f, accept):
+        iteration_count[0] += 1
+        status = "Accept" if accept else "Reject"
+        prefix = f"[Run {run_idx+1}/{total_runs}] " if total_runs > 1 else ""
+        print(f"  {prefix}[Iteration {iteration_count[0]}] [{status}] (Evals: {eval_count[0]}) Loss: {f} ")
+        eval_count[0] = 0
+        if callback is not None:
+            callback(x, f, accept)
+
     try:
         result = basinhopping(
-            loss_func,
+            objective,
             x0,
             niter=n_iter,
-            minimizer_kwargs={"method": method, "bounds": bounds},
+            minimizer_kwargs=minimizer_kwargs,
+            callback=local_callback,
             stepsize=0.5,
         )
 
@@ -345,6 +372,7 @@ class BasinHoppingRunner:
         num_parallel_runs (int, optional): Number of parallel Basin-Hopping optimization runs. Defaults to 4.
         num_processes (int, optional): Number of worker processes for parallel execution. Defaults to 4.
         loss_fn (callable, optional): Custom objective loss evaluation function.
+        callback (callable, optional): Custom callback function `callback(x, f, accept)` invoked at each iteration.
     """
 
     def __init__(self,
@@ -356,7 +384,8 @@ class BasinHoppingRunner:
                  measurement_patterns=None,
                  num_parallel_runs: int = 4,
                  num_processes: int = 4,
-                 loss_fn=None):
+                 loss_fn=None,
+                 callback=None):
         self.circuit = circuit
         if not isinstance(target_gens, list):
             target_gens = [target_gens]
@@ -368,9 +397,11 @@ class BasinHoppingRunner:
         self.num_parallel_runs = num_parallel_runs
         self.num_processes = num_processes
         self.loss_fn = loss_fn
+        self.callback = callback
 
     def run(self, n_iter: int = 20, method: str = "L-BFGS-B",
-            num_parallel_runs: int | None = None, base_seed: int | None = None) -> dict:
+            num_parallel_runs: int | None = None, base_seed: int | None = None,
+            callback=None) -> dict:
         """Executes global static circuit optimization using Basin-Hopping.
 
         Args:
@@ -378,10 +409,12 @@ class BasinHoppingRunner:
             method (str, optional): Local minimizer algorithm. Defaults to "L-BFGS-B".
             num_parallel_runs (int, optional): Override for number of parallel optimization runs.
             base_seed (int, optional): Base random seed for reproducible runs.
+            callback (callable, optional): Callback function `callback(x, f, accept)` executed after each basin step.
 
         Returns:
             dict: Optimization results containing best parameter vector, loss, fidelities, and branches.
         """
+        cb = callback if callback is not None else self.callback
         n_parallel = num_parallel_runs if num_parallel_runs is not None else self.num_parallel_runs
         bounds = self.circuit.parameter_bounds
 
@@ -392,10 +425,12 @@ class BasinHoppingRunner:
         seeds = [base_seed + i for i in range(n_parallel)]
 
         if n_parallel <= 1:
+            print(f"Starting Basin-Hopping Beam Search (Width={self.beam_width})...")
             res = _single_basinhopping_run(
                 seeds[0], self.circuit, self.target_kets, self.cutoff_dim,
                 self.beam_width, self.penalty_strength, self.measurement_patterns,
-                self.loss_fn, n_iter, method, bounds
+                self.loss_fn, n_iter, method, bounds,
+                callback=cb, run_idx=0, total_runs=1
             )
             if not res.get("success", False):
                 raise RuntimeError(f"Basin-Hopping run failed: {res.get('error')}")
@@ -403,10 +438,12 @@ class BasinHoppingRunner:
             return res
 
         workers = min(n_parallel, self.num_processes if self.num_processes > 1 else multiprocessing.cpu_count())
+        print(f"Starting Parallel Basin-Hopping ({n_parallel} runs, Width={self.beam_width})...")
         args_list = [
             (seeds[i], self.circuit, self.target_kets, self.cutoff_dim,
              self.beam_width, self.penalty_strength, self.measurement_patterns,
-             self.loss_fn, n_iter, method, bounds)
+             self.loss_fn, n_iter, method, bounds,
+             cb, i, n_parallel)
             for i in range(n_parallel)
         ]
 
