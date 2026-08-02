@@ -235,7 +235,7 @@ def analyze_cutoff(
         print(f"{f'CUTOFF TRUNCATION ANALYSIS RESULTS ({low_cutoff} vs {high_cutoff})':^{width}}")
         print(separator)
 
-        print(f"  State Truncation Error (1 - ||ket||²)  : low ({low_cutoff}) = {trunc_error_low:.2e} | high ({high_cutoff}) = {trunc_error_high:.2e}")
+        print(f"  Pre-Measurement Joint State Truncation Error (1 - ||ket||²)  : low ({low_cutoff}) = {trunc_error_low:.2e} | high ({high_cutoff}) = {trunc_error_high:.2e}")
         print(sub_separator)
 
         header = f"  {'Outcome':<14} {'Target Name':<22} {f'1-F ({low_cutoff})':<14} {f'1-F ({high_cutoff})':<14} {'Abs. Error':<14} {'Log Disc.':<10}"

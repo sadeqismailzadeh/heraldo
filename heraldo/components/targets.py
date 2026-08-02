@@ -48,8 +48,6 @@ class SqueezedCatTarget(TargetGenerator):
         Returns:
             np.ndarray: The target state ket in the Fock basis.
         """
-        print(f"Generating Squeezed Cat Target (alpha={self.alpha}, r={self.r}, p={self.p})...")
-
         prog = sf.Program(1)
         with prog.context as q:
             Catstate(a=self.alpha, p=self.p) | q[0]
@@ -85,8 +83,6 @@ class CatTarget(TargetGenerator):
         Returns:
             np.ndarray: The target state ket in the Fock basis.
         """
-        print(f"Generating Cat Target (alpha={self.alpha}, p={self.p})...")
-
         prog = sf.Program(1)
         with prog.context as q:
             Catstate(a=self.alpha, p=self.p) | q[0]
@@ -123,8 +119,6 @@ class CubicPhaseTarget(TargetGenerator):
         Returns:
             np.ndarray: The target state ket in the Fock basis.
         """
-        print(f"Generating Target Cubic Phase State (gamma={self.gamma}, r={self.r}, alpha={self.alpha})...")
-
         prog = sf.Program(1)
         with prog.context as q:
             # Order: vacuum -> squeezing -> cubic phase -> displacement
@@ -167,7 +161,6 @@ class CubicResourceTarget(TargetGenerator):
         Returns:
             np.ndarray: The normalized target state ket in the Fock basis.
         """
-        print("Initializing Cubic Phase Target State for General...")
         base_ket = np.zeros(cutoff_dim, dtype=np.complex128)
         base_ket[0] = 1.0
         base_ket[1] = 1j * self.a * np.sqrt(1.5)
@@ -214,8 +207,6 @@ class CoreGKPTarget(TargetGenerator):
             FileNotFoundError: If the CSV file at `csv_path` does not exist.
         """
         verbose = 0
-        if (verbose > 0):
-            print(f"Generating Core GKP Target (|{self.mu}>_A, n_max={self.n_max}, Delta={self.delta_db}dB)...")
 
         # 1. Load CSV data
         try:
@@ -291,8 +282,6 @@ class BinomialCodeTarget(TargetGenerator):
         Returns:
             np.ndarray: The target state ket in the Fock basis.
         """
-        print(f"Generating Binomial Code Target (N={self.N}, S={self.S}, mu={self.mu})...")
-
         target_ket = np.zeros(cutoff_dim, dtype=np.complex128)
 
         start_p = 1 if self.mu == 1 else 0
