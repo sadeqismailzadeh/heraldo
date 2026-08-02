@@ -14,6 +14,9 @@ def _normalize_outcomes(outcomes: Any, num_meas_modes: int) -> List[Tuple[int, .
     if outcomes is None:
         return []
 
+    if isinstance(outcomes, np.ndarray):
+        outcomes = outcomes.tolist()
+
     if isinstance(outcomes, (int, np.integer)):
         if num_meas_modes != 1:
             raise ValueError(f"Single integer outcome passed, but circuit has {num_meas_modes} measured modes.")
