@@ -8,7 +8,7 @@ from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.utils import db_to_r
 from heraldo.analyze import (
     save_results, load_results, print_results, plot_outcomes,
-    analyze_rotations, analyze_loss, reconstruct_objects
+    analyze_rotations, analyze_loss, analyze_cutoff, reconstruct_objects
 )
 
 
@@ -53,7 +53,11 @@ def main():
     print("--- Photon Loss Analysis ---")
     analyze_loss(loaded_result, outcomes=[4, 5])
 
-    # 10. Plot Wigner functions and Fock probabilities for specific outcomes (n=4 and n=5)
+    # 10. Evaluate Fock cutoff truncation fidelity (e.g., low cutoff 30 vs high cutoff 45)
+    print("--- Cutoff Truncation Analysis ---")
+    analyze_cutoff(loaded_result, low_cutoff=30, high_cutoff=45, outcomes=[4, 5])
+
+    # 11. Plot Wigner functions and Fock probabilities for specific outcomes (n=4 and n=5)
     print("--- Plotting Outcomes ---")
     plot_outcomes(
         loaded_result,
