@@ -6,7 +6,7 @@ from heraldo.components.targets import SqueezedCatTarget
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.utils import db_to_r
-from heraldo.analyze import save_results, load_results, print_results, reconstruct_objects
+from heraldo.analyze import save_results, load_results, print_results, plot_outcomes, reconstruct_objects
 
 
 def main():
@@ -41,6 +41,15 @@ def main():
 
     # 7. Display loaded results using print_results
     print_results(loaded_result)
+
+    # 8. Plot Wigner functions and Fock probabilities for specific outcomes (n=4 and n=5)
+    print("--- Plotting Outcomes ---")
+    plot_outcomes(
+        loaded_result,
+        outcomes=[4, 5],
+        save_prefix=Path(__file__).parent / "example_plot",
+        show=True
+    )
 
 
 if __name__ == "__main__":
