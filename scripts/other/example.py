@@ -6,7 +6,10 @@ from heraldo.components.targets import SqueezedCatTarget
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.utils import db_to_r
-from heraldo.analyze import save_results, load_results, print_results, plot_outcomes, analyze_rotations, reconstruct_objects
+from heraldo.analyze import (
+    save_results, load_results, print_results, plot_outcomes,
+    analyze_rotations, analyze_loss, reconstruct_objects
+)
 
 
 def main():
@@ -46,7 +49,11 @@ def main():
     print("--- Rotation Analysis ---")
     analyze_rotations(loaded_result, outcomes=[4, 5])
 
-    # 9. Plot Wigner functions and Fock probabilities for specific outcomes (n=4 and n=5)
+    # 9. Analyze impact of photon loss (e.g., ideal 100%, 1% loss, 10% loss)
+    print("--- Photon Loss Analysis ---")
+    analyze_loss(loaded_result, outcomes=[4, 5])
+
+    # 10. Plot Wigner functions and Fock probabilities for specific outcomes (n=4 and n=5)
     print("--- Plotting Outcomes ---")
     plot_outcomes(
         loaded_result,

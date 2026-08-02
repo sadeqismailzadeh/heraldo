@@ -7,7 +7,7 @@ import strawberryfields as sf
 from heraldo.analyze.saver import reconstruct_objects
 from heraldo.analyze.plotter import _normalize_outcomes
 from heraldo.components.targets import (
-    BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, SqueezedCatTarget
+    BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, CubicResourceTarget, SqueezedCatTarget
 )
 from heraldo.factory import create_from_config
 
@@ -51,20 +51,36 @@ def get_target_display_names(targets: List[Any]) -> List[str]:
     Returns:
         list[str]: Display names for each target generator.
     """
+    def _fmt_val(val: Any) -> str:
+        if isinstance(val, (float, np.floating)):
+            if abs(val) < 1e-9:
+                val = 0.0
+            s = f"{val:.2f}".rstrip('0').rstrip('.')
+            return s if s != "" else "0"
+        return str(val)
+
     target_names = []
     for t in targets:
         if isinstance(t, CoreGKPTarget):
             target_names.append(f"GKP_n{t.n_max}_mu{t.mu}")
         elif isinstance(t, SqueezedCatTarget):
-            target_names.append(f"SqCat_a{t.alpha}_r{t.r}_p{t.p}")
+            target_names.append(f"SqCat_a{_fmt_val(t.alpha)}_r{_fmt_val(t.r)}_p{t.p}")
         elif isinstance(t, CatTarget):
-            target_names.append(f"Cat_a{t.alpha}_p{t.p}")
+            target_names.append(f"Cat_a{_fmt_val(t.alpha)}_p{t.p}")
         elif isinstance(t, BinomialCodeTarget):
             target_names.append(f"Binomial_N{t.N}_S{t.S}_mu{t.mu}")
         elif isinstance(t, CubicPhaseTarget):
-            target_names.append(f"CubicPhase_g{t.gamma}_r{t.r}")
+            target_names.append(f"CubicPhase_g{_fmt_val(t.gamma)}_r{_fmt_val(t.r)}")
+        elif isinstance(t, CubicResourceTarget):
+            target_names.append(f"CubicResource_a{_fmt_val(t.a)}")
         elif isinstance(t, dict) and "class_name" in t:
-            target_names.append(t["class_name"])
+            cls_name = t["class_name"]
+            params = t.get("params", {})
+            if params:
+                param_strs = [f"{k}{_fmt_val(v)}" for k, v in params.items()]
+                target_names.append(f"{cls_name}_{'_'.join(param_strs)}")
+            else:
+                target_names.append(cls_name)
         elif hasattr(t, "__class__"):
             target_names.append(t.__class__.__name__)
         else:
@@ -283,4 +299,4 @@ def analyze_rotations(
 
         print(separator + "\n")
 
-    return analysis_results
+    return analysis_results
