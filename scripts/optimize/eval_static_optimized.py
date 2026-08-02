@@ -995,28 +995,22 @@ def get_target_display_names(targets: list) -> list[str]:
     return target_names
 
 
-def run_batch_operations(batch_config: dict, cutoff: int = 30):
-    """Runs optional batch evaluation tasks across multiple result directories."""
-    if batch_config.get("all_results_path"):
-        generate_wigners_for_all_opt_folders(batch_config["all_results_path"], circuit_module, cutoff=cutoff)
-        report_rotations_for_all_opt_folders(batch_config["all_results_path"], circuit_module, cutoff=cutoff)
-        evaluate_cutoff_fidelity(batch_config["all_results_path"], circuit_module, low_cutoff=cutoff, high_cutoff=50)
-
-    if batch_config.get("visualize_results_path"):
-        save_density_matrices_for_all_opt_folders(batch_config["visualize_results_path"], circuit_module, cutoff=cutoff)
-
-    if batch_config.get("loss_results_path"):
-        evaluate_loss_influence(batch_config["loss_results_path"], circuit_module)
-
-
 def main():
     cutoff = 30
-    batch_config = {
-        "visualize_results_path": windows_to_wsl_path(r"E:\Quantum\code\results\sweeps_static_beam_search_20260801T185147Z"),
-        "all_results_path": windows_to_wsl_path(r"E:\Quantum\code\results\sweeps_static_beam_search_20260801T185147Z"),
-        "loss_results_path": windows_to_wsl_path(r"E:\Quantum\code\results\sweeps_static_beam_search_20260801T185147Z"),
-    }
-    run_batch_operations(batch_config, cutoff=cutoff)
+    visualize_results_path = windows_to_wsl_path(r"E:\Quantum\code\results\sweeps_static_fid099_20260801T190934Z")
+    all_results_path = windows_to_wsl_path(r"E:\Quantum\code\results\sweeps_static_fid099_20260801T190934Z")
+    loss_results_path = windows_to_wsl_path(r"E:\Quantum\code\results\sweeps_static_fid099_20260801T190934Z")
+
+    if all_results_path:
+        generate_wigners_for_all_opt_folders(all_results_path, circuit_module, cutoff=cutoff)
+        report_rotations_for_all_opt_folders(all_results_path, circuit_module, cutoff=cutoff)
+        evaluate_cutoff_fidelity(all_results_path, circuit_module, low_cutoff=cutoff, high_cutoff=50)
+
+    if visualize_results_path:
+        save_density_matrices_for_all_opt_folders(visualize_results_path, circuit_module, cutoff=cutoff)
+
+    if loss_results_path:
+        evaluate_loss_influence(loss_results_path, circuit_module)
 
 
 if __name__ == "__main__":
