@@ -256,7 +256,7 @@ def analyze_cutoff(
             print(f"  {out_disp:<14} {t_name:<22} {i_low_str:<14} {i_high_str:<14} {abs_err_str:<14} {log_str:<10}")
 
         print(sub_separator)
-        print(f"  Max Absolute Truncation Error : {max_abs_error:.6e}" + (f" (Outcome: n={worst_abs_outcome})" if worst_abs_outcome else ""))
+        print(f"  Max Absolute Error : {max_abs_error:.6e}" + (f" (Outcome: n={worst_abs_outcome})" if worst_abs_outcome else ""))
         if max_log_disc is not None:
             print(f"  Max Log Discrepancy           : {max_log_disc:+.6f}" + (f" (Outcome: n={worst_log_outcome})" if worst_log_outcome else ""))
         print(separator + "\n")
