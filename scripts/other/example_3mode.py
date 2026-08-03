@@ -1,10 +1,19 @@
+import os
+
+# --- Set thread limits for NumPy/OpenBLAS/MKL before importing heavy backend libraries ---
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
+
 from pathlib import Path
-import numpy as np
 
 from heraldo.components.circuits import ThreeModeStaticSqueezeOnly
 from heraldo.components.targets import CoreGKPTarget
 from heraldo.components.runner import BasinHoppingRunner
-from heraldo.components.objectives import fixed_pattern_capped_loss_fn
+from heraldo.components.objectives import fixed_pattern_free_loss_fn
 from heraldo.utils import db_to_r
 from heraldo.analyze import (
     save_results, load_results, print_results, plot_outcomes,
@@ -17,8 +26,9 @@ def main():
     circuit = ThreeModeStaticSqueezeOnly(clip_size=db_to_r(12.0), measure_fock_cutoff=30)
 
     # 2. Define target: Gottesman-Kitaev-Preskill (GKP) core state |0_A4> (mu=0, n_max=4)
+    csv_path = Path(__file__).resolve().parent.parent.parent / "data" / "GKP_core_coefficients.csv"
     targets = [
-        CoreGKPTarget(n_max=4, mu=0, delta_db=10.0),
+        CoreGKPTarget(csv_path=csv_path, n_max=4, mu=0, delta_db=10.0),
     ]
 
     # 3. Define fixed measurement patterns (n1, n2) for ancillary modes 1 and 2
@@ -30,8 +40,8 @@ def main():
         target_gens=targets,
         cutoff_dim=30,
         measurement_patterns=patterns,
-        loss_fn=fixed_pattern_capped_loss_fn,
-        penalty_strength=0
+        loss_fn=fixed_pattern_free_loss_fn,
+        penalty_strength=0.1
     )
 
     # 5. Run the optimization
