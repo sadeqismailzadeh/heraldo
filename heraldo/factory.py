@@ -32,7 +32,7 @@ def create_from_config(config: Dict[str, Any], module_target: Optional[Union[str
     target_mod = module_target or config.get('module')
 
     if target_mod is None:
-        for mod_str in ['heraldo.components.circuits', 'heraldo.components.targets']:
+        for mod_str in ['heraldo.components.circuits', 'heraldo.components.targets', 'heraldo.components.objectives']:
             try:
                 mod = importlib.import_module(mod_str)
                 if hasattr(mod, class_name):

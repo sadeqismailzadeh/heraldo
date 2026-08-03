@@ -8,8 +8,13 @@ import numpy as np
 import strawberryfields as sf
 
 from heraldo._internal import _normalize_outcomes
-from heraldo.components.interfaces import StaticCircuit
-from heraldo.components.objectives import beam_search_loss_fn, fixed_pattern_capped_loss_fn
+from heraldo.components.interfaces import ObjectiveFunction, StaticCircuit
+from heraldo.components.objectives import (
+    BeamSearchLoss,
+    FixedPatternCappedLoss,
+    beam_search_loss_fn,
+    fixed_pattern_capped_loss_fn,
+)
 from heraldo.components.targets import TargetGenerator
 from heraldo.factory import to_config
 
@@ -133,7 +138,9 @@ def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
         tuple: A tuple containing ``(loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero)``.
     """
     if loss_fn is None:
-        loss_fn = beam_search_loss_fn
+        loss_fn = BeamSearchLoss()
+    elif isinstance(loss_fn, type) and issubclass(loss_fn, ObjectiveFunction):
+        loss_fn = loss_fn()
 
     mask_nonzero = outcome_sums > 0
 
@@ -245,7 +252,9 @@ def evaluate_circuit(params: np.ndarray,
     kets, probs, outcome_sums, outcomes = res
 
     if loss_fn is None:
-        loss_fn = fixed_pattern_capped_loss_fn if use_fixed_patterns else beam_search_loss_fn
+        loss_fn = FixedPatternCappedLoss() if use_fixed_patterns else BeamSearchLoss()
+    elif isinstance(loss_fn, type) and issubclass(loss_fn, ObjectiveFunction):
+        loss_fn = loss_fn()
 
     loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero = _compute_fidelities_and_loss(
         kets, probs, outcome_sums, target_kets, truncation_error, penalty_strength, loss_fn=loss_fn
@@ -422,11 +431,12 @@ class BasinHoppingRunner:
             else self.measurement_patterns
         )
 
-        loss_fn_name = (
-            self.loss_fn.__name__
-            if hasattr(self.loss_fn, "__name__")
-            else (str(self.loss_fn) if self.loss_fn is not None else "default")
-        )
+        if self.loss_fn is None:
+            loss_fn_name = "default"
+        elif hasattr(self.loss_fn, "__name__"):
+            loss_fn_name = self.loss_fn.__name__
+        else:
+            loss_fn_name = self.loss_fn.__class__.__name__
 
         circuit_cfg = to_config(self.circuit)
         target_cfgs = to_config(self.target_gens)

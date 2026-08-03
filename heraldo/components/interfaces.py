@@ -5,6 +5,27 @@ import numpy as np
 import strawberryfields as sf
 
 
+class ObjectiveFunction(abc.ABC):
+    """Abstract base class for circuit optimization objective functions.
+
+    Subclasses implement non-linear objective evaluation metrics over candidate
+    measurement outcomes, probabilities, and state fidelities.
+    """
+
+    @abc.abstractmethod
+    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float:
+        """Evaluates the objective loss metric given outcome probabilities and fidelities.
+
+        Args:
+            probs (np.ndarray): Array of probabilities :math:`p_k` for surviving output patterns.
+            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for surviving output patterns.
+
+        Returns:
+            float: Calculated objective value.
+        """
+        pass
+
+
 class StaticCircuit(abc.ABC):
     """Abstract base class for static Continuous-Variable (CV) spatial photonic circuits.
 
