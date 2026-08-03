@@ -263,10 +263,6 @@ def plot_wigner_print_quality(ket, filename="state_plot.png", title="State", cut
     """
     Generates a high-resolution Wigner function and Fock distribution plot suitable for publication/print.
     """
-    norm = np.linalg.norm(ket)
-    if abs(norm - 1.0) > 1e-6:
-        ket = ket / norm
-
     prog = sf.Program(1)
     with prog.context as q:
         from strawberryfields.ops import Ket
