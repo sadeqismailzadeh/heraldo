@@ -235,9 +235,6 @@ def analyze_cutoff(
         print(f"{f'CUTOFF TRUNCATION ANALYSIS RESULTS ({low_cutoff} vs {high_cutoff})':^{width}}")
         print(separator)
 
-        print(f"  Pre-Measurement Joint State Truncation Error (1 - ||ket||²)  : low ({low_cutoff}) = {trunc_error_low:.2e} | high ({high_cutoff}) = {trunc_error_high:.2e}")
-        print(sub_separator)
-
         header = f"  {'Outcome':<14} {'Target Name':<22} {f'1-F ({low_cutoff})':<14} {f'1-F ({high_cutoff})':<14} {'Abs. Error':<14} {'Log Disc.':<10}"
         print(header)
         print(sub_separator)
@@ -256,9 +253,12 @@ def analyze_cutoff(
             print(f"  {out_disp:<14} {t_name:<22} {i_low_str:<14} {i_high_str:<14} {abs_err_str:<14} {log_str:<10}")
 
         print(sub_separator)
-        print(f"  Max Absolute Error : {max_abs_error:.6e}" + (f" (Outcome: n={worst_abs_outcome})" if worst_abs_outcome else ""))
+        print(f"  Max Absolute Error            : {max_abs_error:.6e}" + (f" (Outcome: n={worst_abs_outcome})" if worst_abs_outcome else ""))
         if max_log_disc is not None:
             print(f"  Max Log Discrepancy           : {max_log_disc:+.6f}" + (f" (Outcome: n={worst_log_outcome})" if worst_log_outcome else ""))
+        print("  Pre-Measurement Joint State Truncation Error (1 - ||ket||²):")
+        print(f"    • Low cutoff ({low_cutoff})   : {trunc_error_low:.2e}")
+        print(f"    • High cutoff ({high_cutoff})  : {trunc_error_high:.2e}")
         print(separator + "\n")
 
     return output_dict
