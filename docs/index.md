@@ -1,13 +1,13 @@
 # heraldo Documentation
 
-**heraldo** is a Python framework for continuous-variable (CV) photonic circuit simulation and multi-outcome quantum state optimization.
+**heraldo** is a Python framework for  multi-outcome quantum state optimization.
 
 ```{toctree}
 :maxdepth: 2
 :caption: Getting Started
 
 installation
-usage
+quickstart
 ```
 
 ```{toctree}
