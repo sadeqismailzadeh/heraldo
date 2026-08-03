@@ -166,7 +166,6 @@ class MyCustomTarget(TargetGenerator):
         return ket
 ```
 
-{{apply: create a new file named serilaization reconstructin guide or something like that. then put this guide there. then refere to that file in here}}
 ## Saving and Loading Custom Targets
 
 For details on serializing and reconstructing custom targets, see the dedicated **[Serialization and Reconstruction Guide](serialization.md)**.

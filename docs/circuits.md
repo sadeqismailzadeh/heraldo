@@ -37,7 +37,17 @@ The following classes are ready to use and located in `heraldo.components.circui
   - Four‑mode: ladder network `BS(0,1) → BS(2,3) → BS(1,2) → BS(0,1) → BS(2,3) → BS(1,2)`.
 
 ---
-{{modify: add a diagram of the 3 mode general circuit similar to the fig 1 of the paper. but it should include all 3 beamsplitter}}
+
+### Three-Mode General Circuit Architecture
+
+```text
+Mode 0: |0⟩   ───[ S0 ]──[ D0 ]───(BS1)────────────(BS3)───────── |ψ⟩
+                                    │                │
+Mode 1: |0/1⟩ ───[ S1 ]──[ D1 ]───(BS1)───(BS2)────(BS3)───[ PNRD ]
+                                            │
+Mode 2: |0/1⟩ ───[ S2 ]──[ D2 ]───────────(BS2)────────────[ PNRD ]
+```
+
 ## Instantiating a Circuit
 
 Simply create an instance with the desired parameters. For example, a two‑mode squeeze‑only circuit with 12 dB of squeezing (converted to the squeezing parameter `r`) and a detector cutoff of 30:
@@ -79,22 +89,25 @@ Pass the circuit instance to a  `BasinHoppingRunner`. The runner will:
 - Use `get_measurement_specs()` to know which modes are measured and with what cutoff.
 
 
-{{modify: must be inside the main function}}
 ```python
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.targets import SqueezedCatTarget
 
-circuit = TwoModeStaticSqueezeOnly(clip_size=1.5, measure_fock_cutoff=30)
-target = SqueezedCatTarget(alpha=3.0, r=0.5, p=0)
+def main():
+    circuit = TwoModeStaticSqueezeOnly(clip_size=1.5, measure_fock_cutoff=30)
+    target = SqueezedCatTarget(alpha=3.0, r=0.5, p=0)
 
-runner = BasinHoppingRunner(
-    circuit=circuit,
-    target_gens=[target],
-    cutoff_dim=30,
-    beam_width=20
-)
+    runner = BasinHoppingRunner(
+        circuit=circuit,
+        target_gens=[target],
+        cutoff_dim=30,
+        beam_width=20
+    )
 
-result = runner.run(n_iter=10)
+    result = runner.run(n_iter=10)
+
+if __name__ == "__main__":
+    main()
 ```
 
 ---
