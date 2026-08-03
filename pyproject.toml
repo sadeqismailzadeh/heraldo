@@ -22,6 +22,7 @@ dependencies = [
     "tqdm",
     "matplotlib",
     "setuptools<75",
+    "pip",
 ]
 
 [tool.setuptools.packages.find]
