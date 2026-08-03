@@ -3,8 +3,16 @@
 Target generators produce quantum state vectors (kets) in the Fock basis. They are used as the `target_gens` argument to `BasinHoppingRunner` and determine which non-Gaussian states the optimizer tries to herald.
 
 
-{{modify: a table of prebuilt targets}}
 ## Prebuilt Target Generators
+
+| Class | Description | Key Parameters |
+|-------|-------------|----------------|
+| `CatTarget` | Unsqueezed Schrödinger cat state | `alpha` (amplitude), `p` (parity) |
+| `SqueezedCatTarget` | Squeezed Schrödinger cat state | `alpha`, `r` (squeezing), `p` |
+| `CubicPhaseTarget` | Displaced cubic phase state | `gamma`, `r`, `alpha` |
+| `CubicResourceTarget` | Finite superposition for cubic resource | `a` (scaling) |
+| `CoreGKPTarget` | Approximate GKP core state (stellar representation) | `csv_path`, `n_max`, `delta_db`, `mu`, `apply_squeezing` |
+| `BinomialCodeTarget` | Binomial code logical codeword | `N` (order), `S` (spacing), `mu` (logical) |
 
 All target classes are defined in `heraldo.components.targets` and inherit from the abstract base class `TargetGenerator`.
 
@@ -161,46 +169,7 @@ class MyCustomTarget(TargetGenerator):
 {{apply: create a new file named serilaization reconstructin guide or something like that. then put this guide there. then refere to that file in here}}
 ## Saving and Loading Custom Targets
 
-To ensure your custom target can be serialized and reconstructed by `heraldo.factory` (for `save_results` / `load_results` with `reconstruct=True`), follow these rules:
-
-1. **Match attribute names to `__init__` parameters**  
-   The factory uses `inspect.signature` to collect attributes that match the constructor arguments. For example:
-
-   ```python
-   def __init__(self, alpha=1.0):
-       self.alpha = alpha   # attribute name matches parameter
-   ```
-
-2. **Define the class in its own module**  
-   Place your custom target class in a separate `.py` file (e.g., `my_targets.py`), **not** inside the main script that runs the optimization. This allows the class to be imported correctly when loading the pickle.
-
-3. **Ensure the module is importable**  
-   When loading results with `reconstruct=True`, `heraldo.factory` will try to import the module containing the class. Make sure the module is on the Python path.
-
-For example, if you have `my_targets.py`:
-
-```python
-# my_targets.py
-import numpy as np
-from heraldo.components.interfaces import TargetGenerator
-
-class MyCustomTarget(TargetGenerator):
-    def __init__(self, alpha=1.0):
-        self.alpha = alpha
-
-    def get_target_ket(self, cutoff_dim: int) -> np.ndarray:
-        # ...
-```
-
-Then in your script:
-
-```python
-from my_targets import MyCustomTarget
-target = MyCustomTarget(alpha=2.0)
-runner = BasinHoppingRunner(..., target_gens=[target])
-```
-
-When you save results with `save_results` and later load with `load_results(..., reconstruct=True)`, the factory will reconstruct `MyCustomTarget` correctly as long as `my_targets` is importable.
+For details on serializing and reconstructing custom targets, see the dedicated **[Serialization and Reconstruction Guide](serialization.md)**.
 
 ## Reference
 
