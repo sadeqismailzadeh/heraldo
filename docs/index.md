@@ -16,6 +16,7 @@ quickstart
 
 circuits_comparison
 sf_patches
+targets
 ```
 
 ```{toctree}
