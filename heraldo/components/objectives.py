@@ -108,22 +108,10 @@ class FixedPatternFreeLoss(ObjectiveFunction):
         return float(np.sum(alpha * probs + fidelities))
 
 
-def beam_search_loss_fn(probs: np.ndarray, fidelities: np.ndarray, epsilon: float = 2e-2,
-                        delta: float = 1e-72, lam: float = 1e4) -> float:
-    """Function wrapper for BeamSearchLoss for backwards compatibility."""
-    return BeamSearchLoss(epsilon=epsilon, delta=delta, lam=lam)(probs, fidelities)
-
-
-def fixed_pattern_capped_loss_fn(probs: np.ndarray, fidelities: np.ndarray, f_cap: float = 0.95,
-                                alpha: float = None) -> float:
-    """Function wrapper for FixedPatternCappedLoss for backwards compatibility."""
-    return FixedPatternCappedLoss(f_cap=f_cap, alpha=alpha)(probs, fidelities)
-
-
-def fixed_pattern_free_loss_fn(probs: np.ndarray, fidelities: np.ndarray,
-                              alpha: float = None) -> float:
-    """Function wrapper for FixedPatternFreeLoss for backwards compatibility."""
-    return FixedPatternFreeLoss(alpha=alpha)(probs, fidelities)
-
+# Pre-instantiated default instances for backwards compatibility and easy usage.
+# Because these are instances of ObjectiveFunction, they serialize perfectly via heraldo.factory.
+beam_search_loss_fn = BeamSearchLoss()
+fixed_pattern_capped_loss_fn = FixedPatternCappedLoss()
+fixed_pattern_free_loss_fn = FixedPatternFreeLoss()
 
 default_loss_fn = beam_search_loss_fn

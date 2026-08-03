@@ -432,21 +432,21 @@ class BasinHoppingRunner:
         )
 
         if self.loss_fn is None:
-            loss_fn_name = "default"
-        elif hasattr(self.loss_fn, "__name__"):
-            loss_fn_name = self.loss_fn.__name__
+            effective_loss_fn = FixedPatternCappedLoss() if self.measurement_patterns is not None else BeamSearchLoss()
+        elif isinstance(self.loss_fn, type) and issubclass(self.loss_fn, ObjectiveFunction):
+            effective_loss_fn = self.loss_fn()
         else:
-            loss_fn_name = self.loss_fn.__class__.__name__
+            effective_loss_fn = self.loss_fn
 
         circuit_cfg = to_config(self.circuit)
         target_cfgs = to_config(self.target_gens)
+        loss_cfg = to_config(effective_loss_fn)
 
         runner_cfg = {
             "cutoff_dim": self.cutoff_dim,
             "beam_width": self.beam_width,
             "penalty_strength": self.penalty_strength,
             "measurement_patterns": meas_patterns_serializable,
-            "loss_fn": loss_fn_name,
             "num_parallel_runs": n_parallel,
             "num_processes": self.num_processes,
             "n_iter": n_iter,
@@ -467,6 +467,7 @@ class BasinHoppingRunner:
             res["duration"] = time.time() - start_time
             res["circuit_config"] = circuit_cfg
             res["target_configs"] = target_cfgs
+            res["loss_config"] = loss_cfg
             res["runner_config"] = runner_cfg
             return res
 
@@ -502,5 +503,6 @@ class BasinHoppingRunner:
             "best_run_idx": seeds.index(best_res["seed"]),
             "circuit_config": circuit_cfg,
             "target_configs": target_cfgs,
+            "loss_config": loss_cfg,
             "runner_config": runner_cfg,
         }

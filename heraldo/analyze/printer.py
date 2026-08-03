@@ -112,7 +112,7 @@ def print_results(
         bw = runner_cfg.get("beam_width")
         pen = runner_cfg.get("penalty_strength")
         meas_pat = runner_cfg.get("measurement_patterns")
-        loss_f = runner_cfg.get("loss_fn")
+        loss_cfg = results.get("loss_config") or (runner_cfg.get("loss_fn") if runner_cfg else None)
         method = runner_cfg.get("method")
         n_iter = runner_cfg.get("n_iter")
         n_parallel = runner_cfg.get("num_parallel_runs")
@@ -129,8 +129,14 @@ def print_results(
             print(f"  Measurement Patterns  : {meas_pat}")
         else:
             print(f"  Measurement Strategy  : Dynamic Beam Search")
-        if loss_f is not None:
-            print(f"  Loss Function         : {loss_f}")
+        if loss_cfg is not None:
+            if isinstance(loss_cfg, dict):
+                loss_str = loss_cfg.get("class_name", "Unknown")
+            elif hasattr(loss_cfg, "__class__"):
+                loss_str = loss_cfg.__class__.__name__
+            else:
+                loss_str = str(loss_cfg)
+            print(f"  Loss Function         : {loss_str}")
         if method is not None:
             print(f"  Minimizer Method      : {method}")
         if n_iter is not None:

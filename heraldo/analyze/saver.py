@@ -73,13 +73,13 @@ def load_results(filepath: Union[str, Path], reconstruct: bool = False) -> Dict[
 
 
 def reconstruct_objects(results: Dict[str, Any]) -> Dict[str, Any]:
-    """Reconstructs circuit and target generator instances from results configuration metadata.
+    """Reconstructs circuit, target generator, and loss function instances from results configuration metadata.
 
     Args:
-        results (dict): Result dictionary containing 'circuit_config' and/or 'target_configs'.
+        results (dict): Result dictionary containing 'circuit_config', 'target_configs', and/or 'loss_config'.
 
     Returns:
-        dict: Dictionary with 'circuit' and/or 'targets' instantiated objects.
+        dict: Dictionary with 'circuit', 'targets', and/or 'loss_fn' instantiated objects.
     """
     from heraldo.factory import create_from_config
 
@@ -93,5 +93,8 @@ def reconstruct_objects(results: Dict[str, Any]) -> Dict[str, Any]:
             out["targets"] = [create_from_config(item) for item in tc]
         else:
             out["targets"] = create_from_config(tc)
+
+    if "loss_config" in results and results["loss_config"]:
+        out["loss_fn"] = create_from_config(results["loss_config"])
 
     return out
