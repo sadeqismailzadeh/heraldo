@@ -7,7 +7,7 @@ from scipy.optimize import basinhopping
 import numpy as np
 import strawberryfields as sf
 
-from heraldo.analyze.plotter import _normalize_outcomes
+from heraldo._internal import _normalize_outcomes
 from heraldo.components.interfaces import StaticCircuit
 from heraldo.components.objectives import beam_search_loss_fn, fixed_pattern_capped_loss_fn
 from heraldo.components.targets import TargetGenerator

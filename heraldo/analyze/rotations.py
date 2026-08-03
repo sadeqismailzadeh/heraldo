@@ -5,7 +5,7 @@ import numpy as np
 import strawberryfields as sf
 
 from heraldo.analyze.saver import reconstruct_objects
-from heraldo.analyze.plotter import _normalize_outcomes
+from heraldo._internal import _normalize_outcomes
 from heraldo.components.targets import (
     BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, CubicResourceTarget, SqueezedCatTarget
 )
@@ -183,7 +183,7 @@ def analyze_rotations(
     num_meas_modes = len(meas_specs)
 
     if outcomes is None:
-        outcomes_list = [tuple(int(val) for val in pat) for pat in meas_patterns]
+        outcomes_list = _normalize_outcomes(meas_patterns, num_meas_modes)
     else:
         outcomes_list = _normalize_outcomes(outcomes, num_meas_modes)
 

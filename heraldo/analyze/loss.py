@@ -7,7 +7,7 @@ import numpy as np
 import strawberryfields as sf
 
 from heraldo.analyze.saver import reconstruct_objects
-from heraldo.analyze.plotter import _normalize_outcomes
+from heraldo._internal import _normalize_outcomes
 from heraldo.analyze.rotations import get_target_display_names
 from heraldo.factory import create_from_config, to_config
 
@@ -136,9 +136,15 @@ def analyze_loss(
     if meas_patterns is None:
         meas_patterns = results.get("measurement_patterns")
 
+    if circuit is not None:
+        num_meas_modes = len(circuit.get_measurement_specs())
+    else:
+        temp_circ = create_from_config(results["circuit_config"])
+        num_meas_modes = len(temp_circ.get_measurement_specs())
+
     if outcomes is None:
         if meas_patterns is not None:
-            outcomes_list = [tuple(int(val) for val in pat) for pat in meas_patterns]
+            outcomes_list = _normalize_outcomes(meas_patterns, num_meas_modes)
         else:
             branches = results.get("branches", [])
             outcomes_list = [b["outcome"] for b in branches if "outcome" in b]
@@ -149,11 +155,6 @@ def analyze_loss(
                     "Please specify outcomes (e.g., outcomes=[4, 5] or outcomes=[(4,)])."
                 )
     else:
-        if circuit is not None:
-            num_meas_modes = len(circuit.get_measurement_specs())
-        else:
-            temp_circ = create_from_config(results["circuit_config"])
-            num_meas_modes = len(temp_circ.get_measurement_specs())
         outcomes_list = _normalize_outcomes(outcomes, num_meas_modes)
 
     target_kets = [t.get_target_ket(cutoff_dim) for t in targets]
