@@ -7,6 +7,7 @@ from scipy.optimize import basinhopping
 import numpy as np
 import strawberryfields as sf
 
+from heraldo.analyze.plotter import _normalize_outcomes
 from heraldo.components.interfaces import StaticCircuit
 from heraldo.components.objectives import beam_search_loss_fn, fixed_pattern_capped_loss_fn
 from heraldo.components.targets import TargetGenerator
@@ -21,8 +22,7 @@ def _process_fixed_patterns(circuit: StaticCircuit, full_ket: np.ndarray,
         circuit (StaticCircuit): Static spatial circuit instance.
         full_ket (np.ndarray): Multi-mode joint state vector in Fock basis.
         cutoff_dim (int): Fock space truncation cutoff dimension.
-        measurement_patterns: Array or list of measurement outcome patterns of shape
-            ``(n_sequences, n_meas_modes)`` or ``(n_meas_modes,)``.
+        measurement_patterns: Measurement outcome pattern(s) specified as int, tuple, list, or array.
 
     Returns:
         tuple or None: Tuple containing ``(kets, probs, outcome_sums, outcomes)``
@@ -32,21 +32,11 @@ def _process_fixed_patterns(circuit: StaticCircuit, full_ket: np.ndarray,
     meas_modes = [m for m, c in meas_specs]
     meas_cutoffs = [min(c, cutoff_dim) for m, c in meas_specs]
 
-    patterns_arr = np.asarray(measurement_patterns, dtype=int)
-    if patterns_arr.ndim == 3 and patterns_arr.shape[1] == 1:
-        patterns_arr = patterns_arr.squeeze(axis=1)
-    if patterns_arr.ndim == 1:
-        patterns_arr = patterns_arr[None, :]
+    patterns_list = _normalize_outcomes(measurement_patterns, len(meas_modes))
+    if not patterns_list:
+        return None
 
-    if patterns_arr.ndim != 2:
-        raise ValueError(
-            f"measurement_patterns must be 1D or 2D array; got ndim={patterns_arr.ndim}"
-        )
-
-    if patterns_arr.shape[1] != len(meas_modes):
-        raise ValueError(
-            f"Patterns mismatch: patterns have {patterns_arr.shape[1]} measured modes, circuit expects {len(meas_modes)}"
-        )
+    patterns_arr = np.array(patterns_list, dtype=int)
 
     perm = [0] + meas_modes
     transposed = np.transpose(full_ket, axes=perm)
