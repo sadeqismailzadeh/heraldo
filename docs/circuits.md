@@ -2,7 +2,7 @@
 
 This guide covers how to instantiate, use, and extend static continuous‑variable (CV) photonic circuits in `heraldo`. Circuits define the optical parameters – squeezing, displacement, beam‑splitter networks, and loss channels – that are optimized to herald non‑Gaussian states.
 
-{{modify: mention they are GBS-like devices.}}
+These circuits are Gaussian Boson Sampling (GBS)‑like devices: Gaussian operations (squeezing, displacement, and passive linear optics) are applied to input modes, and non‑Gaussianity is induced by photon‑number‑resolving measurements on ancillary modes.
 
 All static circuits inherit from the abstract base class `StaticCircuit` (defined in `heraldo.components.interfaces`). They operate on a fixed number of spatial modes, where **Mode 0** is the unmeasured output (heralded) mode and modes `1..N-1` are measured with photon‑number‑resolving detectors (PNRDs).
 
