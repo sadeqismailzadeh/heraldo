@@ -29,7 +29,7 @@ def main():
         cutoff_dim=30,
         # measurement_patterns=[[4], [5]],
         # loss_fn=fixed_pattern_capped_loss_fn,
-        penalty_strength=0
+        penalty_strength=0.1
     )
 
     result = runner.run(n_iter=5)
