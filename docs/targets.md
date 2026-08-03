@@ -7,10 +7,10 @@ Target generators produce quantum state vectors (kets) in the Fock basis. They a
 
 | Class | Description | Key Parameters |
 |-------|-------------|----------------|
-| `CatTarget` | Unsqueezed Schrödinger cat state | `alpha` (amplitude), `p` (parity) |
+| `CatTarget` |  Schrödinger cat state | `alpha` (amplitude), `p` (parity) |
 | `SqueezedCatTarget` | Squeezed Schrödinger cat state | `alpha`, `r` (squeezing), `p` |
 | `CubicPhaseTarget` | Displaced cubic phase state | `gamma`, `r`, `alpha` |
-| `CubicResourceTarget` | Finite superposition for cubic resource | `a` (scaling) |
+| `CubicResourceTarget` | Week cubic phase resource | `a` (scaling) |
 | `CoreGKPTarget` | Approximate GKP core state (stellar representation) | `csv_path`, `n_max`, `delta_db`, `mu`, `apply_squeezing` |
 | `BinomialCodeTarget` | Binomial code logical codeword | `N` (order), `S` (spacing), `mu` (logical) |
 

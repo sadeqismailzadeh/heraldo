@@ -95,9 +95,8 @@ loaded = load_results("results.pkl", reconstruct=True)
 ## Supported Object Types
 
 The factory can reconstruct:
-- Any class that inherits from `StaticCircuit`, `TargetGenerator`, or `ObjectiveFunction`
 - Pre‑built classes from `heraldo.components.circuits`, `heraldo.components.targets`, and `heraldo.components.objectives`
-- Custom classes as long as they follow the rules above
+- Custom classes that inherits from `StaticCircuit`, `TargetGenerator`, or `ObjectiveFunction` as long as they follow the rules above
 
 ## Troubleshooting
 
