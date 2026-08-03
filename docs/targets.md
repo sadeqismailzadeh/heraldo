@@ -74,7 +74,7 @@ target = CubicResourceTarget(a=0.61)
 
 Approximate Gottesman–Kitaev–Preskill (GKP) core state using the stellar representation. Coefficients are read from a CSV file (see section on CSV path below).
 
-- `csv_path` (str): path to the {{modify: tzitrin et al}} coefficient file (required)
+- `csv_path` (str): path to the Tzitrin *et al.* (2020) coefficient file (required)
 - `n_max` (int): maximum stellar rank / cutoff (e.g., 2, 4, 6, 8, 10, 12), default 4
 - `delta_db` (float): envelope parameter Δ in dB, default 10.0
 - `mu` (int): logical state (0 or 1), default 0
@@ -93,7 +93,7 @@ The CSV contains columns:
 - `c0_0`, `c0_2`, `c0_4`, ... (coefficients for μ=0, even Fock states)
 - `c1_0`, `c1_2`, ... (coefficients for μ=1)
 
-This file is provided in the repository at `data/GKP_core_coefficients.csv`. {{modify: this is taken from  tzitrin et al repository https://github.com/XanaduAI/approximate-GKP-prep}}
+This file is provided in the repository at `data/GKP_core_coefficients.csv`, sourced from the official Xanadu repository for approximate GKP state preparation ([XanaduAI/approximate-GKP-prep](https://github.com/XanaduAI/approximate-GKP-prep)).
 
 ### `BinomialCodeTarget`
 
@@ -158,7 +158,7 @@ class MyCustomTarget(TargetGenerator):
         return ket
 ```
 
-{{modify: create a new file named serilaization reconstructin guide or something like that. then put this guide there. then refere to that file in here}}
+{{apply: create a new file named serilaization reconstructin guide or something like that. then put this guide there. then refere to that file in here}}
 ## Saving and Loading Custom Targets
 
 To ensure your custom target can be serialized and reconstructed by `heraldo.factory` (for `save_results` / `load_results` with `reconstruct=True`), follow these rules:

@@ -173,7 +173,7 @@ class CoreGKPTarget(TargetGenerator):
     """Generates approximate Gottesman-Kitaev-Preskill (GKP) core target states.
 
     Uses the stellar representation (core state + squeezing) derived from tabulated
-    coefficients in a CSV file.
+    coefficients in a CSV file (Tzitrin et al., 2020).
 
     Args:
         csv_path (str, optional): Path to the CSV file containing GKP coefficients.
