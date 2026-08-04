@@ -12,7 +12,6 @@ class ObjectiveFunction(abc.ABC):
     measurement outcomes, probabilities, and state fidelities.
     """
 
-    @abc.abstractmethod
     def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float | np.ndarray:
         """Evaluates the objective loss metric given outcome probabilities and fidelities.
 
@@ -22,6 +21,21 @@ class ObjectiveFunction(abc.ABC):
 
         Returns:
             float or np.ndarray: Calculated objective value(s).
+        """
+        probs_ext = probs[:, None] if fidelities.ndim == 2 else probs
+        res = self._compute(probs_ext, fidelities)
+        return float(res) if fidelities.ndim == 1 else res
+
+    @abc.abstractmethod
+    def _compute(self, probs: np.ndarray, fidelities: np.ndarray) -> float | np.ndarray:
+        """Internal computation method implemented by subclasses.
+
+        Args:
+            probs (np.ndarray): Array of probabilities (reshaped to 2D column vector if fidelities is 2D).
+            fidelities (np.ndarray): Array of state fidelities (1D or 2D).
+
+        Returns:
+            float or np.ndarray: Calculated objective score(s).
         """
         pass
 
