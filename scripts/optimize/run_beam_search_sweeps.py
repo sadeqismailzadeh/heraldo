@@ -477,9 +477,9 @@ def main() -> None:
                     target_names.append("UnknownTarget")
 
             branches.sort(key=lambda x: x['prob'], reverse=True)
-            expected_fidelity = sum(b['prob'] * b['fidelity'] for b in branches)
+            objective_score = sum(b['prob'] * b['fidelity'] for b in branches)
 
-            res['expected_fidelity'] = expected_fidelity
+            res['objective_score'] = objective_score
             res['success_prob'] = total_agg_prob
             res['run_index'] = 1
 
@@ -488,7 +488,7 @@ def main() -> None:
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "prob_power": 1.0,
                 "beam_width": BEAM_WIDTH,
-                "expected_fidelity": float(expected_fidelity),
+                "objective_score": float(objective_score),
                 "success_prob": float(total_agg_prob),
                 "circuit_config": job['circuit_config'],
                 "target_configs": job['target_configs'],
@@ -502,7 +502,7 @@ def main() -> None:
 
             summary = {
                 "run_index": 1,
-                "expected_fidelity": float(expected_fidelity),
+                "objective_score": float(objective_score),
                 "success_prob": float(total_agg_prob),
                 "total_probability": float(res.get("total_probability", 0.0))
             }

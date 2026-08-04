@@ -300,7 +300,7 @@ def _compute_fidelities_and_loss(active_kets: np.ndarray, active_probs: np.ndarr
     Returns:
         tuple: A tuple containing:
             - **loss** (*float*): Combined objective loss value including truncation error penalty.
-            - **expected_fidelity** (*float*): Objective score calculated by `loss_fn`.
+            - **objective_score** (*float*): Objective score calculated by `loss_fn`.
             - **fidelities** (*np.ndarray*): Maximum fidelity per active trajectory.
             - **best_target_indices** (*np.ndarray*): Best-matching target index per active trajectory.
             - **mask_nonzero** (*np.ndarray*): Boolean mask indicating active branches with non-zero photon counts.
@@ -310,7 +310,7 @@ def _compute_fidelities_and_loss(active_kets: np.ndarray, active_probs: np.ndarr
 
     mask_nonzero = active_outcome_sums > 0
 
-    expected_fidelity = 0.0
+    objective_score = 0.0
     fidelities = np.array([])
     best_target_indices = np.array([])
 
@@ -328,11 +328,11 @@ def _compute_fidelities_and_loss(active_kets: np.ndarray, active_probs: np.ndarr
         fidelities = np.max(pairwise_fidelities, axis=1)
         best_target_indices = np.argmax(pairwise_fidelities, axis=1)
 
-        expected_fidelity = loss_fn(final_probs, fidelities)
+        objective_score = loss_fn(final_probs, fidelities)
 
-    loss = -1 * expected_fidelity + (penalty_strength * total_truncation_error)
+    loss = -1 * objective_score + (penalty_strength * total_truncation_error)
 
-    return loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero
+    return loss, objective_score, fidelities, best_target_indices, mask_nonzero
 
 
 def _format_branch_details(mask_nonzero: np.ndarray, active_probs: np.ndarray,
@@ -403,7 +403,7 @@ def evaluate_time_domain_circuit(flat_params: np.ndarray, circuit: TimeMultiplex
 
     Returns:
         float or dict: Objective loss float if `return_details` is False, or dictionary of evaluation results
-        containing keys ``"loss"``, ``"expected_fidelity"``, ``"branches"``, and ``"total_probability"``.
+        containing keys ``"loss"``, ``"objective_score"``, ``"branches"``, and ``"total_probability"``.
     """
     n_init = circuit.num_initial_parameters
     init_params = flat_params[:n_init]
@@ -436,7 +436,7 @@ def evaluate_time_domain_circuit(flat_params: np.ndarray, circuit: TimeMultiplex
     if loss_fn is None:
         loss_fn = fixed_pattern_capped_loss_fn if use_fixed_patterns else beam_search_loss_fn
 
-    loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero = _compute_fidelities_and_loss(
+    loss, objective_score, fidelities, best_target_indices, mask_nonzero = _compute_fidelities_and_loss(
         active_kets, active_probs, active_outcome_sums, target_kets, total_truncation_error, penalty_strength,
         loss_fn=loss_fn
     )
@@ -454,7 +454,7 @@ def evaluate_time_domain_circuit(flat_params: np.ndarray, circuit: TimeMultiplex
 
     return {
         "loss": loss,
-        "expected_fidelity": float(expected_fidelity),
+        "objective_score": float(objective_score),
         "branches": branch_details,
         "total_probability": float(np.sum(active_probs[mask_nonzero])) if np.any(mask_nonzero) else 0.0
     }
@@ -622,7 +622,7 @@ class BasinHoppingRunner:
             return {
                 "x": result.x,
                 "loss": final_eval["loss"],
-                "expected_fidelity": final_eval.get("expected_fidelity", 0.0),
+                "objective_score": final_eval.get("objective_score", 0.0),
                 "branches": final_eval.get("branches", []),
                 "total_probability": final_eval.get("total_probability", 0.0),
                 "duration": 0.0, # Calculated in parent
@@ -648,7 +648,7 @@ class BasinHoppingRunner:
 
         Returns:
             dict: Dictionary containing optimal parameters ``"x"``, minimum ``"loss"``,
-            ``"expected_fidelity"``, branch metadata ``"branches"``, total duration ``"duration"``,
+            ``"objective_score"``, branch metadata ``"branches"``, total duration ``"duration"``,
             and parallel run results.
 
         Raises:
@@ -715,7 +715,7 @@ class BasinHoppingRunner:
             final_output = {
                 "x": best_res["x"],
                 "loss": best_res["loss"],
-                "expected_fidelity": best_res.get("expected_fidelity", 0.0),
+                "objective_score": best_res.get("objective_score", 0.0),
                 "branches": best_res.get("branches", []),
                 "total_probability": best_res.get("total_probability", 0.0),
                 "duration": total_duration,

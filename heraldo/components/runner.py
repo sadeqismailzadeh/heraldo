@@ -136,7 +136,7 @@ def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
         phase_lock (bool, optional): If True, enforces a common phase-space rotation across all accepted measurement branches. Defaults to False.
 
     Returns:
-        tuple: A tuple containing ``(loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero)``.
+        tuple: A tuple containing ``(loss, objective_score, fidelities, best_target_indices, mask_nonzero)``.
     """
     if loss_fn is None:
         loss_fn = BeamSearchLoss()
@@ -145,7 +145,7 @@ def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
 
     mask_nonzero = outcome_sums > 0
 
-    expected_fidelity = 0.0
+    objective_score = 0.0
     fidelities = np.array([])
     best_target_indices = np.array([])
 
@@ -169,7 +169,7 @@ def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
             # Determine the index of the phase angle that maximizes the total objective score across all branches
             best_k = np.argmax(scores)  # scalar
             # Store the highest objective score evaluated at the optimal locked global phase angle
-            expected_fidelity = float(scores[best_k])  # scalar
+            objective_score = float(scores[best_k])  # scalar
             # Extract per-branch fidelities associated with the optimal locked phase angle
             fidelities = fidelities_all_k[:, best_k]  # shape: (num_branches,)
             # Extract best-matching target state indices per branch associated with the optimal locked phase angle
@@ -182,11 +182,11 @@ def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
             # Identify the index of the target state giving the maximum fidelity per branch
             best_target_indices = np.argmax(pairwise_fidelities, axis=1)  # shape: (num_branches,)
             # Calculate objective loss using branch probabilities and maximum fidelities
-            expected_fidelity = loss_fn(final_probs, fidelities)  # scalar
+            objective_score = loss_fn(final_probs, fidelities)  # scalar
 
-    loss = -1 * expected_fidelity + (penalty_strength * truncation_error)
+    loss = -1 * objective_score + (penalty_strength * truncation_error)
 
-    return loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero
+    return loss, objective_score, fidelities, best_target_indices, mask_nonzero
 
 
 def _format_branch_details(mask_nonzero: np.ndarray, probs: np.ndarray,
@@ -277,7 +277,7 @@ def evaluate_circuit(params: np.ndarray,
     elif isinstance(loss_fn, type) and issubclass(loss_fn, ObjectiveFunction):
         loss_fn = loss_fn()
 
-    loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero = _compute_fidelities_and_loss(
+    loss, objective_score, fidelities, best_target_indices, mask_nonzero = _compute_fidelities_and_loss(
         kets, probs, outcome_sums, target_kets, truncation_error, penalty_strength, loss_fn=loss_fn, phase_lock=phase_lock
     )
 
@@ -290,7 +290,7 @@ def evaluate_circuit(params: np.ndarray,
 
     return {
         "loss": loss,
-        "expected_fidelity": float(expected_fidelity),
+        "objective_score": float(objective_score),
         "branches": branch_details,
         "total_probability": float(np.sum(probs[mask_nonzero])) if np.any(mask_nonzero) else 0.0
     }
@@ -372,7 +372,7 @@ def _single_basinhopping_run(seed: int | None, circuit: StaticCircuit,
         return {
             "x": result.x,
             "loss": final_eval["loss"],
-            "expected_fidelity": final_eval.get("expected_fidelity", 0.0),
+            "objective_score": final_eval.get("objective_score", 0.0),
             "branches": final_eval.get("branches", []),
             "total_probability": final_eval.get("total_probability", 0.0),
             "message": result.message,
@@ -522,7 +522,7 @@ class BasinHoppingRunner:
         return {
             "x": best_res["x"],
             "loss": best_res["loss"],
-            "expected_fidelity": best_res.get("expected_fidelity", 0.0),
+            "objective_score": best_res.get("objective_score", 0.0),
             "branches": best_res.get("branches", []),
             "total_probability": best_res.get("total_probability", 0.0),
             "duration": total_duration,

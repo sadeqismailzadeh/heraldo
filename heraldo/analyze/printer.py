@@ -36,7 +36,7 @@ def print_results(
     # General Summary
     message = results.get("message", "Completed")
     loss = results.get("loss")
-    exp_fid = results.get("expected_fidelity")
+    obj_score = results.get("objective_score")
     tot_prob = results.get("total_probability")
     duration = results.get("duration")
     best_run_idx = results.get("best_run_idx")
@@ -60,8 +60,8 @@ def print_results(
 
     if loss is not None:
         print(f"  Best Loss Score       : {loss:.{precision}f}")
-    if exp_fid is not None:
-        print(f"  Expected Fidelity     : {exp_fid:.{precision}f}")
+    if obj_score is not None:
+        print(f"  Objective Score       : {obj_score:.{precision}f}")
     if tot_prob is not None:
         print(f"  Total Probability     : {tot_prob:.2%} ({tot_prob:.{precision}f})")
 

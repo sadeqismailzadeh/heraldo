@@ -127,7 +127,7 @@ def evaluate_static_circuit_dm(params, circuit: StaticCircuit, target_kets, cuto
         loss_fn: Loss function to aggregate fidelity across branches.
 
     Returns:
-        dict: Results containing 'branches', 'expected_fidelity', and 'total_probability'.
+        dict: Results containing 'branches', 'objective_score', and 'total_probability'.
     """
     meas_specs = [(m, min(c, cutoff_dim)) for m, c in circuit.get_measurement_specs()]
     meas_modes = [m for m, c in meas_specs]
@@ -200,13 +200,13 @@ def evaluate_static_circuit_dm(params, circuit: StaticCircuit, target_kets, cuto
 
         probs_arr = np.array([b['prob'] for b in results])
         fids_arr = np.array([b['fidelity'] for b in results])
-        expected_fidelity = loss_fn(probs_arr, fids_arr)
+        objective_score = loss_fn(probs_arr, fids_arr)
     else:
-        expected_fidelity = 0.0
+        objective_score = 0.0
 
     return {
         "branches": results,
-        "expected_fidelity": expected_fidelity,
+        "objective_score": objective_score,
         "total_probability": total_captured_prob
     }
 
