@@ -38,8 +38,11 @@ The following classes are ready to use and located in `heraldo.components.circui
 
 ---
 
-### Three-Mode General Circuit Architecture
-<figure> <img src="_static/three_mode_circuit.svg" alt="Three-mode general circuit architecture" style="width:100%; max-width:800px;"> <figcaption>Three‑mode general circuit architecture with squeezing (<strong>S</strong>), displacement (<strong>D</strong>), beam splitters (<strong>BS</strong>), and photon‑number‑resolving detectors (<strong>PNRD</strong>).</figcaption> </figure>
+### Example circuit diagram
+
+Below is an schematic representing the three-mode general circuit architecture (`ThreeModeStaticGeneral`).
+
+<figure> <img src="_static/three_mode_circuit.svg" alt="Three-mode general circuit architecture" style="width:100%;"> <figcaption>Three‑mode general circuit architecture with squeezing (<strong>S</strong>), displacement (<strong>D</strong>), beam splitters (<strong>BS</strong>), and photon‑number‑resolving detectors (<strong>PNRD</strong>).</figcaption> </figure>
 
 ## Instantiating a Circuit
 
