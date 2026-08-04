@@ -18,7 +18,10 @@ circuits_comparison
 sf_patches
 targets
 circuits
+objectives
+patterns
 serialization
+
 ```
 
 ```{toctree}
