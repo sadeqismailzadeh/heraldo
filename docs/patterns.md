@@ -22,16 +22,18 @@ The underlying normalisation is handled by `heraldo._internal._normalize_outcome
 
 `measurement_patterns` (and `outcomes`) can be:
 
+{{apply: the "or" in esulting tuples makes it unclear to what result is for 2d or }}
+
 | Format                         | Example (2‑mode)                | Example (3‑mode)                  | Resulting tuples         |
 |--------------------------------|--------------------------------|----------------------------------|---------------------------|
 | **`None`**                     | `None`                         | `None`                           | Beam search (no fixed)    |
 | **Single integer**             | `4`                            | ❌ Not allowed (would fail)      | `[(4,)]`                  |
-| **Tuple of integers**          | `(4,)`                         | `(2, 4)`                         | `[(4,)]` or `[(2, 4)]`    |
+| **Tuple of integers**          | `(4,)`                         | `(2, 4)`                         | `[(4,)]` (2-mode) or `[(2, 4)]` (3-mode) |
 | **List of integers**           | `[4, 5, 6]`                    | ❌ Not allowed (would fail)      | `[(4,), (5,), (6,)]`      |
-| **List of lists**              | `[[4], [5]]`                   | `[[2, 4], [4, 2]]`               | `[(4,), (5,)]` or `[(2, 4), (4, 2)]` |
-| **List of tuples**             | `[(4,), (5,)]`                 | `[(2, 4), (4, 2)]`               | `[(4,), (5,)]` or `[(2, 4), (4, 2)]` |
-| **Numpy array** (any shape)    | `np.array([4, 5])`             | `np.array([[2,4], [4,2]])`       | `[(4,), (5,)]` or `[(2, 4), (4, 2)]` |
-| **Empty list**                 | `[]`                           | `[]`                             | No patterns |
+| **List of lists**              | `[[4], [5]]`                   | `[[2, 4], [4, 2]]`               | `[(4,), (5,)]` (2-mode) or `[(2, 4), (4, 2)]` (3-mode) |
+| **List of tuples**             | `[(4,), (5,)]`                 | `[(2, 4), (4, 2)]`               | `[(4,), (5,)]` (2-mode) or `[(2, 4), (4, 2)]` (3-mode) |
+| **Numpy array** (any shape)    | `np.array([4, 5])`             | `np.array([[2,4], [4,2]])`       | `[(4,), (5,)]` (2-mode) or `[(2, 4), (4, 2)]` (3-mode) |
+| **Empty list**                 | `[]`                           | `[]`                             | `[]` (No patterns)        |
 
 > **Important**: For 2‑mode circuits, any format that yields a flat list of integers is expanded to a list of length‑1 tuples.  
 > For 3‑mode circuits, you **must** provide tuples or lists of length 2; passing a flat list of integers will raise a `ValueError`.
