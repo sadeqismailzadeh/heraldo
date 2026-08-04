@@ -390,13 +390,16 @@ class BasinHoppingRunner:
         circuit (StaticCircuit): Static spatial circuit model to optimize.
         target_gens (TargetGenerator or list[TargetGenerator]): Target quantum state generators.
         cutoff_dim (int): Fock space cutoff dimension for state vector truncation.
-        beam_width (int, optional): Maximum trajectories retained per evaluation. Defaults to 5.
-        penalty_strength (float, optional): Multiplier for truncation error penalty. Defaults to 10.0.
+        beam_width (int, optional): Maximum trajectories retained per evaluation. Defaults to 20.
+        penalty_strength (float, optional): Multiplier for truncation error penalty. Defaults to 0.1.
         measurement_patterns (optional): Fixed measurement sequences. Defaults to None.
         num_parallel_runs (int, optional): Number of parallel Basin-Hopping optimization runs. Defaults to 4.
         num_processes (int, optional): Number of worker processes for parallel execution. Defaults to 4.
+        method (str, optional): Local minimizer algorithm. Defaults to "L-BFGS-B".
+        base_seed (int, optional): Base random seed for reproducible runs. Defaults to None.
         loss_fn (callable, optional): Custom objective loss evaluation function.
         callback (callable, optional): Custom callback function `callback(x, f, accept)` invoked at each iteration.
+        phase_lock (bool, optional): If True, enforces a common phase-space rotation across all branches. Defaults to False.
     """
 
     def __init__(self,
@@ -404,10 +407,12 @@ class BasinHoppingRunner:
                  target_gens: list[TargetGenerator] | TargetGenerator,
                  cutoff_dim: int,
                  beam_width: int = 20,
-                 penalty_strength: float = 10.0,
+                 penalty_strength: float = 0.1,
                  measurement_patterns=None,
                  num_parallel_runs: int = 4,
                  num_processes: int = 4,
+                 method: str = "L-BFGS-B",
+                 base_seed: int | None = None,
                  loss_fn=None,
                  callback=None,
                  phase_lock: bool = False):
@@ -422,31 +427,29 @@ class BasinHoppingRunner:
         self.measurement_patterns = measurement_patterns
         self.num_parallel_runs = num_parallel_runs
         self.num_processes = num_processes
+        self.method = method
+        self.base_seed = base_seed
         self.loss_fn = loss_fn
         self.callback = callback
         self.phase_lock = phase_lock
 
-    def run(self, n_iter: int = 20, method: str = "L-BFGS-B",
-            num_parallel_runs: int | None = None, base_seed: int | None = None,
-            callback=None) -> dict:
+    def run(self, n_iter: int = 20) -> dict:
         """Executes global static circuit optimization using Basin-Hopping.
 
         Args:
             n_iter (int, optional): Number of Basin-Hopping iterations per run. Defaults to 20.
-            method (str, optional): Local minimizer algorithm. Defaults to "L-BFGS-B".
-            num_parallel_runs (int, optional): Override for number of parallel optimization runs.
-            base_seed (int, optional): Base random seed for reproducible runs.
-            callback (callable, optional): Callback function `callback(x, f, accept)` executed after each basin step.
 
         Returns:
             dict: Optimization results containing best parameter vector, loss, fidelities, and branches.
         """
-        cb = callback if callback is not None else self.callback
-        n_parallel = num_parallel_runs if num_parallel_runs is not None else self.num_parallel_runs
+        cb = self.callback
+        n_parallel = self.num_parallel_runs
+        method = self.method
         bounds = self.circuit.parameter_bounds
 
         start_time = time.time()
 
+        base_seed = self.base_seed
         if base_seed is None:
             base_seed = np.random.randint(0, 2**31 - 1)
         seeds = [base_seed + i for i in range(n_parallel)]
