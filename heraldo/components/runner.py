@@ -160,18 +160,29 @@ def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
         all_fidelities = np.abs(fft_vals)**2
 
         if phase_lock:
-            fidelities_all_k = np.max(all_fidelities, axis=1)
-            best_targets_all_k = np.argmax(all_fidelities, axis=1)
-            scores = loss_fn(final_probs, fidelities_all_k)
-            best_k = np.argmax(scores)
-            expected_fidelity = float(scores[best_k])
-            fidelities = fidelities_all_k[:, best_k]
-            best_target_indices = best_targets_all_k[:, best_k]
+            # Find the maximum fidelity over candidate target states for each branch and discretized phase angle
+            fidelities_all_k = np.max(all_fidelities, axis=1)  # shape: (num_branches, num_phase_angles)
+            # Identify target state indices giving maximum fidelity for each branch and phase angle
+            best_targets_all_k = np.argmax(all_fidelities, axis=1)  # shape: (num_branches, num_phase_angles)
+            # Compute objective loss function scores across branches for each discretized phase angle candidate
+            scores = loss_fn(final_probs, fidelities_all_k)  # shape: (num_phase_angles,)
+            # Determine the index of the phase angle that maximizes the total objective score across all branches
+            best_k = np.argmax(scores)  # scalar
+            # Store the highest objective score evaluated at the optimal locked global phase angle
+            expected_fidelity = float(scores[best_k])  # scalar
+            # Extract per-branch fidelities associated with the optimal locked phase angle
+            fidelities = fidelities_all_k[:, best_k]  # shape: (num_branches,)
+            # Extract best-matching target state indices per branch associated with the optimal locked phase angle
+            best_target_indices = best_targets_all_k[:, best_k]  # shape: (num_branches,)
         else:
-            pairwise_fidelities = np.max(all_fidelities, axis=-1)
-            fidelities = np.max(pairwise_fidelities, axis=1)
-            best_target_indices = np.argmax(pairwise_fidelities, axis=1)
-            expected_fidelity = loss_fn(final_probs, fidelities)
+            # Compute maximum fidelity over discretized phase angles for each branch and target pair
+            pairwise_fidelities = np.max(all_fidelities, axis=-1)  # shape: (num_branches, num_targets)
+            # Find the highest fidelity achievable across candidate target states for each branch
+            fidelities = np.max(pairwise_fidelities, axis=1)  # shape: (num_branches,)
+            # Identify the index of the target state giving the maximum fidelity per branch
+            best_target_indices = np.argmax(pairwise_fidelities, axis=1)  # shape: (num_branches,)
+            # Calculate objective loss using branch probabilities and maximum fidelities
+            expected_fidelity = loss_fn(final_probs, fidelities)  # scalar
 
     loss = -1 * expected_fidelity + (penalty_strength * truncation_error)
 
