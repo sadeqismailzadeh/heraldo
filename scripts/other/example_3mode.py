@@ -41,7 +41,8 @@ def main():
         cutoff_dim=30,
         measurement_patterns=patterns,
         loss_fn=fixed_pattern_free_loss_fn,
-        penalty_strength=0.1
+        penalty_strength=0.1,
+        phase_lock=True,
     )
 
     # 5. Run the optimization
