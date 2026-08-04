@@ -122,7 +122,7 @@ def _process_beam_search(circuit: StaticCircuit, full_ket: np.ndarray,
 def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
                                  outcome_sums: np.ndarray, target_kets: list[np.ndarray],
                                  truncation_error: float, penalty_strength: float,
-                                 loss_fn=None):
+                                 loss_fn=None, phase_lock: bool = False):
     """Computes target state fidelities and loss metric for projected output states.
 
     Args:
@@ -133,6 +133,7 @@ def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
         truncation_error (float): Fock state truncation error.
         penalty_strength (float): Penalty coefficient for truncation errors.
         loss_fn (callable, optional): Objective loss evaluation function.
+        phase_lock (bool, optional): If True, enforces a common phase-space rotation across all accepted measurement branches. Defaults to False.
 
     Returns:
         tuple: A tuple containing ``(loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero)``.
@@ -156,13 +157,21 @@ def _compute_fidelities_and_loss(kets: np.ndarray, probs: np.ndarray,
         prod = np.conj(final_kets[:, None, :]) * targets_arr[None, :, :]
 
         fft_vals = np.fft.fft(prod, n=256, axis=-1)
+        all_fidelities = np.abs(fft_vals)**2
 
-        pairwise_fidelities = np.max(np.abs(fft_vals)**2, axis=-1)
-
-        fidelities = np.max(pairwise_fidelities, axis=1)
-        best_target_indices = np.argmax(pairwise_fidelities, axis=1)
-
-        expected_fidelity = loss_fn(final_probs, fidelities)
+        if phase_lock:
+            fidelities_all_k = np.max(all_fidelities, axis=1)
+            best_targets_all_k = np.argmax(all_fidelities, axis=1)
+            scores = loss_fn(final_probs, fidelities_all_k)
+            best_k = np.argmax(scores)
+            expected_fidelity = float(scores[best_k])
+            fidelities = fidelities_all_k[:, best_k]
+            best_target_indices = best_targets_all_k[:, best_k]
+        else:
+            pairwise_fidelities = np.max(all_fidelities, axis=-1)
+            fidelities = np.max(pairwise_fidelities, axis=1)
+            best_target_indices = np.argmax(pairwise_fidelities, axis=1)
+            expected_fidelity = loss_fn(final_probs, fidelities)
 
     loss = -1 * expected_fidelity + (penalty_strength * truncation_error)
 
@@ -211,7 +220,8 @@ def evaluate_circuit(params: np.ndarray,
                      penalty_strength: float = 0.001,
                      measurement_patterns=None,
                      return_details: bool = False,
-                     loss_fn=None):
+                     loss_fn=None,
+                     phase_lock: bool = False):
     """Evaluates a static spatial photonic circuit against target state generators.
 
     Executes a single static circuit run and evaluates Mode 0 output state under
@@ -257,7 +267,7 @@ def evaluate_circuit(params: np.ndarray,
         loss_fn = loss_fn()
 
     loss, expected_fidelity, fidelities, best_target_indices, mask_nonzero = _compute_fidelities_and_loss(
-        kets, probs, outcome_sums, target_kets, truncation_error, penalty_strength, loss_fn=loss_fn
+        kets, probs, outcome_sums, target_kets, truncation_error, penalty_strength, loss_fn=loss_fn, phase_lock=phase_lock
     )
 
     if not return_details:
@@ -280,7 +290,8 @@ def _single_basinhopping_run(seed: int | None, circuit: StaticCircuit,
                              beam_width: int, penalty_strength: float,
                              measurement_patterns, loss_fn, n_iter: int,
                              method: str, bounds: list[tuple[float, float]],
-                             callback=None, run_idx: int = 0, total_runs: int = 1) -> dict:
+                             callback=None, run_idx: int = 0, total_runs: int = 1,
+                             phase_lock: bool = False) -> dict:
     if seed is not None:
         np.random.seed(seed)
 
@@ -300,6 +311,7 @@ def _single_basinhopping_run(seed: int | None, circuit: StaticCircuit,
             penalty_strength=penalty_strength,
             measurement_patterns=measurement_patterns,
             loss_fn=loss_fn,
+            phase_lock=phase_lock,
         )
 
     if method == 'Nelder-Mead':
@@ -343,6 +355,7 @@ def _single_basinhopping_run(seed: int | None, circuit: StaticCircuit,
             measurement_patterns=measurement_patterns,
             return_details=True,
             loss_fn=loss_fn,
+            phase_lock=phase_lock,
         )
 
         return {
@@ -385,7 +398,8 @@ class BasinHoppingRunner:
                  num_parallel_runs: int = 4,
                  num_processes: int = 4,
                  loss_fn=None,
-                 callback=None):
+                 callback=None,
+                 phase_lock: bool = False):
         self.circuit = circuit
         if not isinstance(target_gens, list):
             target_gens = [target_gens]
@@ -399,6 +413,7 @@ class BasinHoppingRunner:
         self.num_processes = num_processes
         self.loss_fn = loss_fn
         self.callback = callback
+        self.phase_lock = phase_lock
 
     def run(self, n_iter: int = 20, method: str = "L-BFGS-B",
             num_parallel_runs: int | None = None, base_seed: int | None = None,
@@ -452,6 +467,7 @@ class BasinHoppingRunner:
             "n_iter": n_iter,
             "method": method,
             "base_seed": base_seed,
+            "phase_lock": self.phase_lock,
         }
 
         if n_parallel <= 1:
@@ -460,7 +476,8 @@ class BasinHoppingRunner:
                 seeds[0], self.circuit, self.target_kets, self.cutoff_dim,
                 self.beam_width, self.penalty_strength, self.measurement_patterns,
                 self.loss_fn, n_iter, method, bounds,
-                callback=cb, run_idx=0, total_runs=1
+                callback=cb, run_idx=0, total_runs=1,
+                phase_lock=self.phase_lock
             )
             if not res.get("success", False):
                 raise RuntimeError(f"Basin-Hopping run failed: {res.get('error')}")
@@ -477,7 +494,7 @@ class BasinHoppingRunner:
             (seeds[i], self.circuit, self.target_kets, self.cutoff_dim,
              self.beam_width, self.penalty_strength, self.measurement_patterns,
              self.loss_fn, n_iter, method, bounds,
-             cb, i, n_parallel)
+             cb, i, n_parallel, self.phase_lock)
             for i in range(n_parallel)
         ]
 

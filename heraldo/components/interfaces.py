@@ -13,15 +13,15 @@ class ObjectiveFunction(abc.ABC):
     """
 
     @abc.abstractmethod
-    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float:
+    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float | np.ndarray:
         """Evaluates the objective loss metric given outcome probabilities and fidelities.
 
         Args:
             probs (np.ndarray): Array of probabilities :math:`p_k` for surviving output patterns.
-            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for surviving output patterns.
+            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for surviving output patterns (1D or 2D).
 
         Returns:
-            float: Calculated objective value.
+            float or np.ndarray: Calculated objective value(s).
         """
         pass
 

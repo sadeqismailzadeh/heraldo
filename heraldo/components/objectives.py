@@ -29,22 +29,24 @@ class BeamSearchLoss(ObjectiveFunction):
         self.delta = delta
         self.lam = lam
 
-    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float:
+    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float | np.ndarray:
         """Evaluates the beam search loss score.
 
         Args:
             probs (np.ndarray): Array of probabilities :math:`p_k` for surviving output patterns.
-            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for surviving output patterns.
+            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for surviving output patterns (1D or 2D).
 
         Returns:
-            float: Calculated beam search objective value.
+            float or np.ndarray: Calculated beam search objective value(s).
         """
+        probs_ext = probs[:, None] if fidelities.ndim == 2 else probs
         infidelities = np.maximum(1.0 - fidelities, self.epsilon)
         capped_fidelities = np.minimum(fidelities, 1.0 - self.epsilon)
 
         log_vals = np.log10(infidelities) / np.log10(self.epsilon)
-        score = np.sum(probs * (capped_fidelities**2 * log_vals)**4)
-        return float(np.log(score + self.delta) + self.lam * score)
+        score = np.sum(probs_ext * (capped_fidelities**2 * log_vals)**4, axis=0)
+        res = np.log(score + self.delta) + self.lam * score
+        return float(res) if fidelities.ndim == 1 else res
 
 
 class FixedPatternCappedLoss(ObjectiveFunction):
@@ -64,19 +66,21 @@ class FixedPatternCappedLoss(ObjectiveFunction):
         self.f_cap = f_cap
         self.alpha = alpha
 
-    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float:
+    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float | np.ndarray:
         """Evaluates the fixed-pattern capped loss score.
 
         Args:
             probs (np.ndarray): Array of probabilities :math:`p_k` for fixed outcome patterns.
-            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for fixed outcome patterns.
+            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for fixed outcome patterns (1D or 2D).
 
         Returns:
-            float: Calculated objective score.
+            float or np.ndarray: Calculated objective score(s).
         """
         alpha = float(len(probs)) if self.alpha is None else float(self.alpha)
+        probs_ext = probs[:, None] if fidelities.ndim == 2 else probs
         capped_fidelities = np.minimum(fidelities, self.f_cap)
-        return float(np.sum(alpha * probs + capped_fidelities))
+        res = np.sum(alpha * probs_ext + capped_fidelities, axis=0)
+        return float(res) if fidelities.ndim == 1 else res
 
 
 class FixedPatternFreeLoss(ObjectiveFunction):
@@ -94,18 +98,20 @@ class FixedPatternFreeLoss(ObjectiveFunction):
     def __init__(self, alpha: float | None = None):
         self.alpha = alpha
 
-    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float:
+    def __call__(self, probs: np.ndarray, fidelities: np.ndarray) -> float | np.ndarray:
         """Evaluates the fixed-pattern free loss score.
 
         Args:
             probs (np.ndarray): Array of probabilities :math:`p_k` for fixed outcome patterns.
-            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for fixed outcome patterns.
+            fidelities (np.ndarray): Array of state fidelities :math:`F_k` for fixed outcome patterns (1D or 2D).
 
         Returns:
-            float: Calculated objective score.
+            float or np.ndarray: Calculated objective score(s).
         """
         alpha = 0.1 * float(len(probs)) if self.alpha is None else float(self.alpha)
-        return float(np.sum(alpha * probs + fidelities))
+        probs_ext = probs[:, None] if fidelities.ndim == 2 else probs
+        res = np.sum(alpha * probs_ext + fidelities, axis=0)
+        return float(res) if fidelities.ndim == 1 else res
 
 
 # Pre-instantiated default instances for backwards compatibility and easy usage.
