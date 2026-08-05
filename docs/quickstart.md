@@ -2,43 +2,6 @@
 
 This guide walks through a complete optimization workflow with `heraldo`. By the end, you'll have optimized a photonic circuit to herald Schrödinger cat states and inspected the results.
 
-## Quickstart
-
-> **Note**: Optimization runs use Python's `multiprocessing` module to execute parallel basin-hopping searches. Because child processes import the main module on platforms using spawn (such as Windows and macOS), your execution code must be enclosed inside an `if __name__ == "__main__":` block.
-
-```python
-import numpy as np
-from heraldo.components.circuits import TwoModeStaticSqueezeOnly
-from heraldo.components.targets import SqueezedCatTarget
-from heraldo.components.runner import BasinHoppingRunner
-from heraldo.utils import db_to_r
-from heraldo.analyze import print_results
-
-
-def main():
-    # 1. A 2-mode static circuit with 12 dB of squeezing
-    circuit = TwoModeStaticSqueezeOnly(clip_size=db_to_r(12.0), measure_fock_cutoff=30)
-
-    # 2. Target states: even (|cat_+>) and odd (|cat_->) squeezed cat states
-    targets = [
-        SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0),
-        SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=1),
-    ]
-
-    # 3. Optimize the circuit
-    runner = BasinHoppingRunner(circuit=circuit, target_gens=targets, cutoff_dim=30)
-    result = runner.run(n_iter=5)
-
-    # 4. Inspect the results
-    print_results(result)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-`print_results` prints a formatted summary: best loss, expected fidelity, total success probability, and the individual measurement branches discovered.
-
 ## Step by Step
 
 ### 1. Choose a circuit
@@ -74,12 +37,16 @@ runner = BasinHoppingRunner(
     beam_width=20,       # top-K outcomes considered during beam search
     penalty_strength=0.1, # penalty for Fock-space truncation error
 )
-result = runner.run(n_iter=5, method="L-BFGS-B")
+result = runner.run(n_iter=5)
+
+print_results(result)
 ```
 
 Leaving `measurement_patterns=None` (the default) runs **beam search**, letting the optimizer discover promising heralding patterns on its own. Passing an explicit list of patterns (e.g. `measurement_patterns=[[4], [5]]`) instead runs **fixed-pattern optimization** against those outcomes.
 
-### 4. Save and reload results
+`print_results` prints a formatted summary: best loss, expected fidelity, total success probability, and the individual measurement branches discovered.
+
+### 4. Save and load results
 
 ```python
 from pathlib import Path
@@ -92,10 +59,8 @@ save_path = Path(__file__).parent / "example_results.pkl"
 save_results(result, filepath=save_path)
 
 # Reload results using the saved file path
-loaded_result = load_results(save_path, reconstruct=True)
+loaded_result = load_results(save_path)
 ```
-
-`reconstruct=True` rebuilds the `circuit` and `targets` objects from the saved configuration metadata, allowing you to perform post-hoc analysis.
 
 ### 5. Analyze rotation, loss sensitivity, and cutoff sensitivity
 
@@ -135,7 +100,20 @@ This produces a Wigner function and Fock-probability plot for each requested out
 
 Below is the complete runnable script combining circuit setup, optimization, result saving/loading, analysis, and visualization into a single pipeline:
 
+
+> **Required**: Optimization runs use Python's `multiprocessing` module to execute parallel basin-hopping searches. Because child processes import the main module on platforms using spawn (such as Windows and macOS), your execution code must be enclosed inside an `if __name__ == "__main__":` block.
+
+
+> **set thread limits before importing `heraldo`**: `heraldo` sets `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, and `NUMEXPR_NUM_THREADS` to `1` internally to stop NumPy/SciPy's BLAS backend from spawning one thread per CPU core. Combined with `BasinHoppingRunner`'s own process-level parallelism (`num_parallel_runs`), skipping this causes severe oversubscription — many processes each spawning many threads, all competing for the same cores — which slows optimization down rather than speeding it up. These variables only take effect if set *before* NumPy/SciPy are first imported, so if your own script imports `numpy`, `scipy`, or similar libraries before `import heraldo`, set the five `os.environ[...]` lines yourself at the very top of your script first. See [Internals: Thread Limits & Backend Patches](internals.md) for the full explanation.
+
 ```python
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 from pathlib import Path
 import numpy as np
 
@@ -166,10 +144,10 @@ def main():
         circuit=circuit,
         target_gens=targets,
         cutoff_dim=30,
-        penalty_strength=0
+        penalty_strength=0.1
     )
 
-    result = runner.run(n_iter=5)
+    result = runner.run(n_iter=20)
 
     # 5. Save results to pickle file in the example script directory
     save_path = Path(__file__).parent / "example_results.pkl"
@@ -208,8 +186,3 @@ if __name__ == "__main__":
     main()
 ```
 
-## Next Steps
-
-- See the [User Guide](user_guide.md) for a deeper dive into resource multiplexing vs. single-target harvesting.
-- See [Circuits Comparison](circuits_comparison.md) for guidance on choosing between circuit architectures.
-- See the [API Reference](api/index.md) for full parameter documentation.
