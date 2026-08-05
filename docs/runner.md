@@ -74,12 +74,26 @@ runner = BasinHoppingRunner(
 
 ---
 
-## ⚠️ Required: Call `run()` from `if __name__ == "__main__":`
+## Set thread limits
 
-ecause `BasinHoppingRunner.run()` uses Python's `multiprocessing` module to execute parallel basin-hopping searches, and platforms that use the `spawn` start method (Windows and macOS) re-import your main module in every child process, **your call to `runner.run(...)` must be guarded by `if __name__ == "__main__":`**. Calling `runner.run(...)` at top-level module scope will cause each worker process to re-execute your script recursively upon import, raising a `RuntimeError`.
+To prevent thread oversubscription during parallel optimization runs, ensure thread-limiting environment variables (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `NUMEXPR_NUM_THREADS`) are set to `1` at the very top of your entry-point script before importing `numpy`, `scipy`, or `heraldo`. For a detailed explanation of thread limits and backend behavior, see [Internals: Thread Limits & Backend Patches](internals.md).
+
+## Required: call `run()` from `if __name__ == "__main__":`
+
+
+because `BasinHoppingRunner.run()` uses Python's `multiprocessing` module to execute parallel basin-hopping searches, and platforms that use the `spawn` start method (Windows and macOS) re-import your main module in every child process, **your call to `runner.run(...)` must be guarded by `if __name__ == "__main__":`**. Calling `runner.run(...)` at top-level module scope will cause each worker process to re-execute your script recursively upon import, raising a `RuntimeError`.
+
+
 
 ```python
 # Correct
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.circuits import TwoModeStaticSqueezeOnly
 from heraldo.components.targets import SqueezedCatTarget
@@ -148,12 +162,19 @@ If all evaluated outcomes for a given parameter vector have zero probability, `e
 ## Full Example
 
 ```python
-import numpy as np
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 from heraldo.components.circuits import TwoModeStaticSqueezeOnly
 from heraldo.components.targets import SqueezedCatTarget
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.utils import db_to_r
 from heraldo.analyze import print_results
+import numpy as np
 
 
 def main():
