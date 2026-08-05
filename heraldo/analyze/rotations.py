@@ -9,7 +9,7 @@ from heraldo._internal import _normalize_outcomes
 from heraldo.components.targets import (
     BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, CubicResourceTarget, SqueezedCatTarget
 )
-from heraldo.factory import create_from_config
+from heraldo.serialization import create_from_config
 
 
 def compute_angular_range(angles_deg: List[float]) -> float:

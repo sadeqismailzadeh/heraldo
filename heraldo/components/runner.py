@@ -16,7 +16,7 @@ from heraldo.components.objectives import (
     fixed_pattern_capped_loss_fn,
 )
 from heraldo.components.targets import TargetGenerator
-from heraldo.factory import to_config
+from heraldo.serialization import to_config
 
 
 def _process_fixed_patterns(circuit: StaticCircuit, full_ket: np.ndarray,

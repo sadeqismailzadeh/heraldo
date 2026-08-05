@@ -27,7 +27,7 @@ import heraldo.components.circuits as circuit_module
 from heraldo.components.targets import (
     BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, SqueezedCatTarget
 )
-from heraldo.factory import create_from_config
+from heraldo.serialization import create_from_config
 from heraldo.components.interfaces import StaticCircuit
 from heraldo.components.runner import (
     evaluate_circuit

@@ -9,7 +9,7 @@ import strawberryfields as sf
 from heraldo.analyze.saver import reconstruct_objects
 from heraldo._internal import _normalize_outcomes
 from heraldo.analyze.rotations import get_target_display_names
-from heraldo.factory import create_from_config, to_config
+from heraldo.serialization import create_from_config, to_config
 
 
 def _compute_max_fidelity_dm(rho: np.ndarray, target_ket: np.ndarray, n_fft: int = 256) -> float:

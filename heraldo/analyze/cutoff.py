@@ -8,7 +8,7 @@ from heraldo.analyze.saver import reconstruct_objects
 from heraldo._internal import _normalize_outcomes
 from heraldo.analyze.rotations import get_target_display_names
 from heraldo.components.runner import _process_fixed_patterns, _compute_fidelities_and_loss
-from heraldo.factory import create_from_config
+from heraldo.serialization import create_from_config
 
 
 def analyze_cutoff(

@@ -79,7 +79,7 @@ def reconstruct_objects(results: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         dict: Dictionary with 'circuit', 'targets', and/or 'loss_fn' instantiated objects.
     """
-    from heraldo.factory import create_from_config
+    from heraldo.serialization import create_from_config
 
     out = {}
     if "circuit_config" in results and results["circuit_config"]:

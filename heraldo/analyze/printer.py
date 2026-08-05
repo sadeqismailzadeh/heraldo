@@ -155,7 +155,7 @@ def print_results(
         tc = results["target_configs"]
         tc_list = tc if isinstance(tc, list) else [tc]
         try:
-            from heraldo.factory import create_from_config
+            from heraldo.serialization import create_from_config
             targets = [create_from_config(item) for item in tc_list]
         except Exception:
             targets = tc_list

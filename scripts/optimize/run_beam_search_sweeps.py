@@ -74,7 +74,7 @@ from heraldo.components.runner import BasinHoppingRunner, evaluate_circuit
 from heraldo.components.objectives import beam_search_loss_fn
 from heraldo.components.targets import *
 from heraldo.utils import *
-from heraldo.factory import create_from_config
+from heraldo.serialization import create_from_config
 
 
 def format_branches_report(branches: list, target_names: list, success_threshold: float) -> str:

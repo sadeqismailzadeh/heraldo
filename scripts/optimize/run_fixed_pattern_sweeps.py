@@ -60,7 +60,7 @@ from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.components.targets import *
 from heraldo.utils import *
-from heraldo.factory import create_from_config
+from heraldo.serialization import create_from_config
 
 
 def prepare_measurement_patterns(patterns: Optional[Union[List, np.ndarray]]) -> Optional[np.ndarray]:
