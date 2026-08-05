@@ -112,7 +112,7 @@ class FixedPatternFreeLoss(ObjectiveFunction):
 
 
 # Pre-instantiated default instances for backwards compatibility and easy usage.
-# Because these are instances of ObjectiveFunction, they serialize perfectly via heraldo.factory.
+# Because these are instances of ObjectiveFunction, they serialize perfectly via heraldo.serialization.
 beam_search_loss_fn = BeamSearchLoss()
 fixed_pattern_capped_loss_fn = FixedPatternCappedLoss()
 fixed_pattern_free_loss_fn = FixedPatternFreeLoss()

@@ -83,7 +83,7 @@ Leaving `measurement_patterns=None` (the default) runs **beam search**, letting 
 
 ```python
 from pathlib import Path
-from heraldo.analyze import save_results, load_results
+from heraldo.serialization import save_results, load_results
 
 # Define save path relative to the current file
 save_path = Path(__file__).parent / "example_results.pkl"
@@ -144,9 +144,10 @@ from heraldo.components.targets import SqueezedCatTarget
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.utils import db_to_r
+from heraldo.serialization import save_results, load_results, reconstruct_objects
 from heraldo.analyze import (
-    save_results, load_results, print_results, plot_outcomes,
-    analyze_rotations, analyze_loss, analyze_cutoff, reconstruct_objects
+    print_results, plot_outcomes,
+    analyze_rotations, analyze_loss, analyze_cutoff
 )
 
 

@@ -6,9 +6,10 @@ from heraldo.components.targets import SqueezedCatTarget
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_capped_loss_fn
 from heraldo.utils import db_to_r
+from heraldo.serialization import save_results, load_results, reconstruct_objects
 from heraldo.analyze import (
-    save_results, load_results, print_results, plot_outcomes,
-    analyze_rotations, analyze_loss, analyze_cutoff, reconstruct_objects
+    print_results, plot_outcomes,
+    analyze_rotations, analyze_loss, analyze_cutoff
 )
 
 
@@ -29,7 +30,8 @@ def main():
         cutoff_dim=30,
         # measurement_patterns=[[4], [5]],
         # loss_fn=fixed_pattern_capped_loss_fn,
-        penalty_strength=0.1
+        penalty_strength=0.1,
+        # phase_lock=True,
     )
 
     result = runner.run(n_iter=5)
@@ -47,7 +49,7 @@ def main():
 
     # 8. Analyze phase rotations for specific outcomes (n=4 and n=5)
     print("--- Rotation Analysis ---")
-    analyze_rotations(loaded_result, outcomes=[4, 5])
+    analyze_rotations(loaded_result, outcomes=[1,2, 3, 4, 5, 6, 7, 8])
 
     # 9. Analyze impact of photon loss (e.g., ideal 100%, 1% loss, 10% loss)
     print("--- Photon Loss Analysis ---")

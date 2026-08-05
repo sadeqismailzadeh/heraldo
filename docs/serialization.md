@@ -4,10 +4,10 @@
 
 ## Saving Results
 
-Use `heraldo.analyze.save_results` to save the dictionary returned by the runner:
+Use `heraldo.serialization.save_results` to save the dictionary returned by the runner:
 
 ```python
-from heraldo.analyze import save_results
+from heraldo.serialization import save_results
 
 save_results(result, filepath="my_results.pkl")
 ```
@@ -17,15 +17,15 @@ Note that `save_results` automatically pops live object instances (such as `circ
 
 ## Loading Results with Reconstruction
 
-Use `heraldo.analyze.load_results` with `reconstruct=True` to rebuild the original objects from the stored metadata:
+Use `heraldo.serialization.load_results` with `reconstruct=True` to rebuild the original objects from the stored metadata:
 
 ```python
-from heraldo.analyze import load_results
+from heraldo.serialization import load_results
 
 loaded = load_results("my_results.pkl", reconstruct=True)
 ```
 
-When `reconstruct=True`, the loader uses `heraldo.factory.create_from_config` to instantiate:
+When `reconstruct=True`, the loader uses `heraldo.serialization.create_from_config` to instantiate:
 
 - The `StaticCircuit`
 - Each `TargetGenerator`
@@ -91,7 +91,7 @@ loaded = load_results("results.pkl", reconstruct=True)
 
 ## Supported Object Types
 
-The factory can reconstruct:
+The `heraldo.serialization` module can reconstruct:
 - Pre‑built classes from `heraldo.components.circuits`, `heraldo.components.targets`, and `heraldo.components.objectives`
 - Custom classes that inherits from `StaticCircuit`, `TargetGenerator`, or `ObjectiveFunction` as long as they follow the rules above
 

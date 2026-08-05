@@ -4,12 +4,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import strawberryfields as sf
 
-from heraldo.analyze.saver import reconstruct_objects
 from heraldo._internal import _normalize_outcomes
 from heraldo.components.targets import (
     BinomialCodeTarget, CatTarget, CoreGKPTarget, CubicPhaseTarget, CubicResourceTarget, SqueezedCatTarget
 )
-from heraldo.serialization import create_from_config
+from heraldo.serialization import create_from_config, reconstruct_objects
 
 
 def compute_angular_range(angles_deg: List[float]) -> float:

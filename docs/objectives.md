@@ -200,7 +200,7 @@ class CombinedLoss(ObjectiveFunction):
 
 ## Serialization and Reconstruction
 
-All objective classes are serializable via the `heraldo.factory` module. When you save an optimization result (using `save_results`), the objective configuration is stored as a dictionary. On loading with `load_results(..., reconstruct=True)`, the objective instance is re‑created from that config.
+All objective classes are serializable via the `heraldo.serialization` module. When you save an optimization result (using `save_results`), the objective configuration is stored as a dictionary. On loading with `load_results(..., reconstruct=True)`, the objective instance is re‑created from that config.
 
 To ensure your custom objective can be reconstructed:
 

@@ -33,7 +33,6 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 
 import scipy.integrate
-from sympy import true
 
 # 2. Check if the patch is needed to avoid errors
 if not hasattr(scipy.integrate, 'simps'):
@@ -43,5 +42,6 @@ if not hasattr(scipy.integrate, 'simps'):
 else:
     print("'simps' already exists in scipy.integrate. No patch needed.")
 
-from heraldo.analyze import save_results, load_results, print_results, plot_outcomes, plot_wigner, analyze_rotations, analyze_loss, analyze_cutoff
+from heraldo.serialization import save_results, load_results, reconstruct_objects
+from heraldo.analyze import print_results, plot_outcomes, plot_wigner, analyze_rotations, analyze_loss, analyze_cutoff
 

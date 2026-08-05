@@ -15,8 +15,9 @@ from heraldo.components.targets import CoreGKPTarget
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_free_loss_fn
 from heraldo.utils import db_to_r
+from heraldo.serialization import save_results, load_results
 from heraldo.analyze import (
-    save_results, load_results, print_results, plot_outcomes,
+    print_results, plot_outcomes,
     analyze_rotations, analyze_loss, analyze_cutoff
 )
 

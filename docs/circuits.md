@@ -170,7 +170,7 @@ For your custom circuit to be saved and later reconstructed via `load_results(..
 - Your class must be importable from its module (i.e., defined in a separate `.py` file, not in the main script).
 - The module must be on the Python path when loading.
 
-The `heraldo.factory` will automatically capture the parameter values and use them to recreate your circuit when `reconstruct=True`.
+The `heraldo.serialization` module will automatically capture the parameter values and use them to recreate your circuit when `reconstruct=True`.
 
 ---
 

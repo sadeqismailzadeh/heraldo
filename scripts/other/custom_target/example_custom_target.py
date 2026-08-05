@@ -12,7 +12,8 @@ from heraldo.components.circuits import TwoModeStaticSqueezeOnly
 from heraldo.components.runner import BasinHoppingRunner
 from heraldo.components.objectives import fixed_pattern_free_loss_fn
 from heraldo.utils import db_to_r
-from heraldo.analyze import save_results, load_results, print_results
+from heraldo.serialization import save_results, load_results
+from heraldo.analyze import print_results
 from custom_targets import CustomFockTarget  # import custom target
 
 def main():

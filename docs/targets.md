@@ -173,5 +173,5 @@ For details on serializing and reconstructing custom targets, see the dedicated 
 ## Reference
 
 - Base class: `heraldo.components.interfaces.TargetGenerator`
-- Factory: `heraldo.factory.create_from_config` and `to_config`
+- Serialization: `heraldo.serialization.create_from_config` and `to_config`
 - All prebuilt targets are in `heraldo.components.targets`

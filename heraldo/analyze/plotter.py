@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import strawberryfields as sf
 
 from heraldo._internal import _normalize_outcomes
-from heraldo.analyze.saver import reconstruct_objects
+from heraldo.serialization import reconstruct_objects
 
 
 def plot_wigner(

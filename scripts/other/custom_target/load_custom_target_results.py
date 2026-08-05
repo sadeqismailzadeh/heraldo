@@ -8,7 +8,8 @@ os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 from pathlib import Path
 import numpy as np
-from heraldo.analyze import load_results, print_results
+from heraldo.serialization import load_results
+from heraldo.analyze import print_results
 from custom_targets import CustomFockTarget  # ensure the class is importable
 
 def main():
