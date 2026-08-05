@@ -15,15 +15,16 @@ quickstart
 :caption: Guides & Architecture
 
 circuits_comparison
-sf_patches
+
 targets
 circuits
 objectives
-runner
 patterns
+runner
 serialization
+analyze
 developer_guide
-
+sf_patches
 
 ```
 
