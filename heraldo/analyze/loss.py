@@ -43,9 +43,7 @@ def analyze_loss(
     results: Dict[str, Any],
     transmissivities: Optional[List[float]] = None,
     outcomes: Optional[Union[int, Tuple[int, ...], List[Union[int, Tuple[int, ...]]]]] = None,
-    targets: Optional[Union[Any, List[Any]]] = None,
     cutoff_dim: Optional[int] = None,
-    n_fft: int = 256,
     print_summary: bool = True,
 ) -> Dict[str, Any]:
     """Analyzes the performance of optimized static spatial circuits under photon loss.
@@ -61,11 +59,8 @@ def analyze_loss(
             Defaults to [1.0, 0.99, 0.90] (corresponding to 0%, 1%, and 10% loss).
         outcomes (int, tuple, or list, optional): Measurement outcome pattern(s) to analyze.
             If None, retrieved from runner configuration.
-        targets (TargetGenerator or list, optional): Target state generator(s).
-            If None, retrieved or reconstructed from `results`.
         cutoff_dim (int, optional): Fock space truncation cutoff dimension.
             If None, defaults to 15 for 3-mode and higher circuits, and 30 for 2-mode circuits.
-        n_fft (int, optional): Resolution for phase space rotation optimization. Defaults to 256.
         print_summary (bool, optional): Whether to print a formatted summary report. Defaults to True.
 
     Returns:
@@ -99,15 +94,16 @@ def analyze_loss(
         else:
             cutoff_dim = 30
 
+    n_fft = 256
+
     if transmissivities is None:
         transmissivities = [1.0, 0.99, 0.90]
 
     # Resolve targets
+    targets = results.get("targets")
     if targets is None:
-        targets = results.get("targets")
-        if targets is None:
-            reconstructed = reconstruct_objects(results)
-            targets = reconstructed.get("targets")
+        reconstructed = reconstruct_objects(results)
+        targets = reconstructed.get("targets")
 
     if targets is None and "target_configs" in results and results["target_configs"]:
         tc = results["target_configs"]
@@ -117,7 +113,7 @@ def analyze_loss(
             targets = [create_from_config(tc)]
 
     if targets is None or (isinstance(targets, list) and len(targets) == 0):
-        raise ValueError("Target generator(s) missing from results and not provided.")
+        raise ValueError("Target generator(s) missing from results.")
 
     if not isinstance(targets, list):
         targets = [targets]

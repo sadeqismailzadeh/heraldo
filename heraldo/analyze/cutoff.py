@@ -15,7 +15,6 @@ def analyze_cutoff(
     low_cutoff: int = 30,
     high_cutoff: int = 50,
     outcomes: Optional[Union[int, Tuple[int, ...], List[Union[int, Tuple[int, ...]]]]] = None,
-    targets: Optional[Union[Any, List[Any]]] = None,
     print_summary: bool = True,
 ) -> Dict[str, Any]:
     """Evaluates circuit performance across two Fock cutoff dimensions to quantify truncation error.
@@ -37,8 +36,6 @@ def analyze_cutoff(
         outcomes (int, tuple, or list, optional): Measurement outcome pattern(s) to analyze.
             If None, retrieved from fixed measurement patterns stored in `results`.
             Mandatory if beam search optimization was used.
-        targets (TargetGenerator or list, optional): Target state generator(s).
-            If None, retrieved or reconstructed from `results`.
         print_summary (bool, optional): Whether to print a formatted summary report. Defaults to True.
 
     Returns:
@@ -71,11 +68,10 @@ def analyze_cutoff(
     runner_cfg = results.get("runner_config", {})
 
     # Resolve targets
+    targets = results.get("targets")
     if targets is None:
-        targets = results.get("targets")
-        if targets is None:
-            reconstructed = reconstruct_objects(results)
-            targets = reconstructed.get("targets")
+        reconstructed = reconstruct_objects(results)
+        targets = reconstructed.get("targets")
 
     if targets is None and "target_configs" in results and results["target_configs"]:
         tc = results["target_configs"]
@@ -85,7 +81,7 @@ def analyze_cutoff(
             targets = [create_from_config(tc)]
 
     if targets is None or (isinstance(targets, list) and len(targets) == 0):
-        raise ValueError("Target generator(s) missing from results and not provided.")
+        raise ValueError("Target generator(s) missing from results.")
 
     if not isinstance(targets, list):
         targets = [targets]

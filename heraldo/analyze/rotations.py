@@ -90,9 +90,7 @@ def get_target_display_names(targets: List[Any]) -> List[str]:
 def analyze_rotations(
     results: Dict[str, Any],
     outcomes: Optional[Union[int, Tuple[int, ...], List[Union[int, Tuple[int, ...]]]]] = None,
-    targets: Optional[Union[Any, List[Any]]] = None,
     cutoff_dim: Optional[int] = None,
-    n_fft: int = 256,
     print_summary: bool = True,
 ) -> List[Dict[str, Any]]:
     """Analyzes the optimal phase space rotation of output states relative to target states.
@@ -110,11 +108,8 @@ def analyze_rotations(
             or loaded via `load_results()`.
         outcomes (int, tuple, or list, optional): Measurement outcome pattern(s) to analyze.
             Mandatory if beam search optimization was used.
-        targets (TargetGenerator or list, optional): Target state generator(s).
-            If None, retrieved or reconstructed from `results`.
         cutoff_dim (int, optional): Fock space truncation cutoff dimension.
             If None, retrieved from runner configuration or defaults to 30.
-        n_fft (int, optional): Angle search resolution for FFT rotation optimization. Defaults to 256.
         print_summary (bool, optional): Whether to print a formatted summary report. Defaults to True.
 
     Returns:
@@ -150,12 +145,13 @@ def analyze_rotations(
             "(e.g., outcomes=4 or outcomes=[(4,)] or outcomes=[4, 5])."
         )
 
+    n_fft = 256
+
     # Resolve target generators
+    targets = results.get("targets")
     if targets is None:
-        targets = results.get("targets")
-        if targets is None:
-            reconstructed = reconstruct_objects(results)
-            targets = reconstructed.get("targets")
+        reconstructed = reconstruct_objects(results)
+        targets = reconstructed.get("targets")
 
     if targets is None and "target_configs" in results and results["target_configs"]:
         tc = results["target_configs"]
@@ -165,7 +161,7 @@ def analyze_rotations(
             targets = [create_from_config(tc)]
 
     if targets is None or (isinstance(targets, list) and len(targets) == 0):
-        raise ValueError("Target generator(s) missing from results and not provided.")
+        raise ValueError("Target generator(s) missing from results.")
 
     if not isinstance(targets, list):
         targets = [targets]
