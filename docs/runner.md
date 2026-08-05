@@ -136,6 +136,7 @@ This applies even if you pass `num_parallel_runs=1` in some calls, since the con
 | `total_probability` | `float` | Sum of probabilities across all branches with non-zero photon counts. |
 | `duration` | `float` | Wall-clock time in seconds for the full `run()` call. |
 | `message` | `str` | Human-readable status message (e.g. `"Best of 4 parallel runs"` or the SciPy termination message for a single run). |
+| `circuit`, `targets`, `loss_fn` | `StaticCircuit` / `list` / `ObjectiveFunction` | Live object instances of the circuit, target generator(s), and loss function used during optimization. |
 | `circuit_config`, `target_configs`, `loss_config`, `runner_config` | `dict` / `list[dict]` | Serializable configuration metadata (via `heraldo.factory.to_config`) enabling later reconstruction — see [Serialization and Reconstruction Guide](serialization.md). |
 | `run_results` *(only if `num_parallel_runs > 1`)* | `list[dict]` | Raw result dict from every parallel run (successful or not), useful for inspecting run-to-run variance. |
 | `best_run_idx` *(only if `num_parallel_runs > 1`)* | `int` | Index (into the internal seed list) of the run that produced `x`/`loss`. |

@@ -527,6 +527,9 @@ class BasinHoppingRunner:
             if not res.get("success", False):
                 raise RuntimeError(f"Basin-Hopping run failed: {res.get('error')}")
             res["duration"] = time.time() - start_time
+            res["circuit"] = self.circuit
+            res["targets"] = self.target_gens
+            res["loss_fn"] = effective_loss_fn
             res["circuit_config"] = circuit_cfg
             res["target_configs"] = target_cfgs
             res["loss_config"] = loss_cfg
@@ -563,6 +566,9 @@ class BasinHoppingRunner:
             "message": f"Best of {n_parallel} parallel runs",
             "run_results": results,
             "best_run_idx": seeds.index(best_res["seed"]),
+            "circuit": self.circuit,
+            "targets": self.target_gens,
+            "loss_fn": effective_loss_fn,
             "circuit_config": circuit_cfg,
             "target_configs": target_cfgs,
             "loss_config": loss_cfg,

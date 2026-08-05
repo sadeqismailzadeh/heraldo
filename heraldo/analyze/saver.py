@@ -39,14 +39,19 @@ def save_results(
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Create a shallow copy and remove live object instances before pickling
+    save_dict = results.copy()
+    for key in ("circuit", "targets", "loss_fn"):
+        save_dict.pop(key, None)
+
     with open(save_path, "wb") as f:
-        pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(save_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     print(f"Results successfully saved to: {save_path.resolve()}")
     return str(save_path.resolve())
 
 
-def load_results(filepath: Union[str, Path], reconstruct: bool = False) -> Dict[str, Any]:
+def load_results(filepath: Union[str, Path], reconstruct: bool = True) -> Dict[str, Any]:
     """Loads run optimization results from a pickle file.
 
     Args:
