@@ -49,7 +49,7 @@ def main():
 
     # 8. Analyze phase rotations for specific outcomes (n=4 and n=5)
     print("--- Rotation Analysis ---")
-    analyze_rotations(loaded_result, outcomes=[1,2, 3, 4, 5, 6, 7, 8])
+    analyze_rotations(loaded_result, outcomes=[4, 5])
 
     # 9. Analyze impact of photon loss (e.g., ideal 100%, 1% loss, 10% loss)
     print("--- Photon Loss Analysis ---")
