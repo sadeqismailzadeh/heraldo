@@ -12,11 +12,8 @@ from heraldo.analyze import save_results
 save_results(result, filepath="my_results.pkl")
 ```
 
-The dictionary contains:
-- Optimized parameters (`x`)
-- Loss, fidelity, probabilities
-- Branch details (outcomes, per‑pattern fidelities)
-- Configuration metadata for the circuit, targets, and loss function (stored as serializable dicts)
+Note that `save_results` automatically pops live object instances (such as `circuit`, `targets`, and `loss_fn`) from the result dictionary before saving to ensure clean serialization. The saved file retains serializable configuration metadata (`circuit_config`, `target_configs`, `loss_config`), which is used to reconstruct the original objects when reloaded.
+
 
 ## Loading Results with Reconstruction
 
@@ -52,7 +49,7 @@ To ensure your custom classes can be reconstructed, follow these guidelines:
    Do not define the class inside your main script. Place it in a separate `.py` file (e.g., `my_targets.py`). This ensures the class can be imported when the pickle is loaded.
 
 3. **Make the module importable**  
-   The module containing your class must be on the Python path when loading. If you are working in a project, ensure the directory is in `sys.path` or use a package structure.
+   The module containing your class must be on the Python path when loading. The easiest way to ensure this is to place both the module and your execution script in the same directory. If you are working in a project, ensure the directory is in `sys.path` or use a package structure.
 
 ### Example
 
@@ -98,15 +95,5 @@ The factory can reconstruct:
 - Pre‑built classes from `heraldo.components.circuits`, `heraldo.components.targets`, and `heraldo.components.objectives`
 - Custom classes that inherits from `StaticCircuit`, `TargetGenerator`, or `ObjectiveFunction` as long as they follow the rules above
 
-## Troubleshooting
 
-- **`ImportError` or `AttributeError` on load**  
-  Ensure the module containing your custom class is importable. Add its directory to `PYTHONPATH` or install your package.
-
-- **Missing attributes**  
-  If a constructor parameter is not stored as an attribute, the factory cannot reconstruct it. Make sure every parameter you care about is saved as `self.param_name`.
-
-- **Non‑primitive parameter values**  
-  The factory serializes using `to_config`, which converts NumPy arrays to lists, etc. Ensure your parameters are of simple types (int, float, str, list, dict) or are handled by `to_config` (you can override `to_config` in your class).
-
-For more details, see the `heraldo.factory` module documentation.
+For more details, see the `heraldo.serialization` module documentation.
