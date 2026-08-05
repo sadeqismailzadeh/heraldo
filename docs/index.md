@@ -22,6 +22,7 @@ objectives
 runner
 patterns
 serialization
+developer_guide
 
 
 ```
