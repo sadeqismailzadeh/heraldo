@@ -22,8 +22,6 @@ The underlying normalisation is handled by `heraldo._internal._normalize_outcome
 
 `measurement_patterns` (and `outcomes`) can be:
 
-{{apply: the "or" in esulting tuples makes it unclear to what result is for 2d or }}
-
 | Format                         | Example (2‑mode)                | Example (3‑mode)                  | Resulting tuples         |
 |--------------------------------|--------------------------------|----------------------------------|---------------------------|
 | **`None`**                     | `None`                         | `None`                           | Beam search (no fixed)    |
