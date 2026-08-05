@@ -38,7 +38,7 @@ This allows you to run further analysis (e.g., `analyze_loss`, `plot_outcomes`) 
 To ensure your custom classes can be reconstructed, follow these guidelines:
 
 1. **Attribute names must match `__init__` parameters**  
-   The factory collects attribute values that correspond to constructor arguments. For example:
+   The serializer collects attribute values that correspond to constructor arguments. For example:
 
    ```python
    def __init__(self, alpha=1.0):
