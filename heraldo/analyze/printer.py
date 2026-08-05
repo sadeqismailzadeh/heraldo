@@ -1,29 +1,24 @@
 """Functions for displaying optimization run results in a clean, user-friendly format."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 import numpy as np
 
+from heraldo.serialization import create_from_config, reconstruct_objects
 
-def print_results(
-    results: Dict[str, Any],
-    show_params: bool = True,
-    show_branches: bool = True,
-    precision: int = 4,
-) -> None:
+
+def print_results(results: Dict[str, Any]) -> None:
     """Prints optimization run results in a clean, human-readable format.
 
     Args:
         results (dict): Result dictionary returned by `BasinHoppingRunner.run()`
             or loaded via `load_results()`.
-        show_params (bool, optional): Whether to print the optimized parameter vector ``x``.
-            Defaults to True.
-        show_branches (bool, optional): Whether to print detailed output branch metadata.
-            Defaults to True.
-        precision (int, optional): Number of decimal places for floating point values.
-            Defaults to 4.
     """
     if not isinstance(results, dict):
         raise TypeError(f"Expected results to be a dictionary, got {type(results).__name__}")
+
+    show_params = True
+    show_branches = True
+    precision = 4
 
     width = 72
     separator = "=" * width
@@ -148,6 +143,21 @@ def print_results(
         if seed is not None:
             print(f"  Base Seed             : {seed}")
 
+    # Resolve circuit and target objects for branches and parameters sections
+    circuit = results.get("circuit")
+    if circuit is None:
+        try:
+            reconstructed = reconstruct_objects(results)
+            circuit = reconstructed.get("circuit")
+        except Exception:
+            pass
+
+    if circuit is None and "circuit_config" in results and results["circuit_config"]:
+        try:
+            circuit = create_from_config(results["circuit_config"])
+        except Exception:
+            pass
+
     # Resolve target display names for branches table
     target_names = []
     targets = results.get("targets")
@@ -155,7 +165,6 @@ def print_results(
         tc = results["target_configs"]
         tc_list = tc if isinstance(tc, list) else [tc]
         try:
-            from heraldo.serialization import create_from_config
             targets = [create_from_config(item) for item in tc_list]
         except Exception:
             targets = tc_list
@@ -206,12 +215,34 @@ def print_results(
         print(sub_separator)
         print(f"  Total Parameters : {len(x_arr)}\n")
 
-        formatted_vals = [f"{val:+.{precision}f}" for val in x_arr]
-        cols = 4
-        for i in range(0, len(formatted_vals), cols):
-            chunk = formatted_vals[i:i + cols]
-            indices = [f"[{i+j}]" for j in range(len(chunk))]
-            row_str = "   ".join(f"{idx:>5}: {val:>10}" for idx, val in zip(indices, chunk))
-            print(f"  {row_str}")
+        param_names = None
+        if circuit is not None:
+            if hasattr(circuit, "parameter_names") and circuit.parameter_names:
+                param_names = circuit.parameter_names
+            elif hasattr(circuit, "_param_names") and circuit._param_names:
+                param_names = circuit._param_names
+
+        if param_names and len(param_names) == len(x_arr):
+            idx_w = max(2, len(str(len(x_arr) - 1)))
+            max_name_len = max(len(str(name)) for name in param_names)
+            name_w = max(10, max_name_len)
+            formatted_items = []
+            for i, (name, val) in enumerate(zip(param_names, x_arr)):
+                val_str = f"{val:+.{precision}f}"
+                formatted_items.append(f"[{i:>{idx_w}}] {name:<{name_w}} : {val_str:>10}")
+
+            cols = 2
+            for i in range(0, len(formatted_items), cols):
+                chunk = formatted_items[i:i + cols]
+                row_str = "    ".join(chunk)
+                print(f"  {row_str}")
+        else:
+            formatted_vals = [f"{val:+.{precision}f}" for val in x_arr]
+            cols = 4
+            for i in range(0, len(formatted_vals), cols):
+                chunk = formatted_vals[i:i + cols]
+                indices = [f"[{i+j}]" for j in range(len(chunk))]
+                row_str = "   ".join(f"{idx:>5}: {val:>10}" for idx, val in zip(indices, chunk))
+                print(f"  {row_str}")
 
     print("\n" + separator + "\n")
