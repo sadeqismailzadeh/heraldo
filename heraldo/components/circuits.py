@@ -2,7 +2,6 @@
 
 Provides multi-mode static spatial optical circuit architectures containing
 an unmeasured output mode (Mode 0) and one or more ancillary modes (Modes 1..N-1).
-Static circuits operate in a single spatial stage without time-domain recirculation or steps.
 """
 import numpy as np
 import strawberryfields as sf

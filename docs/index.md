@@ -35,12 +35,11 @@ internals
 
 api/index
 api/components
-api/experimental
 ```
 
 ## Features
 
-- **Static Spatial Circuits**: Simulate continuous-variable spatial optical networks with photon-number-resolving (PNR) detectors.
+- **Static Spatial GBS-like circuits**: Simulate continuous-variable spatial optical networks with photon-number-resolving (PNR) detectors.
 - **Multi-Outcome Optimization**: Optimization algorithms supporting both beam search pattern discovery and fixed-pattern optimization.
 - **Target State Generators**: Pre-built generators for Gottesman-Kitaev-Preskill (GKP) core states, Schrödinger cat states, binomial codes, and cubic phase states.
 - **JIT-Compiled Performance Patches**: Optimized tensor representations and fast diagonal traversals for beam splitter interactions.
