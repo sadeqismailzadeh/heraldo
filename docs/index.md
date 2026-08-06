@@ -25,8 +25,6 @@ serialization
 analyze
 internals
 developer_guide
-
-
 ```
 
 ```{toctree}
@@ -35,6 +33,10 @@ developer_guide
 
 api/index
 api/components
+api/analyze
+api/serialization
+api/utils
+api/patches
 ```
 
 ## Features
@@ -55,4 +57,3 @@ heraldo implements the multi-outcome optimization strategy introduced in:
 > S. Ismailzadeh and B. Abedi Ravan, *"Multi-Outcome Circuit Optimization for Enhanced Non-Gaussian State Generation."*
 
 If heraldo is useful in your research, please cite the paper above alongside the software itself.
-
