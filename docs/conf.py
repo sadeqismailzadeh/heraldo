@@ -96,6 +96,18 @@ intersphinx_mapping = {
     'scipy': ('https://docs.scipy.org/doc/scipy/', None),
 }
 
+# --- LaTeX Output Configuration ---
+latex_elements = {
+    'papersize': 'letterpaper',
+    'pointsize': '10pt',
+    'preamble': r'''
+\usepackage{amsmath,amssymb}
+\providecommand{\ket}[1]{\left|#1\right\rangle}
+\providecommand{\bra}[1]{\left\langle#1\right|}
+\providecommand{\braket}[2]{\left\langle#1\middle|#2\right\rangle}
+''',
+}
+
 
 def setup(app):
     """Sphinx extension setup hook."""
