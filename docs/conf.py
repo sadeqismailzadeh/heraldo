@@ -97,6 +97,7 @@ intersphinx_mapping = {
 }
 
 # --- LaTeX Output Configuration ---
+latex_engine = 'xelatex'
 latex_elements = {
     'papersize': 'letterpaper',
     'pointsize': '10pt',
