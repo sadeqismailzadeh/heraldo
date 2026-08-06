@@ -32,11 +32,6 @@ developer_guide
 :caption: API Reference
 
 api/index
-api/components
-api/analyze
-api/serialization
-api/utils
-api/patches
 ```
 
 ## Features

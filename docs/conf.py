@@ -63,6 +63,8 @@ autodoc_mock_imports = [
     'thewalrus',
     'sympy',
     'tqdm',
+    'matplotlib',
+    'heraldo',
 ]
 
 templates_path = ['_templates']
