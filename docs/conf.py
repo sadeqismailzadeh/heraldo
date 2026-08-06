@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # --- Project Information ---
 project = 'heraldo'
-copyright = '2025, Sadeq Ismailzadeh'
+copyright = '2026, Sadeq Ismailzadeh'
 author = 'Sadeq Ismailzadeh'
 release = '0.1.0'
 
