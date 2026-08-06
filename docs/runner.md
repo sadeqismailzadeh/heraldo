@@ -5,7 +5,7 @@ The `BasinHoppingRunner` class is the central optimization engine in `heraldo`. 
 ---
 
 
-### Constructor Parameters
+## Constructor Parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|

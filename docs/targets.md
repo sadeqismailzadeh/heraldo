@@ -20,9 +20,9 @@ All target classes are defined in `heraldo.components.targets` and inherit from 
 
 Unsqueezed Schrödinger cat state:
 
-```math
+$$
 \ket{\text{Cat}_p(\alpha)} = \mathcal{N}_p \left( \ket{\alpha} + (-1)^p \ket{-\alpha} \right)
-```
+$$
 
 - `alpha` (float): coherent amplitude, default 3.0
 - `p` (int): parity (0 = even, 1 = odd), default 0
@@ -36,9 +36,9 @@ target = CatTarget(alpha=2.5, p=1)   # odd cat state
 
 Squeezed cat state:
 
-```math
+$$
 \ket{\text{SqCat}_p(\alpha, r)} = \hat{S}(r) \mathcal{N}_p \left( \ket{\alpha} + (-1)^p \ket{-\alpha} \right)
-```
+$$
 
 - `alpha` (float): coherent amplitude, default 3.0
 - `r` (float): squeezing parameter, default 1.38
@@ -52,9 +52,9 @@ target = SqueezedCatTarget(alpha=np.sqrt(6), r=0.5, p=0)
 
 Displaced cubic phase state:
 
-```math
+$$
 \ket{\gamma, r, \alpha} = \hat{D}(\alpha) \exp(i \gamma \hat{Q}^3) \hat{S}(r) \ket{0}
-```
+$$
 
 - `gamma` (float): cubic nonlinearity, default -0.2
 - `r` (float): squeezing, default -0.7
@@ -68,9 +68,9 @@ target = CubicPhaseTarget(gamma=-0.2, r=-0.7, alpha=1.25)
 
 Finite superposition used as a cubic phase resource:
 
-```math
+$$
 \ket{\psi} \propto \ket{0} + i a \sqrt{1.5} \ket{1} + i a \ket{3}
-```
+$$
 
 - `a` (float): scaling coefficient, default 0.61
 
@@ -107,9 +107,9 @@ This file is provided in the repository at `data/GKP_core_coefficients.csv`, sou
 
 Binomial code logical codewords:
 
-```math
+$$
 \ket{W_\mu} = \frac{1}{\sqrt{2^N}} \sum_{p \equiv \mu \pmod{2}} \sqrt{\binom{N+1}{p}} \ket{p(S+1)}
-```
+$$
 
 - `N` (int): code order, default 1
 - `S` (int): spacing, default 1

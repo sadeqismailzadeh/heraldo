@@ -31,15 +31,15 @@ For convenience, default instances of the above classes are provided:
 
 Designed for the **beam search** phase, where the set of evaluated measurement patterns is **dynamic**. The loss is a non‑linear function that amplifies gradients for high‑fidelity patterns and suppresses low‑fidelity ones:
 
-```math
+$$
 L_{\text{beam}} = -\left[ \log\left( \mathcal{S} + \delta \right) + \lambda \mathcal{S} \right],
-```
+$$
 
 where
 
-```math
+$$
 \mathcal{S} = \sum_k p_k \left( \tilde{F}_k^2 \Lambda_k \right)^4,
-```
+$$
 
 with `Λ_k = log(1 - F̃_k) / log(ε)` and `F̃_k = min(F_k, 1-ε)`.  
 The parameters `ε` (epsilon), `δ` (delta), and `λ` (lam) control the sensitivity.
@@ -53,9 +53,9 @@ BeamSearchLoss(epsilon=2e-2, delta=1e-72, lam=1e4)
 
 Used during **fixed‑pattern** optimization when you want to cap the fidelity contribution to a baseline value, allowing the optimizer to focus on increasing the overall success probability once the fidelity exceeds the cap:
 
-```math
+$$
 L_{\text{fixed}} = -\sum_k \left( \alpha p_k + \min(F_k, F_{\text{cap}}) \right).
-```
+$$
 
 **Constructor:**
 ```python
@@ -68,9 +68,9 @@ FixedPatternCappedLoss(f_cap=0.95, alpha=None)
 
 Un‑capped fixed‑pattern loss. It encourages both fidelity and probability without saturation:
 
-```math
+$$
 L_{\text{fixed}} = -\sum_k \left( \alpha p_k + F_k \right).
-```
+$$
 
 **Constructor:**
 ```python

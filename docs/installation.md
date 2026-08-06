@@ -50,7 +50,7 @@ If you're on Windows, the fastest way to get started is the bundled `install.bat
 
 Run the following in Windows Command Prompt (`cmd`) with the virtual environment activated to confirm `heraldo` imports correctly:
 
-```cmd
+```batch
 :: Activate virtual environment in Command Prompt
 .venv\Scripts\activate
 
@@ -70,7 +70,7 @@ On import, `heraldo` applies a small compatibility patch to `scipy.integrate` (a
 
 To run an example script (such as `scripts/example.py`) after activating the virtual environment in Windows Command Prompt:
 
-```cmd
+```batch
 :: Activate the virtual environment
 .venv\Scripts\activate
 
