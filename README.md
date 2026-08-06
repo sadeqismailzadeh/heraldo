@@ -92,7 +92,9 @@ if __name__ == "__main__":
 
 ## Documentation
 
-Full documentation — circuit models, target state generators, optimization objectives, the runner, serialization, post-optimization analysis, and internals — lives in [`docs/`](docs/) and can be built locally:
+Full documentation — circuit models, target state generators, optimization objectives, the runner, serialization, post-optimization analysis, and internals — is available online at [heraldo.readthedocs.io](https://heraldo.readthedocs.io/en/latest/) and in [`docs/`](docs/).
+
+To build the documentation locally:
 
 ```bash
 uv sync --group docs
