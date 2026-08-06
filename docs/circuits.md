@@ -201,5 +201,3 @@ print(circuit.get_measurement_specs())
 - **Use** them by passing to a runner; the runner handles optimization and evaluation.
 - **Extend** by subclassing `StaticCircuit` and implementing the required methods.
 - **Ensure serializability** for reliable saving/loading; see the [serialization guide](serialization.md).
-
-For a deeper comparison of circuit architectures and their performance, see [Circuits Comparison](circuits_comparison.md).

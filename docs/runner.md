@@ -10,7 +10,7 @@ The `BasinHoppingRunner` class is the central optimization engine in `heraldo`. 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `circuit` | `StaticCircuit` | — (required) | The static circuit instance to optimize. Its `parameter_names`, `parameter_bounds`, `run_circuit`, and `get_measurement_specs` are used directly by the runner. See [Circuits](circuits.md)|
-| `target_gens` | `TargetGenerator` or `list[TargetGenerator]` | — (required) | One or more target state generators. A single instance is automatically wrapped in a list internally. Each generator's `get_target_ket(cutoff_dim)` is called once up front to produce the target kets used throughout optimization. See [Targets](taargets.md)|
+| `target_gens` | `TargetGenerator` or `list[TargetGenerator]` | — (required) | One or more target state generators. A single instance is automatically wrapped in a list internally. Each generator's `get_target_ket(cutoff_dim)` is called once up front to produce the target kets used throughout optimization. See [Targets](targets.md)|
 | `cutoff_dim` | `int` | — (required) | Fock-space truncation dimension used both to generate target kets and to configure the Strawberry Fields `"fock"` backend during simulation. |
 | `beam_width` | `int` | `20` | Maximum number of top-probability ancillary outcomes retained per evaluation during **beam search**. Only relevant when `measurement_patterns=None`. |
 | `penalty_strength` | `float` | `0.1` | Multiplier applied to the Fock-truncation-error penalty term added to the loss. Higher values penalize parameter regions where probability mass leaks outside the truncated Hilbert space. |
