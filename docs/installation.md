@@ -33,8 +33,8 @@ If you're on Windows, the fastest way to get started is the bundled `install.bat
 2. Clone the repository and move into it:
 
    ```bash
-   git clone https://github.com/sadeqismailzadeh/GKP_state_code
-   cd GKP_state_code
+   git clone https://github.com/sadeqismailzadeh/heraldo
+   cd heraldo
    ```
 
 3. Install dependencies and create the virtual environment:

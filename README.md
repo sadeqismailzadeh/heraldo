@@ -33,8 +33,8 @@ Within fixed-pattern optimization, two regimes trade off probability against fid
 `heraldo` requires **Python 3.13** and is managed with [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/sadeqismailzadeh/GKP_state_code
-cd GKP_state_code
+git clone https://github.com/sadeqismailzadeh/heraldo
+cd heraldo
 uv sync
 ```
 
@@ -120,7 +120,7 @@ If heraldo is useful in your research, please cite the paper above alongside the
 @software{ismailzadeh_code,
   title   = {heraldo},
   author  = {Ismailzadeh, Sadeq},
-  url     = {https://github.com/sadeqismailzadeh/GKP_state_code},
+  url     = {https://github.com/sadeqismailzadeh/heraldo},
 }
 ```
 
