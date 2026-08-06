@@ -2,7 +2,7 @@
 
 **heraldo** is a Python framework for multi-outcome optimization of static continuous-variable (CV) photonic circuits. It targets Gaussian Boson Sampling (GBS)-like devices — squeezing, displacement, and beam-splitter networks followed by photon-number-resolving (PNR) detection — and optimizes them to herald non-Gaussian quantum states such as Gottesman–Kitaev–Preskill (GKP) core states, Schrödinger cat states, binomial codes, and cubic phase states.
 
-Conventionally, these circuits are optimized to herald a single specific measurement outcome, discarding the potential utility of every other pattern the same physical setup could produce. heraldo implements the multi-outcome strategy described in the paper {{modify: like paper}}: a *beam search* phase autonomously discovers promising heralding patterns without any a priori physical intuition, followed by *fixed-pattern* refinement that either
+Conventionally, these circuits are optimized to herald a single specific measurement outcome, discarding the potential utility of every other pattern the same physical setup could produce. heraldo implements the multi-outcome strategy described in the paper: a *beam search* phase autonomously discovers promising heralding patterns without any a priori physical intuition, followed by *fixed-pattern* refinement that either
 
 - **multiplexes** a diverse set of target resource states across different measurement outcomes from a single fixed hardware layout, or
 - **harvests** several degenerate outcomes to maximize the production rate of one specific target state.
@@ -95,12 +95,11 @@ if __name__ == "__main__":
 Full documentation — circuit models, target state generators, optimization objectives, the runner, serialization, post-optimization analysis, and internals — lives in [`docs/`](docs/) and can be built locally:
 
 ```bash
-cd docs
-pip install -r requirements.txt
-sphinx-build -b html . _build/html
+uv sync --group docs
+uv run sphinx-build -b html docs docs/_build/html
 ```
 
-(or just double-click `docs/build_docs.bat` on Windows).
+(or just double-click `build_docs.bat` on Windows).
 
 ## Citing heraldo
 

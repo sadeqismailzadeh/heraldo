@@ -4,7 +4,14 @@ pushd %~dp0
 
 REM Command line options for sphinx-build
 if "%SPHINXBUILD%" == "" (
-	set SPHINXBUILD=sphinx-build
+	where uv >nul 2>nul
+	if not errorlevel 1 (
+		set SPHINXBUILD=uv run sphinx-build
+	) else if exist "..\.venv\Scripts\sphinx-build.exe" (
+		set SPHINXBUILD=..\.venv\Scripts\sphinx-build.exe
+	) else (
+		set SPHINXBUILD=sphinx-build
+	)
 )
 set SOURCEDIR=.
 set BUILDDIR=_build
@@ -30,4 +37,4 @@ goto end
 %SPHINXBUILD% -M help %SOURCEDIR% %BUILDDIR% %SPHINXOPTS% %O%
 
 :end
-popd
+popd
