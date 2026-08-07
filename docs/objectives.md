@@ -80,41 +80,6 @@ FixedPatternFreeLoss(alpha=None)
 
 ---
 
-## Fidelity Array Shapes: Phase-Lock vs. Phase-Free
-
-Before we dive into using objectives, it's important to understand the shape of the arrays passed to the objective's `_compute` method. The shape of the `fidelities` array depends on the `phase_lock` parameter of `BasinHoppingRunner` (or `evaluate_circuit`).
-
-- **Phase‑free (`phase_lock=False`, default):**  
-  For each measurement branch, we find the optimal phase‑space rotation independently. The fidelity is then a single number per branch (the maximum over all rotations).  
-  `fidelities.shape == (num_branches, )` → 1D array.
-
-- **Phase‑lock (`phase_lock=True`):**  
-  A *global* phase rotation is enforced across all branches. The optimizer considers a discrete set of phase angles (e.g., 256 points via FFT). For each branch, we have an array of fidelities evaluated at each phase angle.  
-  `fidelities.shape == (num_branches, num_phases)` → 2D array.
-
-
-To simplify arithmetic with `probs` (which is always 1D of length `num_branches`), the runner **automatically reshapes** `probs` to a column vector (shape `(num_branches, 1)`) when `fidelities` is 2D, so that operations like `probs * fidelities` and `probs + fidelities` broadcast correctly. In your `_compute` method, you can safely write expressions like:
-
-```python
-score = np.sum(probs * fidelities, axis=0)
-```
-
-or, using addition:
-
-```python
-score = np.sum(probs + fidelities, axis=0)
-```
-
-This works regardless of whether `fidelities` is 1D or 2D, because:
-- if `fidelities` is 1D, `probs` remains 1D and the sum yields a scalar.
-- if `fidelities` is 2D, `probs` is automatically expanded to shape `(num_branches, 1)` and the sum over `axis=0` yields a 1D array of length `num_phases`.
-
-
-if `fidelities` is 2D (phase‑locked mode), the runner reshapes `probs` to a column vector of shape `(num_branches, 1)`. This enables NumPy broadcasting: operations like `probs * fidelities` or `probs + fidelities` are performed element‑wise, where the single probability value for each branch is applied to all phase angles of that branch. The result is an array of shape `(num_branches, num_phases)`. Summing over `axis=0` then collapses the branch dimension, yielding a 1D array of length `num_phases` — one score per phase angle. For the 1D case, `probs` remains a 1D array, and summing over `axis=0` (the only axis) produces a scalar score
-
-Your objective must return a **scalar** when `fidelities` is 1D, and a **1D array** (length = number of phases) when `fidelities` is 2D.
-
----
 
 ## Using Objectives in Optimization
 
@@ -170,6 +135,43 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+---
+
+
+## Fidelity Array Shapes: Phase-Lock vs. Phase-Free
+
+Before we dive into creating custom objectives, it's important to understand the shape of the arrays passed to the objective's `_compute` method. The shape of the `fidelities` array depends on the `phase_lock` parameter of `BasinHoppingRunner` (or `evaluate_circuit`).
+
+- **Phase‑free (`phase_lock=False`, default):**  
+  For each measurement branch, we find the optimal phase‑space rotation independently. The fidelity is then a single number per branch (the maximum over all rotations).  
+  `fidelities.shape == (num_branches, )` → 1D array.
+
+- **Phase‑lock (`phase_lock=True`):**  
+  A *global* phase rotation is enforced across all branches. The optimizer considers a discrete set of phase angles (e.g., 256 points via FFT). For each branch, we have an array of fidelities evaluated at each phase angle.  
+  `fidelities.shape == (num_branches, num_phases)` → 2D array.
+
+
+To simplify arithmetic with `probs` (which is always 1D of length `num_branches`), the runner **automatically reshapes** `probs` to a column vector (shape `(num_branches, 1)`) when `fidelities` is 2D, so that operations like `probs * fidelities` and `probs + fidelities` broadcast correctly. In your `_compute` method, you can safely write expressions like:
+
+```python
+score = np.sum(probs * fidelities, axis=0)
+```
+
+or, using addition:
+
+```python
+score = np.sum(probs + fidelities, axis=0)
+```
+
+This works regardless of whether `fidelities` is 1D or 2D, because:
+- if `fidelities` is 1D, `probs` remains 1D and the sum yields a scalar.
+- if `fidelities` is 2D, `probs` is automatically expanded to shape `(num_branches, 1)` and the sum over `axis=0` yields a 1D array of length `num_phases`.
+
+
+if `fidelities` is 2D (phase‑locked mode), the runner reshapes `probs` to a column vector of shape `(num_branches, 1)`. This enables NumPy broadcasting: operations like `probs * fidelities` or `probs + fidelities` are performed element‑wise, where the single probability value for each branch is applied to all phase angles of that branch. The result is an array of shape `(num_branches, num_phases)`. Summing over `axis=0` then collapses the branch dimension, yielding a 1D array of length `num_phases` — one score per phase angle. For the 1D case, `probs` remains a 1D array, and summing over `axis=0` (the only axis) produces a scalar score
+
+Your objective must return a **scalar** when `fidelities` is 1D, and a **1D array** (length = number of phases) when `fidelities` is 2D.
 
 ---
 
