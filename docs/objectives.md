@@ -145,7 +145,7 @@ if __name__ == "__main__":
 To define your own loss function, inherit from `ObjectiveFunction` and implement the `_compute` method. The method receives:
 
 - `probs` : `np.ndarray` of shape `(num_branches, )` – probabilities of each surviving measurement branch.
-- `fidelities` : `np.ndarray` – state fidelities (1D or 2D as described above).
+- `fidelities` : `np.ndarray` – state fidelities (1D or 2D as described below).
 
 **Return type:**  
 - If `fidelities` is 1D, return a scalar (`float`).  
