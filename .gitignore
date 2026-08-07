@@ -10,7 +10,6 @@ article replications/Nelder-Mead.html
 *.pkl
 **/curriculum_state.json
 agentic quantum circuit/GKP_core_coefficients.csv
-data/
 **/.idea/
 **/outcmaes/**
 **/results/
