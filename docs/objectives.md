@@ -139,9 +139,36 @@ if __name__ == "__main__":
 ---
 
 
+
+## Creating Custom Objectives
+
+To define your own loss function, inherit from `ObjectiveFunction` and implement the `_compute` method. The method receives:
+
+- `probs` : `np.ndarray` of shape `(num_branches, )` – probabilities of each surviving measurement branch.
+- `fidelities` : `np.ndarray` – state fidelities (1D or 2D as described above).
+
+**Return type:**  
+- If `fidelities` is 1D, return a scalar (`float`).  
+- If `fidelities` is 2D, return a 1D array of length `num_phases` (one score per phase angle). The runner will later pick the phase that yields the best (maximum) score.  
+
+The runner **negates** the returned score internally because it minimizes the loss; your `_compute` method should produce a positive score that increases with quality.
+
+
+**Example:**
+```python
+class CombinedLoss(ObjectiveFunction):
+    def __init__(self, alpha=0.5):
+        self.alpha = alpha
+
+    def _compute(self, probs, fidelities):
+        return np.sum(probs * fidelities, axis=0) + self.alpha * np.sum(probs, axis=0)
+```
+---
+
+
 ## Fidelity Array Shapes: Phase-Lock vs. Phase-Free
 
-Before we dive into creating custom objectives, it's important to understand the shape of the arrays passed to the objective's `_compute` method. The shape of the `fidelities` array depends on the `phase_lock` parameter of `BasinHoppingRunner` (or `evaluate_circuit`).
+To be able to create custom objectives evectively, it's important to understand the shape of the arrays passed to the objective's `_compute` method. The shape of the `fidelities` array depends on the `phase_lock` parameter of `BasinHoppingRunner` (or `evaluate_circuit`).
 
 - **Phase‑free (`phase_lock=False`, default):**  
   For each measurement branch, we find the optimal phase‑space rotation independently. The fidelity is then a single number per branch (the maximum over all rotations).  
@@ -173,31 +200,6 @@ if `fidelities` is 2D (phase‑locked mode), the runner reshapes `probs` to a co
 
 Your objective must return a **scalar** when `fidelities` is 1D, and a **1D array** (length = number of phases) when `fidelities` is 2D.
 
----
-
-## Creating Custom Objectives
-
-To define your own loss function, inherit from `ObjectiveFunction` and implement the `_compute` method. The method receives:
-
-- `probs` : `np.ndarray` of shape `(num_branches, )` – probabilities of each surviving measurement branch.
-- `fidelities` : `np.ndarray` – state fidelities (1D or 2D as described above).
-
-**Return type:**  
-- If `fidelities` is 1D, return a scalar (`float`).  
-- If `fidelities` is 2D, return a 1D array of length `num_phases` (one score per phase angle). The runner will later pick the phase that yields the best (maximum) score.  
-
-The runner **negates** the returned score internally because it minimizes the loss; your `_compute` method should produce a positive score that increases with quality.
-
-
-**Example:**
-```python
-class CombinedLoss(ObjectiveFunction):
-    def __init__(self, alpha=0.5):
-        self.alpha = alpha
-
-    def _compute(self, probs, fidelities):
-        return np.sum(probs * fidelities, axis=0) + self.alpha * np.sum(probs, axis=0)
-```
 ---
 
 ## Serialization and Reconstruction
